@@ -135,10 +135,13 @@ struct SessionRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Group {
-                if let snapshot {
+                // Working rows keep the live mini orb; the rest take their status colour, like the status line.
+                if session.tone == .working, let snapshot {
                     Image(nsImage: snapshot).resizable().frame(width: 40, height: 40)
                 } else {
-                    Circle().fill(session.state.color(in: palette)).frame(width: 18, height: 18)
+                    let color = session.tone == .working ? session.state.color(in: palette) : session.tone.color
+                    Circle().fill(color).frame(width: 10, height: 10)
+                        .shadow(color: color.opacity(session.tone == .idle ? 0 : 0.8), radius: 5)
                 }
             }
             .frame(width: 26, height: 26)
