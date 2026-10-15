@@ -77,11 +77,12 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float eT = u.e.w;
     if (eT >= 0. && eT < .85) {
         float2 T = u.e.yz;
-        float3 D3 = normalize(float3(T, .2));
+        float3 D3 = normalize(float3(T / max(sc, .01), .2));
         float grow = smoothstep(0., .26, eT);
         float travel = smoothstep(.26, .7, eT);
         travel = travel * travel * (3. - 2. * travel);
-        float2 dc = mix(D3.xy * (1. + .6 * grow), T, travel) * R;
+        float tipLen = 1. + (length(T / max(sc, .01)) * .82 - 1.) * grow;
+        float2 dc = mix(D3.xy * tipLen * R, T * .3, travel);   // T is in full-size orb radii (.3 uv)
         float dr = mix(.3, .06, smoothstep(.26, .78, eT)) * R;
         float dd = length(uv - dc);
         float body = smoothstep(.1, .26, eT) * (1. - smoothstep(.72, .84, eT));
@@ -130,38 +131,6 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float band = step(.82, fract(sin(floor((pos.y + ph * .3) * 9.) * 91.7) * 437.5));
     p *= 1. + glitch * (gh * .1 + band * .12);
     p.x += glitch * band * .08 * sign(gh - .5);
-    // Emit: a new pip drips out of the orb. The tip facing the pip swells into a droplet on a stretched neck,
-    // the neck snaps back (~0.26s), the droplet - the orb's own dots - travels to the pip and condenses
-    // into it (~0.8s), and the dots that left fade back in on the orb (to ~1.15s).
-    float eT = u.e.w;
-    float dripFade = 1.;
-    if (eT >= 0.) {
-        float2 T = u.e.yz;                                   // the pip, in orb radii (y-up)
-        float3 D = normalize(float3(T, .2));
-        float3 n = normalize(p);
-        float along = dot(n, D);
-        float grow = smoothstep(0., .26, eT);
-        float snap = eT > .26 ? exp(-(eT - .26) * 8.) * cos((eT - .26) * 20.) : 1.;
-        float stretch = grow * snap;
-        float neck = smoothstep(.45, .8, along) * (1. - smoothstep(.8, .84, along));
-        p += D * neck * neck * stretch * .6;
-        p -= (p - D * dot(p, D)) * neck * stretch * .45;
-        float drop = smoothstep(.8, .84, along);              // the tip: these dots become the droplet
-        if (drop > 0.) {
-            if (eT < .82) {
-                float3 tang = n - D * along;                  // where on the tip this dot sits (|tang| <= ~.54)
-                float travel = smoothstep(.26, .7, eT);
-                travel = travel * travel * (3. - 2. * travel);
-                float dropR = mix(.3, .06, smoothstep(.26, .78, eT));
-                float3 tip = D * (1. + .6 * grow);
-                float3 centre = mix(tip, float3(T, .05), travel);
-                p = mix(p, centre + tang / .54 * dropR, drop);
-                dripFade = (1. - smoothstep(.72, .82, eT) * drop) * (1. + .8 * drop);   // a brighter droplet
-            } else {
-                dripFade = mix(1., smoothstep(.85, 1.15, eT), drop);   // the orb heals
-            }
-        }
-    }
     // Completed moment: dots gather in, then spring out in a wave travelling bottom to top.
     float dT = u.d.w, hasD = step(0., dT);
     float gather = hasD * smoothstep(0., .38, dT) * (1. - smoothstep(.38, .46, dT));
@@ -186,6 +155,41 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     // Slow, wide waves roll out through the dots from that spot.
     p *= 1. + att * .035 * sin(dl * 8. - ph * 4.) * exp(-dl * 1.4);
     float lit = pow(max(dot(normalize(p), L), 0.), 3.) * att;
+    // Emit: a new pip drips out of the orb. The tip facing the pip swells into a droplet on a stretched neck,
+    // the neck snaps back (~0.26s), the droplet - the orb's own dots - travels to the pip and condenses
+    // into it (~0.8s), and the dots that left fade back in on the orb (to ~1.15s).
+    float eT = u.e.w;
+    float dripFade = 1.;
+    if (eT >= 0.) {
+        // The pip, in (full-size) orb radii, y-up. Divide by the orb's current scale so the drop lands on it
+        // even when the orb is smaller (idle), and apply this after every rotation so the tilt can't skew it.
+        float2 T = u.e.yz / max(sc, .01);
+        float3 D = normalize(float3(T, .2));
+        float3 n = normalize(p);
+        float along = dot(n, D);
+        float grow = smoothstep(0., .26, eT);
+        float snap = eT > .26 ? exp(-(eT - .26) * 8.) * cos((eT - .26) * 20.) : 1.;
+        float stretch = grow * snap;
+        float neck = smoothstep(.45, .8, along) * (1. - smoothstep(.8, .84, along));
+        p += D * neck * neck * stretch * (length(T) * .82 - 1.);
+        p -= (p - D * dot(p, D)) * neck * stretch * .45;
+        float drop = smoothstep(.8, .84, along);              // the tip: these dots become the droplet
+        if (drop > 0.) {
+            if (eT < .82) {
+                float3 tang = n - D * along;                  // where on the tip this dot sits (|tang| <= ~.54)
+                float travel = smoothstep(.26, .7, eT);
+                travel = travel * travel * (3. - 2. * travel);
+                float dropR = mix(.3, .06, smoothstep(.26, .78, eT));
+                float3 tip = D * (1. + (length(T) * .82 - 1.) * grow);   // reaches toward the pip, stops short
+                float3 centre = mix(tip, float3(T, .05), travel);
+                // Round, not a flat disc: spread along the drip axis too.
+                p = mix(p, centre + (tang / .54 + D * (along - .92) / .08 * .6) * dropR, drop);
+                dripFade = (1. - smoothstep(.72, .82, eT) * drop) * (1. + .8 * drop);   // a brighter droplet
+            } else {
+                dripFade = mix(1., smoothstep(.85, 1.15, eT), drop);   // the orb heals
+            }
+        }
+    }
     float R = .6 * sc;
     float persp = 1. / (1. - p.z * .18);
 
