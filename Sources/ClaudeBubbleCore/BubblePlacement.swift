@@ -14,4 +14,11 @@ public enum BubblePlacement {
         }
         return defaultOrigin(visibleFrame: mainVisibleFrame, size: size)
     }
+
+    /// The orb is 0.6 of the panel; only that disc should take clicks, the transparent rest passes them through.
+    public static func isOverOrb(_ point: CGPoint, panelFrame: CGRect) -> Bool {
+        let dx = point.x - panelFrame.midX, dy = point.y - panelFrame.midY
+        let radius = panelFrame.width * 0.3
+        return dx * dx + dy * dy <= radius * radius
+    }
 }

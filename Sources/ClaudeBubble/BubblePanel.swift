@@ -6,6 +6,7 @@ final class BubblePanel: NSPanel {
     static let side: CGFloat = 120
     private static let originKey = "bubbleOrigin"
     private let orbView: OrbView
+    private var mouseMonitors: [Any] = []
 
     init(animator: OrbAnimator) {
         let side = Self.side
@@ -24,6 +25,27 @@ final class BubblePanel: NSPanel {
         NotificationCenter.default.addObserver(self, selector: #selector(didMove), name: NSWindow.didMoveNotification, object: self)
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        startClickThrough()
+    }
+
+    /// Ignore the mouse unless it's over the orb, so the transparent margin doesn't swallow clicks.
+    private func startClickThrough() {
+        ignoresMouseEvents = true
+        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: { [weak self] _ in self?.updateMouseCapture() }) {
+            mouseMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: events, handler: { [weak self] event in
+            self?.updateMouseCapture()
+            return event
+        }) {
+            mouseMonitors.append(local)
+        }
+    }
+
+    private func updateMouseCapture() {
+        let over = BubblePlacement.isOverOrb(NSEvent.mouseLocation, panelFrame: frame)
+        if ignoresMouseEvents == over { ignoresMouseEvents = !over }
     }
 
     override var canBecomeKey: Bool { false }

@@ -19,4 +19,12 @@ final class BubblePlacementTests: XCTestCase {
         let o = BubblePlacement.origin(saved: CGPoint(x: 3000, y: 500), size: 120, screenFrames: [screen], mainVisibleFrame: visible)
         XCTAssertEqual(o, CGPoint(x: 660, y: 126))
     }
+
+    func testOnlyTheOrbItselfCatchesTheMouse() {
+        let panel = CGRect(x: 100, y: 100, width: 120, height: 120)
+        XCTAssertTrue(BubblePlacement.isOverOrb(CGPoint(x: 160, y: 160), panelFrame: panel))
+        XCTAssertTrue(BubblePlacement.isOverOrb(CGPoint(x: 195, y: 160), panelFrame: panel))
+        XCTAssertFalse(BubblePlacement.isOverOrb(CGPoint(x: 200, y: 160), panelFrame: panel))
+        XCTAssertFalse(BubblePlacement.isOverOrb(CGPoint(x: 105, y: 105), panelFrame: panel))
+    }
 }
