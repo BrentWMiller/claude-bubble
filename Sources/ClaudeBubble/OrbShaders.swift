@@ -94,11 +94,12 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float2 lp = po / max(1., length(po));
     float3 L = float3(lp, sqrt(max(1. - dot(lp, lp), 0.)));
     float dl = distance(normalize(p), L);              // 0 at the cursor's spot on the sphere, up to 2 opposite
-    float near = exp(-dl * dl * 3.);
-    // Pull: dots near the cursor lift off the surface toward it (the front bulges out when it's centred)...
-    p += (L * 1.45 - p) * att * .4 * near;
-    // ...and rings ripple out through the dots from that spot.
-    p *= 1. + att * .075 * sin(dl * 16. - ph * 7.) * exp(-dl * 2.2);
+    // Swell: a broad, soft dome rises toward the cursor. Dots move outward along their own normal
+    // (not toward one point), so the surface bulges smoothly instead of pinching into a tip.
+    float near = exp(-dl * dl * 1.1);
+    p *= 1. + att * .2 * near;
+    // Slow, wide waves roll out through the dots from that spot.
+    p *= 1. + att * .035 * sin(dl * 8. - ph * 4.) * exp(-dl * 1.4);
     float lit = pow(max(dot(normalize(p), L), 0.), 6.) * att;
     float R = .6 * sc;
     float persp = 1. / (1. - p.z * .18);
