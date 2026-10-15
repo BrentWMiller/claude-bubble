@@ -12,3 +12,10 @@ cp hook/claude-bubble-hook.sh "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/claude-bubble-hook.sh"
 codesign --force --sign - "$APP"
 echo "Built $APP"
+
+# Install a copy where Spotlight, Launchpad and Login Items can find it.
+DEST="$HOME/Applications/Claude Bubble.app"
+mkdir -p "$HOME/Applications"
+rm -rf "$DEST"
+cp -R "$APP" "$DEST"
+echo "Installed $DEST"

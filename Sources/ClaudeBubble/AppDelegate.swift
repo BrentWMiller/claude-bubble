@@ -1,7 +1,8 @@
 import AppKit
 import ClaudeBubbleCore
+import ServiceManagement
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let animator = OrbAnimator()
     private var panel: BubblePanel!
     private var statusItem: NSStatusItem!
@@ -10,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var forcedState: BubbleState?
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggleBubble), keyEquivalent: "")
     private var debugItems: [NSMenuItem] = []
+    private let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
 
     private var bubbleHidden: Bool {
         get { UserDefaults.standard.bool(forKey: "bubbleHidden") }
@@ -34,6 +36,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         toggleItem.target = self
         menu.addItem(toggleItem)
         menu.addItem(item("Reset Position", #selector(resetPosition)))
+        launchAtLoginItem.target = self
+        menu.addItem(launchAtLoginItem)
+        menu.addItem(item("Restart", #selector(restart)))
+        menu.delegate = self
         menu.addItem(.separator())
         menu.addItem(item("Install Claude Code Hooks…", #selector(installHooks)))
         menu.addItem(.separator())
@@ -79,6 +85,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func resetPosition() { panel.resetPosition() }
+
+    /// Login-item state can change in System Settings, so re-read it each time the menu opens.
+    func menuWillOpen(_ menu: NSMenu) {
+        launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+                if service.status == .requiresApproval { SMAppService.openSystemSettingsLoginItems() }
+            }
+        } catch {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn't change Launch at Login"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
+    /// Relaunches this same bundle from a detached shell once we've exited.
+    @objc private func restart() {
+        let relaunch = Process()
+        relaunch.executableURL = URL(fileURLWithPath: "/bin/sh")
+        relaunch.arguments = ["-c", "sleep 0.5; /usr/bin/open \"$0\"", Bundle.main.bundleURL.path]
+        try? relaunch.run()
+        NSApp.terminate(nil)
+    }
 
     @objc private func setDebugState(_ sender: NSMenuItem) {
         forcedState = (sender.representedObject as? String).flatMap(BubbleState.init(rawValue:))
