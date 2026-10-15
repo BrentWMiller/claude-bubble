@@ -1,5 +1,4 @@
-/// Per-state orb look. Motion and the working/error palettes come from PAL.claude + MOTION in the design's
-/// orbParticles.js; idle (green) and needs (yellow) are recoloured to match Claude Code's agents view.
+/// Per-state orb look: motion from MOTION in the design's orbParticles.js, colors from an `OrbPalette`.
 public struct OrbParams: Equatable, Sendable {
     public var c1, c2, c3, halo: SIMD3<Float>
     public var energy, wave, glow, bright, ring, scale, glitch: Float
@@ -11,20 +10,18 @@ public struct OrbParams: Equatable, Sendable {
         self.ring = ring; self.scale = scale; self.glitch = glitch
     }
 
-    public static func target(for state: BubbleState) -> OrbParams {
+    /// Motion per state (from MOTION in the design's orbParticles.js); colors come from the palette.
+    public static func target(for state: BubbleState, palette: OrbPalette = .agentsView) -> OrbParams {
+        let c = palette[state]
+        func make(_ energy: Float, _ wave: Float, _ glow: Float, _ bright: Float, _ ring: Float, _ scale: Float, _ glitch: Float) -> OrbParams {
+            OrbParams(c1: c.c1, c2: c.c2, c3: c.c3, halo: c.halo,
+                      energy: energy, wave: wave, glow: glow, bright: bright, ring: ring, scale: scale, glitch: glitch)
+        }
         switch state {
-        case .idle:
-            OrbParams(c1: [0.42, 0.88, 0.56], c2: [0.22, 0.62, 0.4], c3: [0.72, 0.96, 0.78], halo: [0.06, 0.3, 0.14],
-                      energy: 0.12, wave: 0.08, glow: 0.35, bright: 0.5, ring: 0.35, scale: 0.72, glitch: 0)
-        case .working:
-            OrbParams(c1: [1, 0.46, 0.2], c2: [0.56, 0.3, 1], c3: [1, 0.45, 0.72], halo: [0.3, 0.14, 0.75],
-                      energy: 1, wave: 1, glow: 1, bright: 1, ring: 1, scale: 1, glitch: 0)
-        case .needs:
-            OrbParams(c1: [1, 0.86, 0.24], c2: [1, 0.66, 0.12], c3: [1, 0.95, 0.62], halo: [0.55, 0.4, 0.04],
-                      energy: 0.22, wave: 0.18, glow: 0.85, bright: 0.75, ring: 0.9, scale: 1, glitch: 0)
-        case .error:
-            OrbParams(c1: [1, 0.2, 0.22], c2: [0.72, 0.08, 0.2], c3: [1, 0.55, 0.45], halo: [0.5, 0.03, 0.06],
-                      energy: 0.08, wave: 0, glow: 0.75, bright: 0.8, ring: 0.85, scale: 0.9, glitch: 1)
+        case .idle: return make(0.12, 0.08, 0.35, 0.5, 0.35, 0.72, 0)
+        case .working: return make(1, 1, 1, 1, 1, 1, 0)
+        case .needs: return make(0.22, 0.18, 0.85, 0.75, 0.9, 1, 0)
+        case .error: return make(0.08, 0, 0.75, 0.8, 0.85, 0.9, 1)
         }
     }
 
@@ -40,10 +37,6 @@ public struct OrbParams: Equatable, Sendable {
 }
 
 extension BubbleState {
-    /// One flat color that reads like the orb at a glance (pips, menu icons). Working's first palette
-    /// entry is orange, but the orb reads violet, so it uses the violet entry instead.
-    public var swatch: SIMD3<Float> {
-        let p = OrbParams.target(for: self)
-        return self == .working ? p.c2 : p.c1
-    }
+    /// The default (Agents view) pip color; the app uses its live palette's swatch.
+    public var swatch: SIMD3<Float> { OrbPalette.agentsView[self].swatch }
 }

@@ -14,6 +14,8 @@ public struct OrbFrame: Sendable {
 public final class OrbAnimator {
     public private(set) var state: BubbleState
     public private(set) var current: OrbParams
+    /// Colors to ease toward; changing it fades the orb to the new palette.
+    public var palette: OrbPalette = .agentsView
     public private(set) var bounce: Float = 0
     public private(set) var shake: Float = 0
     private var bounceVelocity: Float = 0
@@ -40,7 +42,7 @@ public final class OrbAnimator {
         let dt = Float(min(max(rawDt, 0), 0.05))
         time += Double(dt)
         let k = 1 - powf(0.02, dt)
-        current = current.approached(.target(for: state), k: k)
+        current = current.approached(.target(for: state, palette: palette), k: k)
         bounceVelocity += (-bounce * 220 - bounceVelocity * 14) * dt
         bounce += bounceVelocity * dt
         // Every shader phase multiplier is a multiple of 0.05, so wrapping at 400π keeps floats precise without a visible seam.
