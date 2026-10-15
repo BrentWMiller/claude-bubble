@@ -9,14 +9,6 @@ extension BubbleState {
         return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
     }
 
-    /// Needs and error rows take their state's color; the rest stay quiet.
-    func detailColor(in palette: OrbPalette) -> Color {
-        switch self {
-        case .needs, .error: color(in: palette)
-        case .idle, .working: Color.white.opacity(0.55)
-        }
-    }
-
     var settingsLabel: String {
         switch self {
         case .idle: "Completed"
