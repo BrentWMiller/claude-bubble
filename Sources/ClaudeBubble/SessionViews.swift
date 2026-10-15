@@ -40,8 +40,7 @@ struct ArcPipsView: View {
             ZStack {
                 ForEach(frame.pips, id: \.id) { pip in
                     PipDot(pip: pip, frame: frame, centre: centre, radius: radius,
-                           color: pip.state.color(in: model.palette), hovered: model.hoveredPip == pip.id,
-                           ball: model.snapshots[pip.state])
+                           color: pip.state.color(in: model.palette), hovered: model.hoveredPip == pip.id)
                 }
                 if frame.overflow > 0 {
                     Text("+\(frame.overflow)")
@@ -65,30 +64,14 @@ private struct PipDot: View {
     let radius: CGFloat
     let color: Color
     let hovered: Bool
-    /// The session's mini orb: drawn as the little ball that pops off the orb.
-    let ball: NSImage?
 
     var body: some View {
         let slotPoint = pip.slot.map { PipArc.position(slot: $0, slots: frame.slots, centre: centre, radius: radius) } ?? centre
-        // A new pip waits at the rim (where the orb is reaching toward its slot), then springs out to the slot.
-        let toward = CGVector(dx: slotPoint.x - centre.x, dy: slotPoint.y - centre.y)
-        let length = max(hypot(toward.dx, toward.dy), 0.001)
-        let rim = CGPoint(x: centre.x + toward.dx / length * radius / PipArc.radiusScale * 1.15,
-                          y: centre.y + toward.dy / length * radius / PipArc.radiusScale * 1.15)
-        let position = pip.atCenter || pip.slot == nil ? centre : pip.emerging ? rim : slotPoint
+        // A new pip waits hidden at its slot while the orb's droplet travels there, then condenses into view.
+        let position = pip.atCenter || pip.slot == nil ? centre : slotPoint
         let scale: CGFloat = pip.atCenter ? 0.15 : pip.emerging || pip.launching ? 0.4 : pip.flaring ? 2.4 : pip.hopping ? 1.45 : hovered ? 1.3 : 1
         let shown = !(pip.slot == nil || frame.merged || pip.emerging)
         ZStack {
-            // The popped-off ball: a miniature orb that flies to the slot, then condenses into the dot.
-            if let ball {
-                Image(nsImage: ball)
-                    .resizable()
-                    .frame(width: 26, height: 26)
-                    .scaleEffect(pip.launching ? 1 : pip.emerging ? 0.5 : 0.25)
-                    .opacity(pip.launching ? 1 : 0)
-                    .animation(pip.launching ? .spring(response: 0.3, dampingFraction: 0.55) : .easeIn(duration: 0.18),
-                               value: pip.launching)
-            }
             Circle()
                 .fill(pip.flaring ? Color.white : color)
                 .frame(width: 6, height: 6)

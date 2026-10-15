@@ -28,13 +28,14 @@ final class RingPopTests: XCTestCase {
         XCTAssertEqual(steps(a, 0.1).completion, -1, "a ring pop is not the full celebration")
     }
 
-    func testEmitReachesOutThenSettles() {
+    func testEmitDripsTowardThePipThenHeals() {
         let a = OrbAnimator(state: .working)
-        a.emit(towards: [0, -1])
+        a.emit(to: [0.3, -1.25])   // the pip's slot, in orb radii (y-up)
         let f = a.step(dt: 1.0 / 60)
         XCTAssertEqual(f.emit, 1.0 / 60, accuracy: 0.001)
-        XCTAssertEqual(f.emitDirection, [0, -1])
-        XCTAssertEqual(steps(a, 1).emit, -1, "over within a second")
+        XCTAssertEqual(f.emitTarget, [0.3, -1.25], "the drip aims at the slot itself, not just a direction")
+        XCTAssertGreaterThan(steps(a, 1).emit, 1, "still healing at 1s")
+        XCTAssertEqual(steps(a, 0.3).emit, -1, "done by ~1.25s")
     }
 
     func testNoEmitUntilAsked() {

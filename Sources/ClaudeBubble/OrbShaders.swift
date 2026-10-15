@@ -10,7 +10,7 @@ struct Uniforms {
     float4 b;   // glitch, wave, bright, pointSize
     float4 c;   // resX, resY, shiftX, unused
     float4 d;   // pointer offset x, y (radii, ≤ 1), attention, completion time (s; < 0 = not playing)
-    float4 e;   // ring pop time (s; < 0 = off), emit direction x, y (y-up), emit time (s; < 0 = off)
+    float4 e;   // ring pop time (s; < 0 = off), emit target x, y (orb radii, y-up), emit time (s; < 0 = off)
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -72,6 +72,21 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
         float fl = step(.42, dT) * exp(-(dT - .42) * 3.);
         col += float3(1., .97, .95) * fl * .35 * (1. - smoothstep(0., R * 1.3, r));
     }
+    // Drip: a soft glowing body travels with the droplet of dots (same path as the particle pass), so it reads
+    // as a little ball of orb, fading as it condenses into the pip.
+    float eT = u.e.w;
+    if (eT >= 0. && eT < .85) {
+        float2 T = u.e.yz;
+        float3 D3 = normalize(float3(T, .2));
+        float grow = smoothstep(0., .26, eT);
+        float travel = smoothstep(.26, .7, eT);
+        travel = travel * travel * (3. - 2. * travel);
+        float2 dc = mix(D3.xy * (1. + .6 * grow), T, travel) * R;
+        float dr = mix(.3, .06, smoothstep(.26, .78, eT)) * R;
+        float dd = length(uv - dc);
+        float body = smoothstep(.1, .26, eT) * (1. - smoothstep(.72, .84, eT));
+        col += (H * 1.6 + C2 * .55) * exp(-dd * dd / (dr * dr * 1.4)) * body;
+    }
     // Ring pop (one session finished while others carry on): a single chromatic ring easing out.
     float pT = u.e.x;
     if (pT >= 0.) {
@@ -115,19 +130,37 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float band = step(.82, fract(sin(floor((pos.y + ph * .3) * 9.) * 91.7) * 437.5));
     p *= 1. + glitch * (gh * .1 + band * .12);
     p.x += glitch * band * .08 * sign(gh - .5);
-    // Emit: a new pip is pulled out of the orb. The cap facing its slot stretches into a teardrop with a
-    // narrowing neck, snaps at ~0.26s (the pip detaches), then springs back with a wobble.
+    // Emit: a new pip drips out of the orb. The tip facing the pip swells into a droplet on a stretched neck,
+    // the neck snaps back (~0.26s), the droplet - the orb's own dots - travels to the pip and condenses
+    // into it (~0.8s), and the dots that left fade back in on the orb (to ~1.15s).
     float eT = u.e.w;
+    float dripFade = 1.;
     if (eT >= 0.) {
-        float3 D = normalize(float3(u.e.y, u.e.z, .2));
-        float along = dot(normalize(p), D);
-        float cap = smoothstep(.45, 1., along);
+        float2 T = u.e.yz;                                   // the pip, in orb radii (y-up)
+        float3 D = normalize(float3(T, .2));
+        float3 n = normalize(p);
+        float along = dot(n, D);
         float grow = smoothstep(0., .26, eT);
         float snap = eT > .26 ? exp(-(eT - .26) * 8.) * cos((eT - .26) * 20.) : 1.;
         float stretch = grow * snap;
-        float reach = cap * cap * stretch;
-        p += D * reach * .6;
-        p -= (p - D * dot(p, D)) * cap * stretch * .45;   // pinch toward the axis: a neck
+        float neck = smoothstep(.45, .8, along) * (1. - smoothstep(.8, .84, along));
+        p += D * neck * neck * stretch * .6;
+        p -= (p - D * dot(p, D)) * neck * stretch * .45;
+        float drop = smoothstep(.8, .84, along);              // the tip: these dots become the droplet
+        if (drop > 0.) {
+            if (eT < .82) {
+                float3 tang = n - D * along;                  // where on the tip this dot sits (|tang| <= ~.54)
+                float travel = smoothstep(.26, .7, eT);
+                travel = travel * travel * (3. - 2. * travel);
+                float dropR = mix(.3, .06, smoothstep(.26, .78, eT));
+                float3 tip = D * (1. + .6 * grow);
+                float3 centre = mix(tip, float3(T, .05), travel);
+                p = mix(p, centre + tang / .54 * dropR, drop);
+                dripFade = (1. - smoothstep(.72, .82, eT) * drop) * (1. + .8 * drop);   // a brighter droplet
+            } else {
+                dripFade = mix(1., smoothstep(.85, 1.15, eT), drop);   // the orb heals
+            }
+        }
     }
     // Completed moment: dots gather in, then spring out in a wave travelling bottom to top.
     float dT = u.d.w, hasD = step(0., dT);
@@ -181,7 +214,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float psheen = step(.15, pT) * step(pT, 1.25) * exp(-pband * pband * 22.) * front;
     c = mix(c, float3(1.), psheen * .6);
     b += psheen * .8;
-    o.color = c * b * bright;
+    o.color = c * b * bright * dripFade;
     o.size = pt * (1. + p.z * .5) * (1. + flash * .6);
     return o;
 }

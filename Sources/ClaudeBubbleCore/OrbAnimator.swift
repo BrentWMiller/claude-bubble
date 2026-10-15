@@ -16,10 +16,10 @@ public struct OrbFrame: Sendable {
     public var completion: Float = -1
     /// Seconds into a ring pop (one session finished while others carry on), or -1.
     public var pop: Float = -1
-    /// Seconds into the orb reaching out to release a new pip, or -1.
+    /// Seconds into the orb dripping out a new pip, or -1.
     public var emit: Float = -1
-    /// Which way the orb reaches (y-up, unit length).
-    public var emitDirection = SIMD2<Float>(0, -1)
+    /// Where the new pip sits, in orb radii from the centre (y-up): the drip travels there.
+    public var emitTarget = SIMD2<Float>(0, -1.28)
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
@@ -51,7 +51,7 @@ public final class OrbAnimator {
     /// A ring pop's clock; nil when not playing.
     private var popTime: Float?
     private var emitTime: Float?
-    private var emitDirection = SIMD2<Float>(0, -1)
+    private var emitTarget = SIMD2<Float>(0, -1.28)
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -94,10 +94,10 @@ public final class OrbAnimator {
         popTime = 0
     }
 
-    /// A new pip is born: the orb stretches toward `direction` (y-up), the pip detaches, the orb springs back.
-    public func emit(towards direction: SIMD2<Float>) {
-        let length = (direction * direction).sum().squareRoot()
-        emitDirection = length > 0 ? direction / length : SIMD2(0, -1)
+    /// A new pip is born: a droplet of the orb's own dots swells at the tip facing `target`, pinches off,
+    /// travels to it and condenses into the pip, while the orb heals. `target` is in orb radii (y-up).
+    public func emit(to target: SIMD2<Float>) {
+        emitTarget = target
         emitTime = 0
     }
 
@@ -188,14 +188,14 @@ public final class OrbAnimator {
         var emit: Float = -1
         if let t = emitTime {
             let next = t + dt
-            if next < 0.9 { emitTime = next; emit = next } else { emitTime = nil }
+            if next < 1.2 { emitTime = next; emit = next } else { emitTime = nil }
         }
         let attention = interaction == .attention ? closeness : 0
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
                         pointer: pointerOffset, attention: attention, completion: completion, pop: pop,
-                        emit: emit, emitDirection: emitDirection)
+                        emit: emit, emitTarget: emitTarget)
     }
 
     static func smoothstep(_ a: Float, _ b: Float, _ x: Float) -> Float {
