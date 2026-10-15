@@ -31,9 +31,11 @@ public final class OrbAnimator {
     /// A brief ring/glow brightening as the orb lands.
     private var flash: Float = 0
     public var interaction: PointerInteraction = .attention
-    private var pointerTarget: (direction: SIMD2<Float>, closeness: Float) = (.zero, 0)
-    private var pointerDirection = SIMD2<Float>(1, 0)
+    private var pointerTarget: (offset: SIMD2<Float>, closeness: Float) = (.zero, 0)
+    private var pointerOffset = SIMD2<Float>(0, 0)
+    private var pointerVelocity = SIMD2<Float>(0, 0)
     private var closeness: Float = 0
+    private var closenessVelocity: Float = 0
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -64,8 +66,9 @@ public final class OrbAnimator {
     }
 
     /// Where the pointer is relative to the orb; eased each step so the reaction never twitches.
-    public func setPointer(direction: SIMD2<Float>, closeness: Float) {
-        pointerTarget = (direction, min(max(closeness, 0), 1))
+    /// `offset` comes from `PointerProximity.offset` (length ≤ 1); `closeness` from `PointerProximity.closeness`.
+    public func setPointer(offset: SIMD2<Float>, closeness: Float) {
+        pointerTarget = (offset, min(max(closeness, 0), 1))
     }
 
     public var isVanished: Bool { presenceTarget == 0 && presence <= 0.001 }
@@ -95,9 +98,12 @@ public final class OrbAnimator {
             presence = max(0, presence - dt / 0.15)
         }
         flash *= powf(0.03, dt)
-        let follow = 1 - powf(0.004, dt)
-        closeness += (pointerTarget.closeness - closeness) * follow
-        if pointerTarget.direction != .zero { pointerDirection += (pointerTarget.direction - pointerDirection) * follow }
+        // Critically damped springs: start from rest, glide, settle in ~1.3s with no overshoot or jolt.
+        let w: Float = 5
+        closenessVelocity += (w * w * (pointerTarget.closeness - closeness) - 2 * w * closenessVelocity) * dt
+        closeness = min(max(closeness + closenessVelocity * dt, 0), 1)
+        pointerVelocity += (w * w * (pointerTarget.offset - pointerOffset) - 2 * w * pointerVelocity) * dt
+        pointerOffset += pointerVelocity * dt
 
         let here = max(0, presence)
         var scale = current.scale * (1 + bounce) * here
@@ -119,11 +125,13 @@ public final class OrbAnimator {
         case .working:
             break
         }
-        let attention = interaction == .attention ? closeness : 0
-        let magnet = interaction == .magnetic ? closeness : 0
-        glow *= 1 + 0.2 * attention
+        // Directional effects scale with how far off-centre the pointer is, so they fade through the middle.
+        let lean = closeness * min((pointerOffset * pointerOffset).sum().squareRoot(), 1)
+        let attention = interaction == .attention ? lean : 0
+        let magnet = interaction == .magnetic ? lean : 0
+        if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
-                        pointerAngle: atan2f(pointerDirection.y, pointerDirection.x), attention: attention, magnet: magnet)
+                        pointerAngle: atan2f(pointerOffset.y, pointerOffset.x), attention: attention, magnet: magnet)
     }
 }

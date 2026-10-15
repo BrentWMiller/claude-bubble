@@ -256,9 +256,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let mouse = NSEvent.mouseLocation
         followPointer(to: mouse)
         let centre = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
-        animator.setPointer(direction: PointerProximity.direction(mouse: mouse, centre: centre),
-                            closeness: bubbleHidden ? 0 : PointerProximity.closeness(mouse: mouse, centre: centre,
-                                                                                    radius: panel.frame.width * 0.3))
+        let radius = panel.frame.width * 0.3
+        animator.setPointer(offset: PointerProximity.offset(mouse: mouse, centre: centre, radius: radius),
+                            closeness: bubbleHidden ? 0 : PointerProximity.closeness(mouse: mouse, centre: centre, radius: radius))
         let open = hover.update(overOrb: !bubbleHidden && BubblePlacement.isOverOrb(mouse, panelFrame: panel.frame),
                                 overList: listPanel.isVisible && listPanel.frame.contains(mouse),
                                 hasContent: !bubbleHidden && !model.sessions.isEmpty,

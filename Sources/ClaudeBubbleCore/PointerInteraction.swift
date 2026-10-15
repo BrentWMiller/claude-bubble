@@ -28,10 +28,11 @@ public enum PointerProximity {
         return Float(min(max(1 - t, 0), 1))
     }
 
-    /// Unit vector from the orb's centre to the pointer (zero when exactly centred).
-    public static func direction(mouse: CGPoint, centre: CGPoint) -> SIMD2<Float> {
-        let v = SIMD2(Float(mouse.x - centre.x), Float(mouse.y - centre.y))
+    /// Pointer position relative to the orb, in orb radii, capped at length 1 (the orb's edge).
+    /// It shrinks to zero at the centre, so effects fade through the middle instead of flipping sides.
+    public static func offset(mouse: CGPoint, centre: CGPoint, radius: CGFloat) -> SIMD2<Float> {
+        let v = SIMD2(Float(mouse.x - centre.x), Float(mouse.y - centre.y)) / Float(max(radius, 1))
         let length = (v * v).sum().squareRoot()
-        return length > 0 ? v / length : .zero
+        return length > 1 ? v / length : v
     }
 }
