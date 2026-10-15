@@ -1,5 +1,10 @@
 import Foundation
 
+public enum UsageFormat {
+    /// Rounded up, so the number always agrees with the level: 25.4% left reads 26% (ok), 10.4% reads 11% (low).
+    public static func percent(_ left: Double) -> String { "\(Int(left.rounded(.up)))%" }
+}
+
 public enum UsageLevel: Equatable, Sendable {
     /// More than 25% left.
     case ok
@@ -27,17 +32,21 @@ public struct UsageReading: Equatable, Sendable {
         return base.appendingPathComponent("usage.json")
     }
 
+    /// The wrapper saves Claude Code's status line input as is; when it was written is the file's modification time.
     public static func load(from url: URL = defaultURL) -> UsageReading? {
-        (try? Data(contentsOf: url)).flatMap(decode)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+        return decode(data, capturedAt: modified)
     }
 
-    public static func decode(_ data: Data) -> UsageReading? {
-        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let used = (object["used_percentage"] as? NSNumber)?.doubleValue,
-              let resets = (object["resets_at"] as? NSNumber)?.doubleValue else { return nil }
-        let captured = (object["captured_at"] as? NSNumber)?.doubleValue ?? resets
-        return UsageReading(usedPercent: used, resetsAt: Date(timeIntervalSince1970: resets),
-                            capturedAt: Date(timeIntervalSince1970: captured))
+    /// Reads either the status line JSON (`rate_limits.five_hour`) or a flat `{used_percentage, resets_at, captured_at}`.
+    public static func decode(_ data: Data, capturedAt: Date? = nil) -> UsageReading? {
+        guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return nil }
+        let window = ((root["rate_limits"] as? [String: Any])?["five_hour"] as? [String: Any]) ?? root
+        guard let used = (window["used_percentage"] as? NSNumber)?.doubleValue,
+              let resets = (window["resets_at"] as? NSNumber)?.doubleValue else { return nil }
+        let captured = capturedAt ?? (root["captured_at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue) } ?? Date()
+        return UsageReading(usedPercent: used, resetsAt: Date(timeIntervalSince1970: resets), capturedAt: captured)
     }
 
     /// Percent of the window left; a window whose reset time has passed is full again.
@@ -65,7 +74,13 @@ public enum UsageTint {
     public static func apply(_ params: OrbParams, state: BubbleState, palette: OrbPalette,
                              warm: Float, critical: Float) -> OrbParams {
         // Needs and error already wear these colours.
-        guard state == .working || state == .idle, warm > 0 || critical > 0 else { return params }
+        guard state == .working || state == .idle else { return params }
+        return blend(params, palette: palette, warm: warm, critical: critical)
+    }
+
+    /// The blend itself, whatever the state (the animator eases it in and out across state changes).
+    public static func blend(_ params: OrbParams, palette: OrbPalette, warm: Float, critical: Float) -> OrbParams {
+        guard warm > 0 || critical > 0 else { return params }
         var p = params
         for (target, amount) in [(palette.needs, warm), (palette.error, critical)] where amount > 0 {
             p.c1 += (target.c1 - p.c1) * amount
@@ -92,6 +107,8 @@ public final class UsageAlerts {
     private var window: Date?
     private var firedLow = false
     private var firedCritical = false
+    /// A threshold toast was shown in this window (only then is its reset worth announcing).
+    private var warned = false
     /// This window's reset has already been announced (or wasn't worth announcing).
     private var refreshed = false
 
@@ -108,33 +125,38 @@ public final class UsageAlerts {
             window = reading.resetsAt
             firedCritical = left <= 10
             firedLow = left <= 25
+            warned = false
             refreshed = now >= reading.resetsAt
             return []
         }
         var alerts: [UsageAlert] = []
-        if reading.resetsAt > current {
-            // A new window.
-            if !refreshed, firedLow || firedCritical { alerts.append(Self.refreshedAlert) }
+        // A later reset time is a new window; a minute's drift is the same one.
+        if reading.resetsAt > current.addingTimeInterval(60) {
+            if !refreshed, warned { alerts.append(Self.refreshedAlert) }
             window = reading.resetsAt
             firedLow = false
             firedCritical = false
+            warned = false
             refreshed = false
         } else if now >= current, !refreshed {
             // The window ran out with no newer reading.
-            if firedLow || firedCritical { alerts.append(Self.refreshedAlert) }
+            if warned { alerts.append(Self.refreshedAlert) }
             refreshed = true
             firedLow = false
             firedCritical = false
+            warned = false
             return alerts
         }
         guard now < reading.resetsAt else { return alerts }
-        let text = "\(Int(left.rounded()))% left · resets \(DurationFormat.string(reading.timeLeft(at: now)))"
+        let text = "\(UsageFormat.percent(left)) left · resets \(DurationFormat.string(reading.timeLeft(at: now)))"
         if left <= 10, !firedCritical {
             firedCritical = true
             firedLow = true
+            warned = true
             alerts.append(UsageAlert(kind: .usageCritical, text: text))
         } else if left <= 25, !firedLow {
             firedLow = true
+            warned = true
             alerts.append(UsageAlert(kind: .usageLow, text: text))
         }
         return alerts

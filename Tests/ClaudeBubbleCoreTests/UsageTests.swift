@@ -148,4 +148,35 @@ final class UsageTests: XCTestCase {
         alerts.reset()
         XCTAssertEqual(alerts.update(reading(left: 8), now: t0), [])
     }
+
+    // Review fixes
+
+    func testDecodesRawStatusLineJSON() throws {
+        let json = #"{"model":{"id":"x"},"rate_limits":{"five_hour":{"used_percentage":40,"resets_at":1800003600}}}"#
+        let r = try XCTUnwrap(UsageReading.decode(Data(json.utf8), capturedAt: t0))
+        XCTAssertEqual(r.usedPercent, 40)
+        XCTAssertEqual(r.resetsAt, t0.addingTimeInterval(3600))
+        XCTAssertEqual(r.capturedAt, t0)
+        XCTAssertNil(UsageReading.decode(Data(#"{"model":{"id":"x"}}"#.utf8), capturedAt: t0))
+    }
+
+    func testNoRefreshForAWindowThatNeverWarned() {
+        let alerts = UsageAlerts()
+        _ = alerts.update(reading(left: 8, resetsIn: 100), now: t0)   // baseline while low: silent
+        XCTAssertEqual(alerts.update(reading(left: 8, resetsIn: 100), now: t0.addingTimeInterval(101)), [])
+    }
+
+    func testResetTimeJitterIsTheSameWindow() {
+        let alerts = UsageAlerts()
+        _ = alerts.update(reading(left: 30, resetsIn: 3600), now: t0)
+        XCTAssertEqual(alerts.update(reading(left: 20, resetsIn: 3600), now: t0).map(\.kind), [.usageLow])
+        XCTAssertEqual(alerts.update(reading(left: 19, resetsIn: 3601), now: t0), [], "a second of drift isn't a new window")
+    }
+
+    func testPercentAgreesWithLevel() {
+        XCTAssertEqual(UsageFormat.percent(25.4), "26%")
+        XCTAssertEqual(UsageFormat.percent(25), "25%")
+        XCTAssertEqual(UsageFormat.percent(10.4), "11%")
+        XCTAssertEqual(UsageFormat.percent(9.6), "10%")
+    }
 }

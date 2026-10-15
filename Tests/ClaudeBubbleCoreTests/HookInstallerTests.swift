@@ -182,4 +182,17 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertEqual(inner, "echo mine")
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: dest.path))
     }
+
+    func testWrapStatusLineRecognisesTheWrapperInAnyForm() {
+        for form in ["~/.claude-bubble/statusline.sh", "/Users/me/.claude-bubble/statusline.sh", "bash \"$HOME/.claude-bubble/statusline.sh\""] {
+            let out = HookInstaller.wrapStatusLine(settings: ["statusLine": ["type": "command", "command": form]], wrapper: wrapper)
+            XCTAssertNil(out.inner, form)
+        }
+    }
+
+    func testWrapStatusLineLeavesAnUnknownShapeAlone() {
+        let out = HookInstaller.wrapStatusLine(settings: ["statusLine": "weird"], wrapper: wrapper)
+        XCTAssertEqual(out.settings["statusLine"] as? String, "weird")
+        XCTAssertNil(out.inner)
+    }
 }

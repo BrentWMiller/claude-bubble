@@ -17,17 +17,18 @@ Claude Code passes the status line JSON on stdin, including `rate_limits.five_ho
   - copies the bundled `claude-bubble-statusline.sh` to `~/.claude-bubble/statusline.sh` (refreshed on launch like the hook);
   - if `statusLine.command` is set and isn't already the wrapper, saves it to `~/.claude-bubble/statusline-inner` (a one-line file holding the original command);
   - sets `statusLine` to `{"type": "command", "command": "\"~/.claude-bubble/statusline.sh\""}` (absolute path), keeping any other keys such as `padding`.
-  - Re-running never wraps the wrapper: when the command is already the wrapper, `statusline-inner` is left alone.
-- **The wrapper** reads stdin once.
-  - When `rate_limits.five_hour.used_percentage` is present, it writes `{"used_percentage", "resets_at", "captured_at"}` to `~/.claude-bubble/usage.json` (temp file + rename).
+  - Re-running never wraps the wrapper: when the command already points at `.claude-bubble/statusline.sh` (in any form), `statusline-inner` is left alone. A `statusLine` that isn't an object is left untouched.
+- **The wrapper** is plain shell (no python3: it runs on every status line update) and reads stdin once.
+  - It exits at once if it is already running inside itself (`CLAUDE_BUBBLE_STATUSLINE`), so a command that points back at the wrapper can't loop.
+  - When the input mentions `five_hour`, it saves the input as is to `~/.claude-bubble/usage.json` (temp file + rename); the app reads `rate_limits.five_hour` from it, and takes the capture time from the file's modification time.
   - Then it runs the inner command (via `bash -c`) with the same stdin and passes through its output and exit code. No inner command → prints nothing.
-  - A parse failure never breaks the status line: the usage write is skipped, the inner command still runs.
   - `CLAUDE_BUBBLE_DIR` overrides `~/.claude-bubble` (for tests), like the hook.
 
 ### Reading (`UsageReading`, core)
 
 - `UsageReading { usedPercent: Double, resetsAt: Date, capturedAt: Date }`, decoded from `usage.json`; a missing or broken file is `nil`.
 - `left(at:)` = `100 − usedPercent`, clamped 0…100, or **100** once `now ≥ resetsAt`.
+- Percent is shown rounded **up**, so it always agrees with the level (25.4 → 26%, ok).
 - `level(at:)`: **ok** when left > 25, **low** when 10 < left ≤ 25, **critical** when left ≤ 10.
 - `timeLeft(at:)` = `resetsAt − now`, at least 0; formatted with the existing `DurationFormat` ("3h 4m", "38m").
 - The app re-reads the file every **5s** (same rhythm as the job files).
@@ -55,7 +56,7 @@ Claude Code passes the status line JSON on stdin, including `rate_limits.five_ho
 
 ## Hover card footer
 
-- **Layout:** `Today · 3h 56m · 5 sessions` on the left (the word "working" is dropped while usage shows, so it fits the card), `23% · 3h 4m` on the right.
+- **Layout:** the card is 300pt wide. `Today · 3h 56m · 5 sessions` on the left (the word "working" is dropped while usage shows, so it fits the card), `23% · 3h 4m` on the right.
 - **Percent color:**
   - ok: white at 0.4 (the footer's text colour);
   - low: the palette's needs swatch;
@@ -77,7 +78,7 @@ Toasts get an optional text override, so a toast can show text that changes (the
 | usageCritical | left crosses to ≤ 10 | "8% left · resets 38m" | error swatch | 8s |
 | usageRefreshed | the window resets after a threshold toast fired in it | "refreshed · 100% left" | idle swatch | 6s |
 
-- **Once per window:** a window is identified by its `resetsAt`, and each threshold fires once in it.
+- **Once per window:** a window is identified by its `resetsAt` (a later one by more than a minute is a new window), and each threshold fires once in it.
 - **A jump** across both thresholds (say 40 → 8) fires only the critical toast.
 - **The first reading** after launch never fires: it only sets the baseline. If launched at 8% left, no toast.
 - **Refresh:** fires when the current window's `resetsAt` passes (or a reading arrives with a later `resetsAt`) and that window fired a threshold toast.

@@ -230,7 +230,7 @@ struct SessionListView: View {
             }
         }
         .padding(8)
-        .frame(width: 290)
+        .frame(width: 300)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x17 / 255, green: 0x16 / 255, blue: 0x1c / 255).opacity(0.96)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
     }
@@ -261,26 +261,27 @@ struct TodayFooter: View {
     var now = Date()
 
     var body: some View {
-        HStack(spacing: usage == nil ? 6 : 4) {
+        HStack(spacing: usage == nil ? 6 : 3) {
             if let summary {
                 Text("Today").foregroundStyle(Color.white.opacity(0.6))
                 Text("·")
                 // "working" makes way for the usage numbers so the line fits the card.
                 Text(DurationFormat.string(summary.working) + (usage == nil ? " working" : ""))
                 Text("·")
-                Text("\(summary.sessions) \(summary.sessions == 1 ? "session" : "sessions")")
+                Text("\(summary.sessions) \(summary.sessions == 1 ? "session" : "sessions")").truncationMode(.tail)
             }
             Spacer(minLength: 4)
             if let usage {
-                Text("\(Int(usage.left(at: now).rounded()))%").foregroundStyle(levelColor(usage.level(at: now)))
+                Text(UsageFormat.percent(usage.left(at: now))).foregroundStyle(levelColor(usage.level(at: now)))
+                    .fixedSize()
                 Text("·")
-                Text(DurationFormat.string(usage.timeLeft(at: now)))
+                Text(DurationFormat.string(usage.timeLeft(at: now))).fixedSize()
             }
         }
         .lineLimit(1)
         .font(.system(size: 11, design: .monospaced))
         .foregroundStyle(Color.white.opacity(0.4))
-        .padding(.horizontal, usage == nil ? 10 : 8)
+        .padding(.horizontal, usage == nil ? 10 : 6)
         .padding(.vertical, 6)
     }
     private func levelColor(_ level: UsageLevel) -> Color {

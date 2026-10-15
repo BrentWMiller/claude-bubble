@@ -43,6 +43,8 @@ public final class OrbAnimator {
     private var usageWarm: Float = 0
     private var usageCritical: Float = 0
     private var lowUsage: Float = 0
+    /// 1 while the orb wears working/idle colours, eased like the colours so state changes hand off smoothly.
+    private var tintGate: Float = 1
     private var pointerTarget: (offset: SIMD2<Float>, closeness: Float) = (.zero, 0)
     private var pointerOffset = SIMD2<Float>(0, 0)
     private var pointerVelocity = SIMD2<Float>(0, 0)
@@ -73,6 +75,7 @@ public final class OrbAnimator {
         self.palette = palette
         self.random = random
         current = .target(for: state, palette: palette)
+        tintGate = state == .working || state == .idle ? 1 : 0
         phase = random() * 20
         if state == .needs { bounce = -0.28 }
     }
@@ -137,6 +140,7 @@ public final class OrbAnimator {
         // The orb keeps the look it celebrates from through the gather, and turns to rest on the release (0.42s).
         let shown: BubbleState = (completionTime.map { $0 < 0.42 } ?? false) ? heldState : state
         current = current.approached(.target(for: shown, palette: palette), k: k)
+        tintGate += ((shown == .working || shown == .idle ? 1 : 0) - tintGate) * k
         bounceVelocity += (-bounce * 220 - bounceVelocity * 14) * dt
         bounce += bounceVelocity * dt
         let tint = usageLeft.map(UsageTint.amounts(left:)) ?? (warm: 0, critical: 0)
@@ -219,7 +223,7 @@ public final class OrbAnimator {
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         // All done: wash into green on the release, hold, then fade back to the palette's rest colours.
-        var output = UsageTint.apply(current, state: shown, palette: palette, warm: usageWarm, critical: usageCritical)
+        var output = UsageTint.blend(current, palette: palette, warm: usageWarm * tintGate, critical: usageCritical * tintGate)
         if let bt = completionTime {
             let w = Self.smoothstep(0.42, 0.55, bt) * (1 - Self.smoothstep(1.0, 2.25, bt))
             let g = Self.doneGreen

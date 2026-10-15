@@ -100,7 +100,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.watchedSessions = sessions
             self?.syncSessions()
         }
-        simulatorSubscription = simulator.objectWillChange.receive(on: RunLoop.main).sink { [weak self] in self?.syncSessions() }
+        // DispatchQueue (not RunLoop.main) so a dragged slider updates live, even in event-tracking mode.
+        simulatorSubscription = simulator.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.syncSessions() }
         watcher.start()
         startUsagePolling()
         updateVisibility()

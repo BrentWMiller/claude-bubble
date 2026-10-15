@@ -1,27 +1,21 @@
 #!/bin/bash
-# Claude Bubble status line wrapper. Claude Code pipes the status line JSON in on stdin; this saves the
-# 5-hour usage window (rate_limits.five_hour) for the bubble, then runs your own status line command
-# (kept in statusline-inner) on the same input, so your status line looks exactly as before.
+# Claude Bubble status line wrapper. Claude Code pipes the status line JSON in on stdin; this saves it for the
+# bubble (which reads rate_limits.five_hour from it), then runs your own status line command (kept in
+# statusline-inner) on the same input, so your status line looks exactly as before. Plain shell only: it runs
+# on every status line update.
+
+# Never run inside itself (a status line command that points back here would otherwise loop forever).
+[ -n "${CLAUDE_BUBBLE_STATUSLINE:-}" ] && exit 0
+export CLAUDE_BUBBLE_STATUSLINE=1
+
 dir="${CLAUDE_BUBBLE_DIR:-$HOME/.claude-bubble}"
 input=$(cat; printf x)
 input=${input%x}
 
-printf '%s' "$input" | /usr/bin/python3 -c '
-import json, os, sys, tempfile, time
-try:
-    limit = json.load(sys.stdin)["rate_limits"]["five_hour"]
-    used, resets = limit["used_percentage"], limit["resets_at"]
-    if not isinstance(used, (int, float)) or not isinstance(resets, (int, float)):
-        sys.exit(0)
-    d = sys.argv[1]
-    os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, prefix=".usage.")
-    with os.fdopen(fd, "w") as f:
-        json.dump({"used_percentage": used, "resets_at": resets, "captured_at": time.time()}, f)
-    os.replace(tmp, os.path.join(d, "usage.json"))
-except Exception:
-    pass
-' "$dir" 2>/dev/null
+if [[ $input == *'"five_hour"'* ]] && mkdir -p "$dir" 2>/dev/null; then
+  tmp="$dir/.usage.$$"
+  printf '%s' "$input" > "$tmp" 2>/dev/null && mv -f "$tmp" "$dir/usage.json" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+fi
 
 inner=""
 [ -f "$dir/statusline-inner" ] && inner=$(cat "$dir/statusline-inner")

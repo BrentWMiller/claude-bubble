@@ -54,4 +54,19 @@ final class UsageAnimatorTests: XCTestCase {
         XCTAssertEqual(a.params, b.params)
         XCTAssertEqual(a.scale, b.scale)
     }
+
+    func testTintHandsOffSmoothlyWhenTheStateChanges() {
+        let a = OrbAnimator(state: .working, random: { 0.5 })
+        a.usageLeft = 25
+        let tinted = run(a, seconds: 4).params.halo
+        a.setState(.needs)
+        let next = a.step(dt: 0.02).params.halo
+        // A plain working → needs change moves this far in one frame; the tinted orb must not move more
+        // (without easing the tint out, it snaps back to the working halo first: ~0.4 away).
+        let plain = OrbAnimator(state: .working, random: { 0.5 })
+        let before = run(plain, seconds: 4).params.halo
+        plain.setState(.needs)
+        let ease = simd_distance(before, plain.step(dt: 0.02).params.halo)
+        XCTAssertLessThanOrEqual(simd_distance(tinted, next), ease * 1.5, "no jump back to the working colours")
+    }
 }

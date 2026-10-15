@@ -77,7 +77,7 @@ final class SimulatorModel: ObservableObject {
     }
 
     var usageReading: UsageReading? {
-        usageActive ? UsageReading(usedPercent: 100 - usageLeft, resetsAt: windowEnds, capturedAt: Date()) : nil
+        usageActive ? UsageReading(usedPercent: 100 - usageLeft, resetsAt: windowEnds, capturedAt: windowEnds) : nil
     }
 
     /// As real-looking sessions, for the rest of the app.

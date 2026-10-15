@@ -43,9 +43,12 @@ public enum HookInstaller {
     /// (leave the saved command alone).
     public static func wrapStatusLine(settings: [String: Any], wrapper: String) -> (settings: [String: Any], inner: String?) {
         var settings = settings
+        // A shape we don't understand is left exactly as it is.
+        if let other = settings["statusLine"], !(other is [String: Any]) { return (settings, nil) }
         var line = settings["statusLine"] as? [String: Any] ?? [:]
         let existing = line["command"] as? String
-        if existing == wrapper { return (settings, nil) }
+        // Already wrapped, however the path is written: wrapping the wrapper would make it run itself forever.
+        if let existing, existing == wrapper || existing.contains(".claude-bubble/statusline.sh") { return (settings, nil) }
         line["type"] = "command"
         line["command"] = wrapper
         settings["statusLine"] = line
