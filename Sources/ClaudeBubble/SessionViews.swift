@@ -115,7 +115,7 @@ struct PipCardView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             SessionRow(session: session, now: context.date, snapshot: model.snapshots[session.state],
-                       palette: model.palette, highlighted: false)
+                       palette: model.palette)
         }
         .padding(4)
         .frame(width: 250)
@@ -129,7 +129,6 @@ struct SessionRow: View {
     let now: Date
     let snapshot: NSImage?
     let palette: OrbPalette
-    let highlighted: Bool
     /// 0 → 1 as the row cascades in (text decodes like a toast); 1 when settled.
     var entrance: Double = 1
 
@@ -171,7 +170,6 @@ struct SessionRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(highlighted ? 0.06 : 0)))
         .contentShape(Rectangle())
         .opacity(entrance)
         .offset(x: (1 - entrance) * 6)
@@ -210,7 +208,7 @@ struct SessionListView: View {
         VStack(spacing: 2) {
             ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
                 SessionRow(session: session, now: now, snapshot: model.snapshots[session.state],
-                           palette: model.palette, highlighted: index == 0, entrance: CardMotion.row(index, age: age))
+                           palette: model.palette, entrance: CardMotion.row(index, age: age))
                     .onTapGesture(perform: onSelect)
             }
             if let today = model.today {
