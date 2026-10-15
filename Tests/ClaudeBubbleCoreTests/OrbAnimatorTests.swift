@@ -60,4 +60,38 @@ final class OrbAnimatorTests: XCTestCase {
             XCTAssertEqual(len, 1, accuracy: 0.0001)
         }
     }
+
+    func testAppearGrowsFromNothingOvershootsAndSettles() {
+        let a = OrbAnimator(state: .working)
+        a.appear()
+        XCTAssertLessThan(a.step(dt: 1.0 / 60).scale, 0.2)
+        var peak: Float = 0
+        for _ in 0..<36 { _ = a.step(dt: 1.0 / 60); peak = max(peak, a.presence) }
+        XCTAssertGreaterThan(peak, 1.02, "springs past full size")
+        run(a, seconds: 2)
+        XCTAssertEqual(a.presence, 1, accuracy: 0.01)
+        XCTAssertEqual(a.step(dt: 1.0 / 60).glow, 1, accuracy: 0.02, "flash has faded")
+    }
+
+    func testVanishShrinksToNothingQuickly() {
+        let a = OrbAnimator(state: .working)
+        a.vanish()
+        run(a, seconds: 0.2)
+        XCTAssertTrue(a.isVanished)
+        XCTAssertEqual(a.step(dt: 1.0 / 60).scale, 0)
+    }
+
+    func testAppearAfterAHalfFinishedVanishStillArrives() {
+        let a = OrbAnimator(state: .idle)
+        a.vanish()
+        run(a, seconds: 0.05)
+        a.appear()
+        XCTAssertFalse(a.isVanished)
+        run(a, seconds: 2)
+        XCTAssertEqual(a.presence, 1, accuracy: 0.01)
+    }
+
+    func testStartsFullyPresent() {
+        XCTAssertEqual(OrbAnimator(state: .idle).presence, 1)
+    }
 }

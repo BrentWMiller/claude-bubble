@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsSubscription: AnyCancellable?
     private var settingsWindow: SettingsWindowController?
     private var pendingSnapshots: DispatchWorkItem?
+    /// True while the orb is popping out of one display and into another.
+    private var swappingDisplays = false
     private var panel: BubblePanel!
     private var statusItem: NSStatusItem!
     private var watcher: SessionWatcher!
@@ -55,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         watcher.start()
         updateVisibility()
         applyState()
+        animator.appear()
     }
 
     private func setUpStatusItem() {
@@ -112,6 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleBubble() {
         bubbleHidden.toggle()
         updateVisibility()
+        if !bubbleHidden { animator.appear() }
     }
 
     @objc private func resetPosition() { panel.resetPosition() }
@@ -184,13 +188,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Moves the orb to the pointer's display, at the shared spot.
     private func followPointer(to mouse: CGPoint) {
-        guard !bubbleHidden else { return }
+        guard !bubbleHidden, !swappingDisplays else { return }
         let displays = NSScreen.screens.map { PointerFollow.Display(frame: $0.frame, visible: $0.visibleFrame) }
         if let origin = PointerFollow.destination(enabled: applied.followPointer,
                                                   buttonDown: NSEvent.pressedMouseButtons & 1 != 0,
                                                   mouse: mouse, panelFrame: panel.frame, displays: displays,
                                                   spot: applied.relativeSpot.map { CGPoint(x: $0[0], y: $0[1]) }) {
-            panel.setFrameOrigin(origin)
+            // Pop out here, jump while invisible, pop in there.
+            swappingDisplays = true
+            animator.vanish()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
+                guard let self else { return }
+                self.panel.setFrameOrigin(origin)
+                self.animator.appear()
+                self.swappingDisplays = false
+            }
         }
     }
 

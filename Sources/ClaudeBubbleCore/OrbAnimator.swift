@@ -18,6 +18,12 @@ public final class OrbAnimator {
     public var palette: OrbPalette = .agentsView
     public private(set) var bounce: Float = 0
     public private(set) var shake: Float = 0
+    /// 0 = gone, 1 = fully here. Scales the whole orb for the materialize / pop-out animations.
+    public private(set) var presence: Float = 1
+    private var presenceTarget: Float = 1
+    private var presenceVelocity: Float = 0
+    /// A brief ring/glow brightening as the orb lands.
+    private var flash: Float = 0
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -32,6 +38,22 @@ public final class OrbAnimator {
         phase = random() * 20
         if state == .needs { bounce = -0.28 }
     }
+
+    /// Grow from a point with a springy overshoot (startup, landing on a new display).
+    public func appear() {
+        presence = 0
+        presenceVelocity = 0
+        presenceTarget = 1
+        flash = 1
+    }
+
+    /// Shrink to nothing quickly (leaving a display).
+    public func vanish() {
+        presenceTarget = 0
+        presenceVelocity = 0
+    }
+
+    public var isVanished: Bool { presenceTarget == 0 && presence <= 0.001 }
 
     public func setState(_ new: BubbleState) {
         guard new != state else { return }
@@ -50,10 +72,19 @@ public final class OrbAnimator {
         // Every shader phase multiplier is a multiple of 0.05, so wrapping at 400π keeps floats precise without a visible seam.
         phase = (phase + dt * (0.2 + current.energy * 1.5)).truncatingRemainder(dividingBy: 400 * .pi)
         shake *= powf(0.02, dt)
+        if presenceTarget > 0 {
+            // Same spring as the needs bounce, so the motion family matches.
+            presenceVelocity += ((presenceTarget - presence) * 220 - presenceVelocity * 14) * dt
+            presence += presenceVelocity * dt
+        } else {
+            presence = max(0, presence - dt / 0.15)
+        }
+        flash *= powf(0.03, dt)
 
-        var scale = current.scale * (1 + bounce)
-        var glow = current.glow
-        var ring = current.ring
+        let here = max(0, presence)
+        var scale = current.scale * (1 + bounce) * here
+        var glow = current.glow * min(here, 1) * (1 + 0.6 * flash)
+        var ring = current.ring * (1 + 0.4 * flash)
         switch state {
         case .idle:
             let b = Float(sin(time * .pi / 2))
