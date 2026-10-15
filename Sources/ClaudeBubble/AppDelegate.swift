@@ -1,0 +1,125 @@
+import AppKit
+import ClaudeBubbleCore
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let animator = OrbAnimator()
+    private var panel: BubblePanel!
+    private var statusItem: NSStatusItem!
+    private var watcher: SessionWatcher!
+    private var liveState: BubbleState = .idle
+    private var forcedState: BubbleState?
+    private let toggleItem = NSMenuItem(title: "", action: #selector(toggleBubble), keyEquivalent: "")
+    private var debugItems: [NSMenuItem] = []
+
+    private var bubbleHidden: Bool {
+        get { UserDefaults.standard.bool(forKey: "bubbleHidden") }
+        set { UserDefaults.standard.set(newValue, forKey: "bubbleHidden") }
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        panel = BubblePanel(animator: animator)
+        setUpStatusItem()
+        watcher = SessionWatcher(directory: SessionStore.defaultDirectory) { [weak self] state in
+            self?.liveState = state
+            self?.applyState()
+        }
+        watcher.start()
+        updateVisibility()
+        applyState()
+    }
+
+    private func setUpStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        let menu = NSMenu()
+        toggleItem.target = self
+        menu.addItem(toggleItem)
+        menu.addItem(item("Reset Position", #selector(resetPosition)))
+        menu.addItem(.separator())
+        menu.addItem(item("Install Claude Code Hooks…", #selector(installHooks)))
+        menu.addItem(.separator())
+
+        let debug = NSMenu()
+        for (title, key) in [("Live", "live"), ("Idle", "idle"), ("Working", "working"), ("Needs You", "needs"), ("Error", "error")] {
+            let it = item(title, #selector(setDebugState(_:)))
+            it.representedObject = key
+            debug.addItem(it)
+            debugItems.append(it)
+        }
+        let debugItem = NSMenuItem(title: "Debug", action: nil, keyEquivalent: "")
+        debugItem.submenu = debug
+        menu.addItem(debugItem)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Quit Claude Bubble", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        statusItem.menu = menu
+    }
+
+    private func item(_ title: String, _ action: Selector) -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        it.target = self
+        return it
+    }
+
+    private func applyState() {
+        let state = forcedState ?? liveState
+        animator.setState(state)
+        statusItem.button?.image = Self.statusImage(for: state)
+        let selected = forcedState?.rawValue ?? "live"
+        for it in debugItems { it.state = (it.representedObject as? String) == selected ? .on : .off }
+    }
+
+    private func updateVisibility() {
+        if bubbleHidden { panel.orderOut(nil) } else { panel.orderFrontRegardless() }
+        panel.setRendering(!bubbleHidden)
+        toggleItem.title = bubbleHidden ? "Show Bubble" : "Hide Bubble"
+    }
+
+    @objc private func toggleBubble() {
+        bubbleHidden.toggle()
+        updateVisibility()
+    }
+
+    @objc private func resetPosition() { panel.resetPosition() }
+
+    @objc private func setDebugState(_ sender: NSMenuItem) {
+        forcedState = (sender.representedObject as? String).flatMap(BubbleState.init(rawValue:))
+        applyState()
+    }
+
+    @objc private func installHooks() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        do {
+            guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh") else {
+                throw HookInstaller.InstallError.missingHookScript
+            }
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            try HookInstaller.install(settingsURL: home.appendingPathComponent(".claude/settings.json"),
+                                      hookSource: source,
+                                      hookDestination: home.appendingPathComponent(".claude-bubble/hook.sh"))
+            alert.messageText = "Hooks installed"
+            alert.informativeText = "New Claude Code sessions will report to the bubble; restart running sessions to pick it up. Your previous settings were saved to settings.json.claude-bubble.bak."
+        } catch {
+            alert.alertStyle = .warning
+            alert.messageText = "Couldn't install hooks"
+            alert.informativeText = error.localizedDescription
+        }
+        alert.runModal()
+    }
+
+    private static func statusImage(for state: BubbleState) -> NSImage? {
+        let image = NSImage(systemSymbolName: "circle.circle", accessibilityDescription: "Claude Bubble: \(state.rawValue)")
+        let color: NSColor? = switch state {
+        case .idle: nil
+        case .working: .systemPurple
+        case .needs: .systemOrange
+        case .error: .systemRed
+        }
+        guard let color else {
+            image?.isTemplate = true
+            return image
+        }
+        let tinted = image?.withSymbolConfiguration(.init(paletteColors: [color]))
+        tinted?.isTemplate = false
+        return tinted
+    }
+}
