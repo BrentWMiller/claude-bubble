@@ -46,14 +46,16 @@ public final class OrbAnimator {
     private var completionTime: Float?
     /// The completed moment plays at half the design's speed (8s instead of 4s), so it's easy to take in.
     public static let completionSpeed: Float = 0.5
-    /// "All done" green the orb washes into on the release, whatever the palette.
-    public static let doneGreen = OrbPalette.agentsView.idle
+    /// "All done" green the orb washes into on the release, whatever the palette (the design's success mint).
+    public static let doneGreen = StateColors(c1: [0.74, 1, 0.84], c2: [0.5, 0.88, 0.7], c3: [0.9, 1, 0.92],
+                                              halo: [0.1, 0.3, 0.18], swatch: [0.74, 1, 0.84])
     /// The look held through the gather (what the orb looked like when the celebration began).
     private var heldState: BubbleState = .working
     /// A ring pop's clock; nil when not playing.
     private var popTime: Float?
     private var pullTime: Float?
     private var pullAngle: Float = 0
+    private var pullAmplitude: Float = 1
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -98,8 +100,10 @@ public final class OrbAnimator {
 
     /// A new pip is born (design: Pip Sounds): the rim stretches toward `direction` (y-up) like taffy for 0.32s,
     /// the pip snaps off, and the rim wobbles back.
-    public func pull(towards direction: SIMD2<Float>) {
+    /// `amplitude` < 1 for gentler pulls (a toast appearing uses 0.32).
+    public func pull(towards direction: SIMD2<Float>, amplitude: Float = 1) {
         pullAngle = atan2f(direction.y, direction.x)
+        pullAmplitude = amplitude
         pullTime = 0
     }
 
@@ -198,7 +202,7 @@ public final class OrbAnimator {
                 pull = expf(-l * 7) * cosf(l * 30)
             }
             pullTime = pt > 2 ? nil : pt
-            if pullTime == nil { pull = 0 }
+            pull = pullTime == nil ? 0 : pull * pullAmplitude
         }
         let attention = interaction == .attention ? closeness : 0
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
