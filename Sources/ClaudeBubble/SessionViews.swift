@@ -86,9 +86,17 @@ struct SessionRow: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 8)
-            Text(ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
-                .font(.system(size: 11, design: .monospaced))
-                .foregroundStyle(Color.white.opacity(0.4))
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.4))
+                if let tokens = session.tokens {
+                    Text(TokenFormat.string(tokens))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.28))
+                        .help("Context size")
+                }
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -109,12 +117,35 @@ struct SessionListView: View {
                                palette: model.palette, highlighted: index == 0)
                         .onTapGesture(perform: onSelect)
                 }
+                if let today = model.today {
+                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
+                    TodayFooter(summary: today)
+                }
             }
             .padding(8)
         }
         .frame(width: 290)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x17 / 255, green: 0x16 / 255, blue: 0x1c / 255).opacity(0.96)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
+    }
+}
+
+struct TodayFooter: View {
+    let summary: DailyActivity.Summary
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text("Today").foregroundStyle(Color.white.opacity(0.6))
+            Text("·")
+            Text("\(DurationFormat.string(summary.working)) working")
+            Text("·")
+            Text("\(summary.sessions) \(summary.sessions == 1 ? "session" : "sessions")")
+            Spacer()
+        }
+        .font(.system(size: 11, design: .monospaced))
+        .foregroundStyle(Color.white.opacity(0.4))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
     }
 }
 

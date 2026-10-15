@@ -9,4 +9,6 @@ final class SessionsModel: ObservableObject {
     @Published var snapshots: [BubbleState: NSImage] = [:]
     /// Mirrors the orb's appear/vanish so the pips pop in and out with it.
     @Published var present = false
+    /// Today's working time and session count, refreshed while the list is open.
+    @Published var today: DailyActivity.Summary?
 }

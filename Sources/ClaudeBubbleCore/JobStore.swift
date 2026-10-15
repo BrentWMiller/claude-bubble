@@ -7,6 +7,8 @@ public struct JobInfo: Equatable, Sendable {
     public let detail: String?
     public let state: String?
     public let updatedAt: Date?
+    /// The session's current context size.
+    public let tokens: Int?
 }
 
 public enum JobStore {
@@ -20,6 +22,7 @@ public enum JobStore {
         let detail: String?
         let state: String?
         let updatedAt: String?
+        let tokens: Int?
     }
 
     /// Jobs live in `<dir>/<first 8 chars of the session id>/state.json`; the full id must match.
@@ -30,10 +33,10 @@ public enum JobStore {
               let record = try? JSONDecoder().decode(Record.self, from: data),
               record.sessionId == sessionId else { return nil }
         return JobInfo(name: record.name, detail: record.detail, state: record.state,
-                       updatedAt: record.updatedAt.flatMap(parseDate))
+                       updatedAt: record.updatedAt.flatMap(parseDate), tokens: record.tokens)
     }
 
-    private static func parseDate(_ text: String) -> Date? {
+    static func parseDate(_ text: String) -> Date? {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = f.date(from: text) { return d }

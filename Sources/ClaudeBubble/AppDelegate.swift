@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsSubscription: AnyCancellable?
     private var settingsWindow: SettingsWindowController?
     private var pendingSnapshots: DispatchWorkItem?
+    private var lastTodayRefresh: CFTimeInterval = 0
     /// True while the orb is popping out of one display and into another.
     private var swappingDisplays = false
     private var panel: BubblePanel!
@@ -171,6 +172,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if paletteChanged { applyState() }   // menu-bar icon color
     }
 
+    /// Totals today's activity from the job timelines, off the main thread.
+    private func refreshToday() {
+        lastTodayRefresh = CACurrentMediaTime()
+        let since = Calendar.current.startOfDay(for: Date())
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let summary = DailyActivity.summary(jobsDir: JobStore.defaultDirectory, since: since)
+            DispatchQueue.main.async { self?.model.today = summary }
+        }
+    }
+
     private func appearOrb() {
         animator.appear()
         model.present = true
@@ -246,6 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 overList: listPanel.isVisible && listPanel.frame.contains(mouse),
                                 hasContent: !bubbleHidden && !model.sessions.isEmpty,
                                 now: CACurrentMediaTime())
+        if open, CACurrentMediaTime() - lastTodayRefresh > (listPanel.isVisible ? 30 : 0) { refreshToday() }
         if open, !listPanel.isVisible {
             listPanel.show(near: panel.frame)
         } else if !open, listPanel.isVisible {

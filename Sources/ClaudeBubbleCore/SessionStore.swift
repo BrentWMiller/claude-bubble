@@ -14,13 +14,15 @@ public struct Session: Equatable, Sendable {
     public let title: String?
     /// False until the user's first prompt; unused sessions (e.g. pre-warmed spares) aren't shown.
     public let prompted: Bool
+    /// Current context size, from Claude Code's job file.
+    public let tokens: Int?
 
     /// What to call the session: Claude Code's title, else the project folder.
     public var displayName: String { title ?? project }
 
     public init(id: String, state: BubbleState, cwd: String = "", updatedAt: Date,
                 project: String? = nil, detail: String = "", stateSince: Date? = nil, pid: Int32? = nil,
-                title: String? = nil, prompted: Bool = true) {
+                title: String? = nil, prompted: Bool = true, tokens: Int? = nil) {
         self.id = id
         self.state = state
         self.cwd = cwd
@@ -31,6 +33,7 @@ public struct Session: Equatable, Sendable {
         self.pid = pid
         self.title = title
         self.prompted = prompted
+        self.tokens = tokens
     }
 
     static func projectName(for cwd: String) -> String {
@@ -115,7 +118,8 @@ public enum SessionStore {
             guard s.pid != nil else { return nil }
             guard s.state != .idle else { return s }
             return Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
-                           detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title, prompted: s.prompted)
+                           detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title, prompted: s.prompted,
+                           tokens: s.tokens)
         }
     }
 
@@ -144,7 +148,8 @@ public enum SessionStore {
                 detail = summary
             }
             return Session(id: s.id, state: s.state, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
-                           detail: detail, stateSince: s.stateSince, pid: s.pid, title: title, prompted: s.prompted)
+                           detail: detail, stateSince: s.stateSince, pid: s.pid, title: title, prompted: s.prompted,
+                           tokens: job.tokens)
         }
     }
 }
