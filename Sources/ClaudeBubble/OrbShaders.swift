@@ -51,8 +51,8 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     // A soft bloom where the light sits on the sphere's face (the middle when the pointer is centred).
     float2 spot = po * R * .85;
     float sd = length(uv - spot);
-    // The rim's bright tones (c2→c3 plus white), so it reads as the same glow, not a separate spot.
-    col += (mix(C2, C3, .45) * .85 + .28) * att * .7 * exp(-sd * sd / (R * R * .24)) * (1. - smoothstep(R * .8, R * 1.05, r));
+    // Lit in the orb's own colours (its halo and deep secondary), no added white, so it glows like the halo does.
+    col += (H * 1.8 + C2 * .55) * att * .75 * exp(-sd * sd / (R * R * .24)) * (1. - smoothstep(R * .8, R * 1.05, r));
     float o = max(r - R, 0.);
     col += H * glowv * (1. + 1.6 * toward) * (exp(-o * 7.) * .55 + exp(-o * 22.) * .5) * smoothstep(R * .7, R * 1.02, r);
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
@@ -113,8 +113,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float3 c = mix(C2, C1, .5 + .5 * p.y);
     c = mix(c, C3, clamp(wv * wave, 0., 1.) * front);
     float b = (.12 + pow(limb, 4.) * 1.1 + max(wv, 0.) * wave * .9 * front) * mix(.35, 1., front);
-    b *= 1. + 1.7 * lit;
-    c = mix(c, C3, lit * .35);
+    b *= 1. + 1.7 * lit;   // brighter in their own colour
     o.color = c * b * bright;
     o.size = pt * (1. + p.z * .5);
     return o;
