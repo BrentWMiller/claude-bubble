@@ -224,9 +224,9 @@ struct SessionListView: View {
                            palette: model.palette, entrance: CardMotion.row(index, age: age))
                     .onTapGesture(perform: onSelect)
             }
-            if let today = model.today {
+            if model.today != nil || model.usage != nil {
                 Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
-                TodayFooter(summary: today)
+                TodayFooter(summary: model.today, usage: model.usage, palette: model.palette, now: now)
             }
         }
         .padding(8)
@@ -255,21 +255,40 @@ private struct CardReveal: View {
 }
 
 struct TodayFooter: View {
-    let summary: DailyActivity.Summary
+    let summary: DailyActivity.Summary?
+    var usage: UsageReading?
+    var palette: OrbPalette = .agentsView
+    var now = Date()
 
     var body: some View {
-        HStack(spacing: 6) {
-            Text("Today").foregroundStyle(Color.white.opacity(0.6))
-            Text("·")
-            Text("\(DurationFormat.string(summary.working)) working")
-            Text("·")
-            Text("\(summary.sessions) \(summary.sessions == 1 ? "session" : "sessions")")
-            Spacer()
+        HStack(spacing: usage == nil ? 6 : 4) {
+            if let summary {
+                Text("Today").foregroundStyle(Color.white.opacity(0.6))
+                Text("·")
+                // "working" makes way for the usage numbers so the line fits the card.
+                Text(DurationFormat.string(summary.working) + (usage == nil ? " working" : ""))
+                Text("·")
+                Text("\(summary.sessions) \(summary.sessions == 1 ? "session" : "sessions")")
+            }
+            Spacer(minLength: 4)
+            if let usage {
+                Text("\(Int(usage.left(at: now).rounded()))%").foregroundStyle(levelColor(usage.level(at: now)))
+                Text("·")
+                Text(DurationFormat.string(usage.timeLeft(at: now)))
+            }
         }
+        .lineLimit(1)
         .font(.system(size: 11, design: .monospaced))
         .foregroundStyle(Color.white.opacity(0.4))
-        .padding(.horizontal, 10)
+        .padding(.horizontal, usage == nil ? 10 : 8)
         .padding(.vertical, 6)
+    }
+    private func levelColor(_ level: UsageLevel) -> Color {
+        switch level {
+        case .ok: Color.white.opacity(0.4)
+        case .low: BubbleState.needs.color(in: palette)
+        case .critical: BubbleState.error.color(in: palette)
+        }
     }
 }
 

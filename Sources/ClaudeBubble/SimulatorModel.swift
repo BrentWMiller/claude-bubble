@@ -16,6 +16,11 @@ final class SimulatorModel: ObservableObject {
 
     @Published private(set) var sessions: [Sim] = []
     @Published var isOpen = false
+    /// Stands in for the real usage reading while on.
+    @Published var usageActive = false { didSet { if usageActive && !oldValue { windowEnds = Date().addingTimeInterval(72 * 60) } } }
+    /// Percent of the window left.
+    @Published var usageLeft: Double = 100
+    @Published private(set) var windowEnds = Date().addingTimeInterval(72 * 60)
     private var nextId = 0
     private var storyWork: [DispatchWorkItem] = []
 
@@ -63,6 +68,16 @@ final class SimulatorModel: ObservableObject {
             storyWork.append(work)
             DispatchQueue.main.asyncAfter(deadline: .now() + step.at, execute: work)
         }
+    }
+
+    /// Starts a fresh 5-hour window at 100% left (announced as "refreshed" if this one warned).
+    func resetWindow() {
+        usageLeft = 100
+        windowEnds = Date().addingTimeInterval(5 * 3600)
+    }
+
+    var usageReading: UsageReading? {
+        usageActive ? UsageReading(usedPercent: 100 - usageLeft, resetsAt: windowEnds, capturedAt: Date()) : nil
     }
 
     /// As real-looking sessions, for the rest of the app.

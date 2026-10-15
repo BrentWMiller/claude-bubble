@@ -55,12 +55,12 @@ Claude Code passes the status line JSON on stdin, including `rate_limits.five_ho
 
 ## Hover card footer
 
-- **Layout:** `Today · 3h 56m working · 5 sessions` on the left, `23% · 3h 4m` on the right.
+- **Layout:** `Today · 3h 56m · 5 sessions` on the left (the word "working" is dropped while usage shows, so it fits the card), `23% · 3h 4m` on the right.
 - **Percent color:**
   - ok: white at 0.4 (the footer's text colour);
   - low: the palette's needs swatch;
   - critical: the palette's error swatch.
-- **Reset time:** the footer's grey, followed by "left".
+- **Reset time:** the footer's grey.
 - **No reading:** the right side is hidden.
 - **Usage turned off in settings:** the right side is hidden.
 - **When the footer shows:**

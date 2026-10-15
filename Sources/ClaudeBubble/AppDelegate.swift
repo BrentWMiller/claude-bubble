@@ -36,6 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let toastModel = ToastModel()
     private var toastPanel: ToastPanel!
     private var soundLimiter = SoundRateLimiter()
+    private let usageAlerts = UsageAlerts()
+    /// What the status line wrapper last saved; re-read every 5s.
+    private var realUsage: UsageReading?
+    private var usageTimer: Timer?
+    /// Which reading the alerts are following (real or simulated); switching re-baselines them.
+    private var usageFromSimulator = false
     /// No sounds for the burst of pips that appear at launch.
     private let launchedAt = CACurrentMediaTime()
     private var forcedState: BubbleState?
@@ -96,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         simulatorSubscription = simulator.objectWillChange.receive(on: RunLoop.main).sink { [weak self] in self?.syncSessions() }
         watcher.start()
+        startUsagePolling()
         updateVisibility()
         applyState()
         appearOrb()
@@ -155,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             liveState = watchedState
         }
         applyState()
+        refreshUsage()
     }
 
     /// Hovering a pip previews that session's state on the orb (previews never celebrate).
@@ -234,9 +242,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
         animator.interaction = prefs.interaction
         sounds.enabled = prefs.sounds
+        let usageChanged = prefs.usage != applied.usage
         let paletteChanged = prefs.palette != applied.palette
         applied = prefs
         if paletteChanged { applyState() }   // menu-bar icon color
+        if usageChanged {
+            // Turning usage back on never announces thresholds crossed while it was off.
+            usageAlerts.reset()
+            refreshUsage()
+        }
     }
 
     /// Advances the pip choreography, reports finished sessions to the orb, and handles pip hover.
@@ -289,6 +303,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
         pipCard.show(session, under: CGPoint(x: panel.frame.minX + p.x, y: panel.frame.maxY - p.y))
+    }
+
+    // MARK: Usage
+
+    private func startUsagePolling() {
+        realUsage = UsageReading.load()
+        refreshUsage()
+        let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.realUsage = UsageReading.load()
+            self.refreshUsage()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        usageTimer = timer
+    }
+
+    /// Pushes the current usage (real, or the simulator's) to the orb, the hover card and the toasts.
+    private func refreshUsage() {
+        let fromSimulator = simulator.isOpen && simulator.usageActive
+        if fromSimulator != usageFromSimulator {
+            usageFromSimulator = fromSimulator
+            usageAlerts.reset()
+        }
+        let reading = applied.usage ? (fromSimulator ? simulator.usageReading : realUsage) : nil
+        let now = Date()
+        if reading != model.usage { model.usage = reading }
+        animator.usageLeft = reading?.left(at: now)
+        for alert in usageAlerts.update(reading, now: now) where applied.toasts && !bubbleHidden {
+            toasts.push(alert.kind, name: "Usage", text: alert.text, now: CACurrentMediaTime())
+            tugTowardToasts()
+        }
     }
 
     // MARK: Toasts
@@ -482,6 +527,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let toastItem = item("Toasts", #selector(toggleToasts))
         toastItem.state = prefs.toasts ? .on : .off
+        let usageItem = item("Usage", #selector(toggleUsage))
+        usageItem.state = prefs.usage ? .on : .off
         let soundItem = item("Sounds", #selector(toggleSounds))
         soundItem.state = prefs.sounds ? .on : .off
         let completions = NSMenu()
@@ -494,7 +541,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
         return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
-                submenu("Interaction", interactions), toastItem, soundItem, submenu("Completion Sound", completions), follow]
+                submenu("Interaction", interactions), toastItem, usageItem, soundItem, submenu("Completion Sound", completions), follow]
     }
 
     private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
@@ -560,6 +607,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleToasts() {
         settings.prefs.toasts.toggle()
+    }
+
+    @objc private func toggleUsage() {
+        settings.prefs.usage.toggle()
     }
 
     @objc private func toggleSounds() {
