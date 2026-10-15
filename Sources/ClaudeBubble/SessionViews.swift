@@ -40,7 +40,8 @@ struct ArcPipsView: View {
             ZStack {
                 ForEach(frame.pips, id: \.id) { pip in
                     PipDot(pip: pip, frame: frame, centre: centre, radius: radius,
-                           color: pip.state.color(in: model.palette), hovered: model.hoveredPip == pip.id)
+                           color: pip.state.color(in: model.palette), hovered: model.hoveredPip == pip.id,
+                           ball: model.snapshots[pip.state])
                 }
                 if frame.overflow > 0 {
                     Text("+\(frame.overflow)")
@@ -64,6 +65,8 @@ private struct PipDot: View {
     let radius: CGFloat
     let color: Color
     let hovered: Bool
+    /// The session's mini orb: drawn as the little ball that pops off the orb.
+    let ball: NSImage?
 
     var body: some View {
         let slotPoint = pip.slot.map { PipArc.position(slot: $0, slots: frame.slots, centre: centre, radius: radius) } ?? centre
@@ -73,15 +76,30 @@ private struct PipDot: View {
         let rim = CGPoint(x: centre.x + toward.dx / length * radius / PipArc.radiusScale * 1.15,
                           y: centre.y + toward.dy / length * radius / PipArc.radiusScale * 1.15)
         let position = pip.atCenter || pip.slot == nil ? centre : pip.emerging ? rim : slotPoint
-        let scale: CGFloat = pip.atCenter ? 0.15 : pip.emerging ? 1.6 : pip.flaring ? 2.4 : pip.hopping ? 1.45 : hovered ? 1.3 : 1
-        Circle()
-            .fill(pip.flaring ? Color.white : color)
-            .frame(width: 6, height: 6)
-            .overlay(Circle().stroke(color, lineWidth: 1.2).padding(-2.5).opacity(hovered ? 1 : 0))
-            .shadow(color: pip.flaring ? .white : color.opacity(0.8), radius: pip.flaring ? 6 : 3)
-            .scaleEffect(scale)
+        let scale: CGFloat = pip.atCenter ? 0.15 : pip.emerging || pip.launching ? 0.4 : pip.flaring ? 2.4 : pip.hopping ? 1.45 : hovered ? 1.3 : 1
+        let shown = !(pip.slot == nil || frame.merged || pip.emerging)
+        ZStack {
+            // The popped-off ball: a miniature orb that flies to the slot, then condenses into the dot.
+            if let ball {
+                Image(nsImage: ball)
+                    .resizable()
+                    .frame(width: 26, height: 26)
+                    .scaleEffect(pip.launching ? 1 : pip.emerging ? 0.5 : 0.25)
+                    .opacity(pip.launching ? 1 : 0)
+                    .animation(pip.launching ? .spring(response: 0.3, dampingFraction: 0.55) : .easeIn(duration: 0.18),
+                               value: pip.launching)
+            }
+            Circle()
+                .fill(pip.flaring ? Color.white : color)
+                .frame(width: 6, height: 6)
+                .overlay(Circle().stroke(color, lineWidth: 1.2).padding(-2.5).opacity(hovered ? 1 : 0))
+                .shadow(color: pip.flaring ? .white : color.opacity(0.8), radius: pip.flaring ? 6 : 3)
+                .scaleEffect(scale)
+                .opacity(shown && !pip.launching ? 1 : 0)
+                .animation(.easeOut(duration: 0.2), value: pip.launching)
+        }
             .offset(x: pip.shake, y: pip.hopping ? -9 : 0)
-            .opacity(pip.slot == nil || frame.merged || pip.emerging ? 0 : 1)
+            .opacity(shown ? 1 : 0)
             .position(position)
             // Merging is pulled in, staggered by rank; everything else springs into place.
             .animation(frame.merged ? .easeIn(duration: 0.45).delay(Double(pip.rank) * 0.05)

@@ -43,6 +43,14 @@ final class PipChoreographerTests: XCTestCase {
         XCTAssertFalse(pip(c.frame(now: 1.35), "b").emerging, "detached: now it travels to its slot")
     }
 
+    func testThePoppedBallFliesThenBecomesThePip() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
+        XCTAssertFalse(pip(c.frame(now: 0.1), "b").launching, "still being pulled out")
+        XCTAssertTrue(pip(c.frame(now: 0.4), "b").launching, "a little ball is flying to the slot")
+        XCTAssertFalse(pip(c.frame(now: 0.9), "b").launching, "it has condensed into the pip")
+    }
+
     func testFinishingAndSpawningInOneUpdateReportBoth() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)

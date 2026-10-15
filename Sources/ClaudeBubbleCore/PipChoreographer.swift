@@ -30,6 +30,8 @@ public struct PipFrame: Equatable, Sendable {
     public let atCenter: Bool
     /// Just spawned: hidden at the orb's rim while the orb reaches out toward its slot.
     public let emerging: Bool
+    /// Popped off the orb: drawn as a little ball flying to its slot, before it condenses into the pip.
+    public let launching: Bool
     public let flaring: Bool
     public let hopping: Bool
     /// Sideways shake offset in points.
@@ -58,6 +60,8 @@ public final class PipChoreographer {
     public static let mergeDelay = 0.9
     /// How long the orb reaches out before the new pip detaches (matches the shader's reach).
     public static let emergeDuration = 0.26
+    /// When the popped-off ball has arrived and condenses into the pip.
+    public static let launchEnd = 0.75
     static let hopWindows: [Range<Double>] = [0..<0.19, 0.38..<0.57]
     static let shakeSteps: [Double] = [5, -5, 4, -4, 2, -2, 0]
     static let shakeInterval = 0.055
@@ -148,6 +152,7 @@ public final class PipChoreographer {
                             rank: rank,
                             atCenter: merged,
                             emerging: !merged && now < rec.spawnedAt + Self.emergeDuration,
+                            launching: !merged && now >= rec.spawnedAt + Self.emergeDuration && now < rec.spawnedAt + Self.launchEnd,
                             flaring: rec.flareStart.map { now - $0 < Self.retireDelay } ?? false,
                             hopping: hop, shake: shake)
         }
