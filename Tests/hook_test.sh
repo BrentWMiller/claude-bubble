@@ -13,6 +13,11 @@ expect() {
   local got; got=$(state_of "$1")
   if [ "$got" = "$2" ]; then echo "ok   $3"; else echo "FAIL $3: expected $2, got $got"; fail=1; fi
 }
+field_of() { /usr/bin/python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get(sys.argv[2],"<none>"))' "$S/$1.json" "$2" 2>/dev/null || echo "<none>"; }
+expect_field() {
+  local got; got=$(field_of "$1" "$2")
+  if [ "$got" = "$3" ]; then echo "ok   $4"; else echo "FAIL $4: expected '$3', got '$got'"; fail=1; fi
+}
 check() { if eval "$1"; then echo "ok   $2"; else echo "FAIL $2"; fail=1; fi; }
 
 send '{"hook_event_name":"SessionStart","session_id":"a","cwd":"/tmp"}'; expect a idle "SessionStart -> idle"
@@ -80,6 +85,62 @@ send '{"hook_event_name":"Notification","session_id":"m","notification_type":"el
 send '{"hook_event_name":"ElicitationResult","session_id":"m"}'
 send '{"hook_event_name":"Notification","session_id":"m","notification_type":"elicitation_url_dialog"}'; expect m needs "elicitation_url_dialog -> needs"
 send '{"hook_event_name":"SessionEnd","session_id":"m"}'
+
+# Multi-session: project, detail, state_since, pid, tool_ids
+export CLAUDE_BUBBLE_PID=4242
+send '{"hook_event_name":"SessionStart","session_id":"d","cwd":"/Users/me/code/web-app"}'
+expect_field d project web-app "project from cwd"
+expect_field d detail Idle "SessionStart detail Idle"
+expect_field d pid 4242 "pid written"
+send '{"hook_event_name":"UserPromptSubmit","session_id":"d"}';  expect_field d detail Thinking "prompt detail Thinking"
+since1=$(field_of d state_since)
+sleep 0.05
+send '{"hook_event_name":"PreToolUse","session_id":"d","tool_name":"Bash","tool_use_id":"b1","tool_input":{"command":"npm test","description":"Running tests"}}'
+expect_field d detail "Running tests" "Bash description detail"
+check '[ "$(field_of d state_since)" = "$since1" ]' "state_since unchanged while still working"
+send '{"hook_event_name":"PostToolUse","session_id":"d","tool_use_id":"b1"}'; expect_field d detail "Running tests" "PostToolUse keeps detail"
+send '{"hook_event_name":"PreToolUse","session_id":"d","tool_name":"Read","tool_use_id":"r1","tool_input":{"file_path":"/a/b.ts"}}'; expect_field d detail "Reading files" "Read detail"
+send '{"hook_event_name":"PreToolUse","session_id":"d","tool_name":"Edit","tool_use_id":"e1","tool_input":{"file_path":"/repo/src/auth.ts"}}'; expect_field d detail "Editing auth.ts" "Edit detail"
+send '{"hook_event_name":"PreToolUse","session_id":"d","tool_name":"WebSearch","tool_use_id":"w1","tool_input":{"query":"x"}}'; expect_field d detail "Searching the web" "web detail"
+send '{"hook_event_name":"PreToolUse","session_id":"d","tool_name":"Task","tool_use_id":"t1","tool_input":{}}'; expect_field d detail "Running subagent" "subagent detail"
+send '{"hook_event_name":"PreToolUse","session_id":"d","tool_name":"mcp__db__query","tool_use_id":"m1","tool_input":{}}'; expect_field d detail "Using mcp__db__query" "other tool detail"
+send '{"hook_event_name":"PreToolUse","session_id":"d","tool_name":"Edit","tool_use_id":"e2","tool_input":{"file_path":"/repo/src/auth.ts","old_string":"a","new_string":"b"}}'
+send '{"hook_event_name":"PermissionRequest","session_id":"d","tool_name":"Edit","tool_input":{"file_path":"/repo/src/auth.ts","old_string":"a","new_string":"b"}}'
+expect d needs "permission without tool_use_id -> needs"
+expect_field d detail "Approve Edit auth.ts?" "permission detail names the file"
+check '[ "$(field_of d state_since)" != "$since1" ]' "state_since resets on state change"
+send '{"hook_event_name":"PostToolUse","session_id":"d","tool_use_id":"other"}'; expect d needs "another tool finishing keeps needs (tool_ids correlation)"
+expect_field d detail "Approve Edit auth.ts?" "needs keeps Approve detail"
+send '{"hook_event_name":"PostToolUse","session_id":"d","tool_use_id":"e2"}';    expect d working "the approved tool finishing clears needs"
+send '{"hook_event_name":"PermissionRequest","session_id":"d","tool_name":"Bash","tool_input":{"command":"terraform apply -auto-approve"}}'
+expect_field d detail "Approve Bash terraform apply -auto-approve?" "permission detail uses command"
+send '{"hook_event_name":"StopFailure","session_id":"d","error":"terraform plan failed"}'; expect_field d detail "terraform plan failed" "error detail string"
+send '{"hook_event_name":"StopFailure","session_id":"d","error":{"message":"API overloaded"}}'; expect_field d detail "API overloaded" "error detail object"
+send '{"hook_event_name":"StopFailure","session_id":"d"}';                       expect_field d detail "Error" "error detail fallback"
+send '{"hook_event_name":"Stop","session_id":"d"}';                              expect_field d detail Idle "Stop detail Idle"
+send '{"hook_event_name":"Elicitation","session_id":"d"}';                       expect_field d detail "Input requested" "elicitation detail"
+send '{"hook_event_name":"SessionEnd","session_id":"d"}'
+
+send '{"hook_event_name":"SessionStart","session_id":"e"}';                      expect_field e project session "empty cwd -> project session"
+send '{"hook_event_name":"UserPromptSubmit","session_id":"e"}'
+send '{"hook_event_name":"PreToolUse","session_id":"e","tool_input":"weird"}';   expect_field e detail "Working" "odd tool_input still writes"
+long=$(printf 'Run the whole integration suite against staging\\nthen collect coverage and upload artifacts')
+send "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"e\",\"tool_name\":\"Bash\",\"tool_use_id\":\"l1\",\"tool_input\":{\"description\":\"$long\"}}"
+check '[ "$(field_of e detail)" = "Run the whole integration suite against staging then collec…" ]' "long description clipped to one 60-char line"
+for i in $(seq 1 25); do send "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"e\",\"tool_name\":\"Read\",\"tool_use_id\":\"x$i\",\"tool_input\":{\"file_path\":\"/f$i\"}}"; done
+check '[ "$(/usr/bin/python3 -c "import json;print(len(json.load(open(\"$S/e.json\"))[\"tool_ids\"]))")" = 20 ]' "tool_ids capped at 20"
+send '{"hook_event_name":"SessionEnd","session_id":"e"}'
+
+unset CLAUDE_BUBBLE_PID
+got=$(/usr/bin/python3 - "$HOOK" "$S" <<'PY'
+import json, os, subprocess, sys
+hook, s = sys.argv[1], sys.argv[2]
+subprocess.run(['/bin/sh', '-c', '"%s"' % hook], input=b'{"hook_event_name":"SessionStart","session_id":"w"}')
+print('same' if json.load(open(os.path.join(s, 'w.json')))['pid'] == os.getpid() else 'different')
+PY
+)
+check '[ "$got" = same ]' "pid skips the shell to reach the calling process"
+send '{"hook_event_name":"SessionEnd","session_id":"w"}'
 
 out=$(printf 'not json' | "$HOOK"; echo "exit=$?"); check '[ "$out" = "exit=0" ]' "garbage stdin exits 0 silently"
 out=$(printf '' | "$HOOK"; echo "exit=$?");         check '[ "$out" = "exit=0" ]' "empty stdin exits 0 silently"
