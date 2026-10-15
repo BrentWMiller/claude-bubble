@@ -9,7 +9,7 @@ struct Uniforms {
     float4 a;   // phase, scale, glow, ring
     float4 b;   // glitch, wave, bright, pointSize
     float4 c;   // resX, resY, shiftX, unused
-    float4 d;   // pointer offset x, y (radii, ≤ 1), attention, unused
+    float4 d;   // pointer offset x, y (radii, ≤ 1), attention, completion time (s; < 0 = not playing)
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -55,6 +55,22 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     col += (H * 1.8 + C2 * .55) * att * .75 * exp(-sd * sd / (R * R * .24)) * (1. - smoothstep(R * .8, R * 1.05, r));
     float o = max(r - R, 0.);
     col += H * glowv * (1. + 1.6 * toward) * (exp(-o * 7.) * .55 + exp(-o * 22.) * .5) * smoothstep(R * .7, R * 1.02, r);
+    // Completed moment (design: Completed Moment): rim gathers, two chromatic rings ease out, a brief white flash.
+    float dT = u.d.w;
+    if (dT >= 0.) {
+        float g = smoothstep(0., .38, dT) * (1. - smoothstep(.38, .46, dT));
+        col += rc * ring * g * 1.4;
+        float l1 = max(dT - .42, 0.) / 1.1, l2 = max(dT - .6, 0.) / 1.5;
+        float e1 = 1. - pow(1. - clamp(l1, 0., 1.), 3.), e2 = 1. - pow(1. - clamp(l2, 0., 1.), 3.);
+        float3 off = float3(.007, 0., -.007);   // per-channel radius offset = chromatic fringe
+        float3 d1 = (float3(r) - (R * (1.02 + e1 * .5) + off * e1)) / (.006 + .012 * e1);
+        float3 d2 = (float3(r) - (R * (1.02 + e2 * .36) + off * e2)) / (.004 + .01 * e2);
+        float a1 = step(.42, dT) * pow(1. - clamp(l1, 0., 1.), 1.6);
+        float a2 = step(.6, dT) * pow(1. - clamp(l2, 0., 1.), 1.6) * .6;
+        col += exp(-d1 * d1) * a1 * 1.3 + exp(-d2 * d2) * a2;
+        float fl = step(.42, dT) * exp(-(dT - .42) * 3.);
+        col += float3(1., .97, .95) * fl * .35 * (1. - smoothstep(0., R * 1.3, r));
+    }
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
     col *= 1. - smoothstep(.36, .5, r);
     col = 1. - exp(-col * 1.4);
@@ -66,6 +82,8 @@ struct PointOut {
     float size [[point_size]];
     float3 color;
 };
+
+float hs(float3 v) { return fract(sin(dot(v, float3(12.9898, 78.233, 37.719))) * 43758.5453); }
 
 float3x3 ry(float a) { float c = cos(a), s = sin(a); return float3x3(float3(c, 0, -s), float3(0, 1, 0), float3(s, 0, c)); }
 float3x3 rx(float a) { float c = cos(a), s = sin(a); return float3x3(float3(1, 0, 0), float3(0, c, s), float3(0, -s, c)); }
@@ -87,6 +105,15 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float band = step(.82, fract(sin(floor((pos.y + ph * .3) * 9.) * 91.7) * 437.5));
     p *= 1. + glitch * (gh * .1 + band * .12);
     p.x += glitch * band * .08 * sign(gh - .5);
+    // Completed moment: dots gather in, then spring out in a wave travelling bottom to top.
+    float dT = u.d.w, hasD = step(0., dT);
+    float gather = hasD * smoothstep(0., .38, dT) * (1. - smoothstep(.38, .46, dT));
+    float since = dT - .42 - (pos.y + 1.) * .09;      // each dot releases a little later the higher it sits
+    float rel = max(since, 0.), released = hasD * step(0., since);
+    float spring = released * exp(-rel * 4.5) * sin(rel * 13. + .2);
+    float flash = released * exp(-rel * 3.2);
+    p *= 1. - .14 * gather;
+    p *= 1. + spring * (.22 + .3 * hs(pos));
     p = rx(.35) * p;
     // Attention: the sphere tilts toward the pointer (more the further off-centre it is).
     float2 po = u.d.xy; float att = u.d.z;
@@ -114,8 +141,17 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     c = mix(c, C3, clamp(wv * wave, 0., 1.) * front);
     float b = (.12 + pow(limb, 4.) * 1.1 + max(wv, 0.) * wave * .9 * front) * mix(.35, 1., front);
     b *= 1. + 1.7 * lit;   // brighter in their own colour
+    // Completed moment: an iridescent wash rides the release, then a specular sheen glides diagonally across.
+    float3 irid = .62 + .38 * cos(6.2832 * (float3(0., .33, .67) + pos.y * .35 + pos.x * .2 + rel * .6));
+    c = mix(c, irid, flash * .85);
+    b += flash * 1.3 + gather * .5 * limb;
+    float sweep = smoothstep(0., 1., (dT - .95) / 1.3);
+    float band2 = dot(p.xy, float2(.83, .55)) - mix(-1.3, 1.3, sweep);
+    float sheen = hasD * step(.95, dT) * step(dT, 2.25) * exp(-band2 * band2 * 22.) * front;
+    c = mix(c, float3(1.), sheen * .7);
+    b += sheen * .9;
     o.color = c * b * bright;
-    o.size = pt * (1. + p.z * .5);
+    o.size = pt * (1. + p.z * .5) * (1. + flash * .6);
     return o;
 }
 

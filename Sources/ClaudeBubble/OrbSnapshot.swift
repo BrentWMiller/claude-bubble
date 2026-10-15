@@ -67,7 +67,7 @@ enum OrbSnapshot {
             a: [f.phase, f.scale, f.glow, f.ring],
             b: [f.params.glitch, f.params.wave, f.params.bright, max(1, Float(size) / 400) * 3.2],
             c: [Float(size), Float(size), 0, 0],
-            d: [0, 0, 0, 0]
+            d: [0, 0, 0, -1]
         )
         guard let cmd = queue.makeCommandBuffer(), let enc = cmd.makeRenderCommandEncoder(descriptor: pass) else { return nil }
         let len = MemoryLayout<OrbUniforms>.stride

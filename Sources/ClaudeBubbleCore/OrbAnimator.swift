@@ -12,6 +12,8 @@ public struct OrbFrame: Sendable {
     public var pointer = SIMD2<Float>(0, 0)
     /// 0…1 strength of the attention effect.
     public var attention: Float = 0
+    /// Seconds into the "session complete" sequence, or -1 when it isn't playing.
+    public var completion: Float = -1
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
@@ -34,6 +36,8 @@ public final class OrbAnimator {
     private var pointerVelocity = SIMD2<Float>(0, 0)
     private var closeness: Float = 0
     private var closenessVelocity: Float = 0
+    /// Time since working → idle (the completed moment); nil when not playing.
+    private var completionTime: Float?
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -73,6 +77,8 @@ public final class OrbAnimator {
 
     public func setState(_ new: BubbleState) {
         guard new != state else { return }
+        // Finishing work plays the completed moment; any other change cancels it.
+        completionTime = (state == .working && new == .idle) ? 0 : nil
         if new == .needs { bounce = -0.28; bounceVelocity = 0 }
         if new == .error { shake = 1 }
         state = new
@@ -82,7 +88,10 @@ public final class OrbAnimator {
         let dt = Float(min(max(rawDt, 0), 0.05))
         time += Double(dt)
         let k = 1 - powf(0.02, dt)
-        current = current.approached(.target(for: state, palette: palette), k: k)
+        if let t = completionTime { completionTime = t + dt }
+        // The orb keeps its working look through the gather, and turns to rest on the release (0.42s).
+        let shown: BubbleState = (completionTime.map { $0 < 0.42 } ?? false) ? .working : state
+        current = current.approached(.target(for: shown, palette: palette), k: k)
         bounceVelocity += (-bounce * 220 - bounceVelocity * 14) * dt
         bounce += bounceVelocity * dt
         // Every shader phase multiplier is a multiple of 0.05, so wrapping at 400π keeps floats precise without a visible seam.
@@ -109,10 +118,13 @@ public final class OrbAnimator {
         var ring = current.ring * (1 + 0.4 * flash)
         switch state {
         case .idle:
+            // The rest breath fades in as the completed moment winds down.
+            // (blended from neutral, so neither the swing nor the dimmer baseline cuts into the celebration).
+            let calm = completionTime.map { Self.smoothstep(2.25, 4, $0) } ?? 1
             let b = Float(sin(time * .pi / 2))
-            scale *= 1 + 0.05 * b
-            glow *= 0.7 + 0.3 * b
-            ring *= 0.75 + 0.25 * b
+            scale *= 1 + 0.05 * b * calm
+            glow *= 1 + calm * (-0.3 + 0.3 * b)
+            ring *= 1 + calm * (-0.25 + 0.25 * b)
         case .needs:
             let b = Float(sin(time * .pi / 1.4))
             glow *= 0.6 + 0.4 * b
@@ -123,10 +135,27 @@ public final class OrbAnimator {
         case .working:
             break
         }
+        // Completed moment (from the design's Completed Moment exploration): gather, springy release, glow bloom.
+        var completion: Float = -1
+        if let bt = completionTime {
+            let gather = Self.smoothstep(0, 0.38, bt) * (1 - Self.smoothstep(0.38, 0.46, bt))
+            let l = max(bt - 0.42, 0)
+            let released: Float = bt > 0.42 ? 1 : 0
+            scale *= 1 - 0.06 * gather + released * 0.07 * expf(-l * 4.5) * sinf(l * 13 + 0.2)
+            glow *= 1 + 1.6 * gather + released * 2.2 * expf(-l * 1.6)
+            ring *= 1 + 0.8 * gather
+            phase += dt * (2.5 * gather + released * 2 * expf(-l * 2))
+            if bt < 4 { completion = bt } else { completionTime = nil }
+        }
         let attention = interaction == .attention ? closeness : 0
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
-                        pointer: pointerOffset, attention: attention)
+                        pointer: pointerOffset, attention: attention, completion: completion)
+    }
+
+    static func smoothstep(_ a: Float, _ b: Float, _ x: Float) -> Float {
+        let t = min(max((x - a) / (b - a), 0), 1)
+        return t * t * (3 - 2 * t)
     }
 }
