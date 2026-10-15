@@ -46,12 +46,13 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float3 col = rc * (ring * (.55 + 1.6 * hl) + fuzz * (.4 + hl)) * ringv;
     col += float3(1.) * ring * hl * hl * .6 * ringv;
     // The rim and halo brighten on the side the light is on.
-    float toward = pow(.5 + .5 * cos(a - pa), 3.) * att * plen;
+    float toward = pow(.5 + .5 * cos(a - pa), 2.) * att * plen;
     col *= 1. + .9 * toward;
     // A soft bloom where the light sits on the sphere's face (the middle when the pointer is centred).
     float2 spot = po * R * .85;
     float sd = length(uv - spot);
-    col += mix(C2, C3, .5) * att * .4 * exp(-sd * sd / (R * R * .1)) * (1. - smoothstep(R * .85, R * 1.05, r));
+    // The rim's bright tones (c2→c3 plus white), so it reads as the same glow, not a separate spot.
+    col += (mix(C2, C3, .45) * .85 + .28) * att * .7 * exp(-sd * sd / (R * R * .24)) * (1. - smoothstep(R * .8, R * 1.05, r));
     float o = max(r - R, 0.);
     col += H * glowv * (1. + 1.6 * toward) * (exp(-o * 7.) * .55 + exp(-o * 22.) * .5) * smoothstep(R * .7, R * 1.02, r);
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
@@ -100,7 +101,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     p *= 1. + att * .2 * near;
     // Slow, wide waves roll out through the dots from that spot.
     p *= 1. + att * .035 * sin(dl * 8. - ph * 4.) * exp(-dl * 1.4);
-    float lit = pow(max(dot(normalize(p), L), 0.), 6.) * att;
+    float lit = pow(max(dot(normalize(p), L), 0.), 3.) * att;
     float R = .6 * sc;
     float persp = 1. / (1. - p.z * .18);
 
@@ -112,8 +113,8 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float3 c = mix(C2, C1, .5 + .5 * p.y);
     c = mix(c, C3, clamp(wv * wave, 0., 1.) * front);
     float b = (.12 + pow(limb, 4.) * 1.1 + max(wv, 0.) * wave * .9 * front) * mix(.35, 1., front);
-    b *= 1. + 2.2 * lit;
-    c = mix(c, C3, lit * .5);
+    b *= 1. + 1.7 * lit;
+    c = mix(c, C3, lit * .35);
     o.color = c * b * bright;
     o.size = pt * (1. + p.z * .5);
     return o;
