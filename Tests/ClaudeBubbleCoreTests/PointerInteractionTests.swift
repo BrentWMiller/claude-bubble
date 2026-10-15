@@ -27,15 +27,32 @@ final class PointerInteractionTests: XCTestCase {
     }
 
     // Animator
-    func testAttentionModeEasesInAndSwellsTheGlow() {
+    func testAttentionEasesInAndFollowsTheCursor() {
         let a = OrbAnimator(state: .working)
         a.interaction = .attention
         let base = run(a, seconds: 0.5).glow
         a.setPointer(offset: [0, 1], closeness: 1)
         let f = run(a, seconds: 2)
         XCTAssertEqual(f.attention, 1, accuracy: 0.01)
+        XCTAssertEqual(f.pointer.x, 0, accuracy: 0.01)
+        XCTAssertEqual(f.pointer.y, 1, accuracy: 0.01)
         XCTAssertEqual(f.glow, base * 1.2, accuracy: 0.02)
-        XCTAssertEqual(f.pointerAngle, .pi / 2, accuracy: 0.01)
+    }
+
+    func testCursorOverTheMiddleLightsTheFrontOfTheSphere() {
+        let a = OrbAnimator(state: .working)
+        a.setPointer(offset: .zero, closeness: 1)
+        let f = run(a, seconds: 2)
+        XCTAssertEqual(f.attention, 1, accuracy: 0.01, "the middle is fully lit, not faded out")
+        XCTAssertEqual((f.pointer * f.pointer).sum().squareRoot(), 0, accuracy: 0.01)
+        XCTAssertEqual(f.glow, 1.2, accuracy: 0.02)
+    }
+
+    func testOffModeIgnoresThePointer() {
+        let a = OrbAnimator(state: .working)
+        a.interaction = .off
+        a.setPointer(offset: [1, 0], closeness: 1)
+        XCTAssertEqual(run(a, seconds: 1).attention, 0)
     }
 
     func testOnlyAttentionAndOff() {
@@ -51,14 +68,6 @@ final class PointerInteractionTests: XCTestCase {
         XCTAssertEqual(p.diameter, 100, "other settings survive")
     }
 
-    func testOffModeIgnoresThePointer() {
-        let a = OrbAnimator(state: .working)
-        a.interaction = .off
-        a.setPointer(offset: [1, 0], closeness: 1)
-        let f = run(a, seconds: 1)
-        XCTAssertEqual(f.attention, 0)
-    }
-
     func testLeavingSettlesBackToNormal() {
         let a = OrbAnimator(state: .working)
         a.setPointer(offset: [1, 0], closeness: 1)
@@ -67,34 +76,24 @@ final class PointerInteractionTests: XCTestCase {
         XCTAssertEqual(run(a, seconds: 2).attention, 0, accuracy: 0.01)
     }
 
-    func testCrossingTheMiddleFadesThroughInsteadOfFlipping() {
+    func testCrossingTheMiddleGlidesOverTheFront() {
         let a = OrbAnimator(state: .working)
         a.setPointer(offset: [1, 0], closeness: 1)
         var last = run(a, seconds: 2)
         a.setPointer(offset: [-1, 0], closeness: 1)   // cursor jumps to the opposite side
-        var weakest: Float = 1
-        // What's visible is the lean: strength × direction. It must move continuously, with no frame-to-frame jump.
-        // Even when the cursor teleports across, the reaction starts from rest and never moves faster than a glide.
-        func lean(_ f: OrbFrame) -> SIMD2<Float> { SIMD2(cosf(f.pointerAngle), sinf(f.pointerAngle)) * f.attention }
+        var nearestCentre: Float = 1
         for frame in 0..<120 {
             let f = a.step(dt: 1.0 / 60)
-            let jump = lean(f) - lean(last)
+            let jump = f.pointer - last.pointer
             let size = (jump * jump).sum().squareRoot()
             // The old exponential easing moved 0.126 on the first frame; the spring must start ~10× gentler.
             if frame == 0 { XCTAssertLessThan(size, 0.02, "starts from rest, no jolt") }
-            XCTAssertLessThan(size, 0.07, "no visible snap between frames")
-            weakest = min(weakest, f.attention)
+            XCTAssertLessThan(size, 0.07, "the light never snaps between frames")
+            XCTAssertGreaterThan(f.attention, 0.99, "stays lit while crossing")
+            nearestCentre = min(nearestCentre, (f.pointer * f.pointer).sum().squareRoot())
             last = f
         }
-        XCTAssertLessThan(weakest, 0.2, "the effect fades out while crossing the centre")
-    }
-
-    func testCursorOverTheCentreStillSwellsTheGlow() {
-        let a = OrbAnimator(state: .working)
-        a.setPointer(offset: .zero, closeness: 1)
-        let f = run(a, seconds: 2)
-        XCTAssertEqual(f.attention, 0, accuracy: 0.01)
-        XCTAssertEqual(f.glow, 1.2, accuracy: 0.02)
+        XCTAssertLessThan(nearestCentre, 0.2, "the light passes over the front, through the middle")
     }
 
     func testEasingIsGentle() {

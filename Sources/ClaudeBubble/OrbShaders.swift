@@ -9,7 +9,7 @@ struct Uniforms {
     float4 a;   // phase, scale, glow, ring
     float4 b;   // glitch, wave, bright, pointSize
     float4 c;   // resX, resY, shiftX, unused
-    float4 d;   // pointerAngle, attention, unused, unused
+    float4 d;   // pointer offset x, y (radii, ≤ 1), attention, unused
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -34,15 +34,23 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     w *= 1. - glitch * gap * .7;
     float d1 = (r - R * 1.02) / w; float ring = exp(-d1 * d1);
     float d2 = (r - R * 1.05) / (w * 2.6); float fuzz = exp(-d2 * d2) * .45;
-    // Attention swings the highlight arc from its drift toward the pointer.
+    // Attention: a light follows the pointer over the sphere. Off-centre effects scale with how far out it is,
+    // so passing over the middle is continuous.
+    float2 po = u.d.xy; float att = u.d.z;
+    float plen = min(length(po), 1.);
+    float pa = plen > 1e-4 ? atan2(po.y, po.x) : 0.;   // atan2(0, 0) is NaN on the GPU and would blank the layer
     float hlBase = ph * .8 + 1.2;
-    float2 hv = mix(float2(cos(hlBase), sin(hlBase)), float2(cos(u.d.x), sin(u.d.x)), u.d.y);
+    float2 hv = mix(float2(cos(hlBase), sin(hlBase)), float2(cos(pa), sin(pa)), att * plen);
     float hl = pow(.5 + .5 * cos(a - atan2(hv.y, hv.x)), 5.);
     float3 col = rc * (ring * (.55 + 1.6 * hl) + fuzz * (.4 + hl)) * ringv;
     col += float3(1.) * ring * hl * hl * .6 * ringv;
-    // Attention: the glow gathers on the side facing the pointer, brightening the ring and halo there.
-    float toward = pow(.5 + .5 * cos(a - u.d.x), 3.) * u.d.y;
+    // The rim and halo brighten on the side the light is on.
+    float toward = pow(.5 + .5 * cos(a - pa), 3.) * att * plen;
     col *= 1. + .9 * toward;
+    // A soft bloom where the light sits on the sphere's face (the middle when the pointer is centred).
+    float2 spot = po * R * .85;
+    float sd = length(uv - spot);
+    col += mix(C2, C3, .5) * att * .6 * exp(-sd * sd / (R * R * .1)) * (1. - smoothstep(R * .85, R * 1.05, r));
     float o = max(r - R, 0.);
     col += H * glowv * (1. + 1.6 * toward) * (exp(-o * 7.) * .55 + exp(-o * 22.) * .5) * smoothstep(R * .7, R * 1.02, r);
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
@@ -78,9 +86,13 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     p *= 1. + glitch * (gh * .1 + band * .12);
     p.x += glitch * band * .08 * sign(gh - .5);
     p = rx(.35) * p;
-    // Attention: the sphere tilts to face the pointer.
-    float2 pd = float2(cos(u.d.x), sin(u.d.x));
-    p = ry(pd.x * .45 * u.d.y) * rx(-pd.y * .45 * u.d.y) * p;
+    // Attention: the sphere tilts toward the pointer (more the further off-centre it is).
+    float2 po = u.d.xy; float att = u.d.z;
+    p = ry(po.x * .45 * att) * rx(-po.y * .45 * att) * p;
+    // ...and a light sits on its surface where the pointer is; dots near it brighten.
+    float2 lp = po / max(1., length(po));
+    float3 L = float3(lp, sqrt(max(1. - dot(lp, lp), 0.)));
+    float lit = pow(max(dot(normalize(p), L), 0.), 6.) * att;
     float R = .6 * sc;
     float persp = 1. / (1. - p.z * .18);
 
@@ -91,6 +103,8 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float3 c = mix(C2, C1, .5 + .5 * p.y);
     c = mix(c, C3, clamp(wv * wave, 0., 1.) * front);
     float b = (.12 + pow(limb, 4.) * 1.1 + max(wv, 0.) * wave * .9 * front) * mix(.35, 1., front);
+    b *= 1. + 2.2 * lit;
+    c = mix(c, C3, lit * .5);
     o.color = c * b * bright;
     o.size = pt * (1. + p.z * .5);
     return o;
