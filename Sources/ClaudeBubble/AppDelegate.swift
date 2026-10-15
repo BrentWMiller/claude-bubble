@@ -209,7 +209,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func openSettings() {
-        if settingsWindow == nil { settingsWindow = SettingsWindowController(settings: settings) }
+        if settingsWindow == nil {
+            settingsWindow = SettingsWindowController(settings: settings) { [weak self] in self?.sounds.previewCompletion($0) }
+        }
         settingsWindow?.show()
     }
 
@@ -239,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let frame = choreographer.frame(now: now)
         if frame != model.pips { model.pips = frame }
         if now - launchedAt > 1.5, !bubbleHidden {
-            for request in PipSounds.requests(for: events, frame: frame, previous: previous)
+            for request in PipSounds.requests(for: events, frame: frame, previous: previous, completion: applied.completionSound)
             where soundLimiter.allow(request.cue, now: now) {
                 // The spawn tone lands as the rim is mid-stretch, like the design.
                 sounds.play(request, after: request.cue == .spawn ? 0.13 : 0)
@@ -429,10 +431,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let soundItem = item("Sounds", #selector(toggleSounds))
         soundItem.state = prefs.sounds ? .on : .off
+        let completions = NSMenu()
+        for option in CompletionSound.allCases {
+            let it = item(option.label, #selector(pickCompletionSound(_:)))
+            it.representedObject = option.rawValue
+            it.state = prefs.completionSound == option ? .on : .off
+            completions.addItem(it)
+        }
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
         return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
-                submenu("Interaction", interactions), soundItem, follow]
+                submenu("Interaction", interactions), soundItem, submenu("Completion Sound", completions), follow]
     }
 
     private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
@@ -488,6 +497,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let raw = sender.representedObject as? String, let mode = PointerInteraction(rawValue: raw) {
             settings.prefs.interaction = mode
         }
+    }
+
+    @objc private func pickCompletionSound(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String, let option = CompletionSound(rawValue: raw) else { return }
+        settings.prefs.completionSound = option
+        sounds.previewCompletion(option)
     }
 
     @objc private func toggleSounds() {

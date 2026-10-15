@@ -83,4 +83,49 @@ final class PipSoundsTests: XCTestCase {
         let energy = { (s: [Float]) in s.reduce(0) { $0 + $1 * $1 } }
         XCTAssertGreaterThan(energy(left.left), energy(left.right) * 2)
     }
+
+    // Completion sound options (Sound Lab v2)
+    func testCompletionOptions() {
+        XCTAssertEqual(CompletionSound.allCases.map(\.label),
+                       ["Pip chord", "Glass chime", "Crystal arpeggio", "Soft bloom", "Wood marimba", "Shimmer"])
+        XCTAssertEqual(BubblePreferences.defaults.completionSound, .pipChord)
+    }
+
+    func testEveryCompletionOptionRendersCleanly() {
+        for option in CompletionSound.allCases {
+            let out = PipSynth.render(SoundRequest(cue: .merge, note: 72, pan: 0, chord: [64, 67, 69], completion: option),
+                                      sampleRate: 44_100)
+            let peak = (out.left + out.right).map(abs).max() ?? 0
+            XCTAssertGreaterThan(peak, 0.002, "\(option) is audible")
+            XCTAssertLessThan(peak, 1, "\(option) never clips")
+            XCTAssertTrue((out.left + out.right).allSatisfy(\.isFinite))
+        }
+    }
+
+    func testTheMainHitLandsOnTheVisualRelease() {
+        // The completed moment releases at 0.42s of design time, played at half speed: 0.84s.
+        XCTAssertEqual(PipSynth.completionRelease, 0.84, accuracy: 0.001)
+        let sr = 44_100.0
+        let out = PipSynth.render(SoundRequest(cue: .merge, note: 72, pan: 0, completion: .glass), sampleRate: sr)
+        let before = out.left[0..<Int(0.8 * sr)].map(abs).max() ?? 0
+        let after = out.left[Int(0.84 * sr)..<Int(1.2 * sr)].map(abs).max() ?? 0
+        XCTAssertLessThan(before, 0.001, "silent until the release")
+        XCTAssertGreaterThan(after, 0.01)
+    }
+
+    func testAllDoneCarriesTheChosenSound() {
+        let merged = frame(["a", "b"], merged: true)
+        XCTAssertEqual(PipSounds.requests(for: [.allDone], frame: merged, previous: merged, completion: .marimba).first?.completion,
+                       .marimba)
+    }
+
+    func testSavedCompletionChoiceSurvives() throws {
+        var p = BubblePreferences.defaults
+        p.completionSound = .shimmer
+        XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: JSONEncoder().encode(p)).completionSound, .shimmer)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(p)) as? [String: Any])
+        json["completionSound"] = "kazoo"
+        XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: JSONSerialization.data(withJSONObject: json)).completionSound,
+                       .pipChord, "an unknown saved choice falls back to the default")
+    }
 }

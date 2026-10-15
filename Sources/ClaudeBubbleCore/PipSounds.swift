@@ -1,5 +1,21 @@
 import Foundation
 
+/// The sound when every session finishes (Sound Lab v2's completion options, plus the pip chord).
+public enum CompletionSound: String, Codable, CaseIterable, Sendable {
+    case pipChord, glass, arpeggio, bloom, marimba, shimmer
+
+    public var label: String {
+        switch self {
+        case .pipChord: "Pip chord"
+        case .glass: "Glass chime"
+        case .arpeggio: "Crystal arpeggio"
+        case .bloom: "Soft bloom"
+        case .marimba: "Wood marimba"
+        case .shimmer: "Shimmer"
+        }
+    }
+}
+
 /// One sound to play: what, at which note, and where in the stereo field.
 public struct SoundRequest: Equatable, Sendable {
     public let cue: PipSounds.Cue
@@ -11,13 +27,17 @@ public struct SoundRequest: Equatable, Sendable {
     public let endPan: Float
     /// Notes of every pip, for the all-done chord.
     public let chord: [Int]
+    /// Which completion sound the all-done cue plays.
+    public let completion: CompletionSound
 
-    public init(cue: PipSounds.Cue, note: Int, pan: Float, endPan: Float = 0, chord: [Int] = []) {
+    public init(cue: PipSounds.Cue, note: Int, pan: Float, endPan: Float = 0, chord: [Int] = [],
+                completion: CompletionSound = .pipChord) {
         self.cue = cue
         self.note = note
         self.pan = pan
         self.endPan = endPan
         self.chord = chord
+        self.completion = completion
     }
 }
 
@@ -41,7 +61,8 @@ public enum PipSounds {
     }
 
     /// The sounds for a batch of choreographer events. `previous` is the frame before them (for removed pips).
-    public static func requests(for events: [PipEvent], frame: PipsFrame, previous: PipsFrame) -> [SoundRequest] {
+    public static func requests(for events: [PipEvent], frame: PipsFrame, previous: PipsFrame,
+                                completion: CompletionSound = .pipChord) -> [SoundRequest] {
         func place(_ id: String) -> (slot: Int, slots: Int) {
             for f in [frame, previous] {
                 if let pip = f.pips.first(where: { $0.id == id }) {
@@ -66,7 +87,8 @@ public enum PipSounds {
             case let .removed(id): request(.remove, id)
             case .allDone:
                 SoundRequest(cue: .merge, note: 72, pan: 0,
-                             chord: frame.pips.sorted { $0.rank < $1.rank }.prefix(7).enumerated().map { note(slot: $0.offset) })
+                             chord: frame.pips.sorted { $0.rank < $1.rank }.prefix(7).enumerated().map { note(slot: $0.offset) },
+                             completion: completion)
             case .ringPop: nil   // the finish sound covers it
             }
         }
@@ -98,6 +120,30 @@ public enum PipSynth {
     static let glass = [Partial(ratio: 1, amp: 1, decay: 1), Partial(ratio: 2.76, amp: 0.05, decay: 0.3)]
     static let wood = [Partial(ratio: 1, amp: 1, decay: 1), Partial(ratio: 3.93, amp: 0.07, decay: 0.15)]
     static let pure = [Partial(ratio: 1, amp: 1, decay: 1)]
+    // Sound Lab v2's fuller timbres.
+    static let bell = [Partial(ratio: 1, amp: 1, decay: 1), Partial(ratio: 2, amp: 0.32, decay: 0.55),
+                       Partial(ratio: 3.01, amp: 0.1, decay: 0.32), Partial(ratio: 4.17, amp: 0.04, decay: 0.18)]
+    static let glassFull = [Partial(ratio: 1, amp: 1, decay: 1), Partial(ratio: 2.76, amp: 0.14, decay: 0.4),
+                            Partial(ratio: 5.4, amp: 0.04, decay: 0.18)]
+    static let woodFull = [Partial(ratio: 1, amp: 1, decay: 1), Partial(ratio: 3.93, amp: 0.22, decay: 0.18),
+                           Partial(ratio: 9.2, amp: 0.05, decay: 0.06)]
+
+    /// When the completed moment visually releases: 0.42s of design time at the animation's half speed.
+    public static let completionRelease = Double(0.42 / OrbAnimator.completionSpeed)
+
+    /// A filtered-noise swell (the design's `air`).
+    struct Air {
+        var start: Double
+        var volume: Float = 0.05
+        var attack = 0.3
+        var hold = 0.0
+        var decay = 0.6
+        var freq = 600.0
+        var freqTo: Double?
+        var bandpass = false
+        var q = 0.7
+        var pan: Float = 0
+    }
 
     struct Voice {
         var start: Double
@@ -164,10 +210,12 @@ public enum PipSynth {
         var b0 = 1.0, b1 = 0.0, b2 = 0.0, a1 = 0.0, a2 = 0.0
         var x1 = 0.0, x2 = 0.0, y1 = 0.0, y2 = 0.0
 
-        mutating func set(lowpass: Bool, frequency f: Double, q: Double, sampleRate sr: Double) {
+        mutating func set(lowpass: Bool, frequency f: Double, q: Double, sampleRate sr: Double, bandpass: Bool = false) {
             let w = 2 * .pi * min(f, sr * 0.45) / sr, alpha = sin(w) / (2 * q), c = cos(w)
             let a0 = 1 + alpha
-            if lowpass {
+            if bandpass {
+                b0 = alpha / a0; b1 = 0; b2 = -alpha / a0
+            } else if lowpass {
                 b0 = (1 - c) / 2 / a0; b1 = (1 - c) / a0; b2 = b0
             } else {
                 b0 = (1 + c) / 2 / a0; b1 = -(1 + c) / a0; b2 = b0
@@ -204,6 +252,88 @@ public enum PipSynth {
         }
     }
 
+    static func add(_ air: Air, to mix: Mix, sampleRate sr: Double) {
+        var filter = Biquad()
+        var seed: UInt32 = 0x2545_F491
+        let (gl, gr) = panGains(air.pan)
+        let rampEnd = air.attack + air.hold
+        let total = air.attack + air.hold + air.decay * 1.3
+        let startIndex = Int(air.start * sr)
+        for i in 0..<Int(total * sr) {
+            let index = startIndex + i
+            guard index < mix.dryL.count else { break }
+            let t = Double(i) / sr
+            if i % 32 == 0 {
+                let f = air.freqTo.map { air.freq * pow($0 / air.freq, min(t / rampEnd, 1)) } ?? air.freq
+                filter.set(lowpass: true, frequency: f, q: air.q, sampleRate: sr, bandpass: air.bandpass)
+            }
+            seed = seed &* 1_664_525 &+ 1_013_904_223
+            let noise = Double(seed) / Double(UInt32.max) * 2 - 1
+            let env: Double = t < air.attack ? t / air.attack
+                : t < rampEnd ? 1 : exp(-(t - rampEnd) / (air.decay / 4))
+            let s = Float(filter.process(noise) * env) * air.volume
+            mix.dryL[index] += s * gl; mix.dryR[index] += s * gr
+            mix.wetL[index] += s * gl; mix.wetR[index] += s * gr
+        }
+    }
+
+    /// The all-done sound. Every option lands its main hit on the visual release.
+    static func completion(_ r: SoundRequest) -> (voices: [Voice], air: [Air]) {
+        let rel = completionRelease
+        switch r.completion {
+        case .pipChord:
+            let chord = r.chord.isEmpty ? [64, 67, 69] : r.chord
+            let notes: [Voice] = chord.enumerated().map {
+                Voice(start: Double($0.offset) * 0.05, freq: hz($0.element), volume: 0.038, decay: 1.6, attack: 0.02, partials: glass)
+            }
+            return (notes + [
+                Voice(start: rel, freq: 98, glideTo: 55, glideTime: 0.3, volume: 0.18, decay: 0.6, attack: 0.012,
+                      partials: pure, detuneCents: 0, wet: 0.25),
+                Voice(start: rel, freq: hz(76), volume: 0.1, decay: 2, attack: 0.01, pan: -0.15, partials: glass),
+                Voice(start: rel + 0.1, freq: hz(83), volume: 0.08, decay: 2.2, attack: 0.01, pan: 0.15, partials: glass),
+                Voice(start: rel + 0.1, freq: hz(64), volume: 0.06, decay: 2.4, attack: 0.03, partials: soft)
+            ], [])
+        case .glass:
+            return ([Voice(start: rel, freq: hz(76), volume: 0.16, decay: 2, pan: -0.18, partials: glassFull),
+                     Voice(start: rel + 0.1, freq: hz(83), volume: 0.13, decay: 2.2, pan: 0.18, partials: glassFull)], [])
+        case .arpeggio:
+            var run: [Voice] = []
+            for (i, n) in [72, 76, 79, 83, 88].enumerated() {
+                let step = Double(i), level = Float(i)
+                run.append(Voice(start: rel + step * 0.065, freq: hz(n), volume: 0.1 * (1 - level * 0.08),
+                                 decay: 1.3 + step * 0.15, pan: -0.5 + level * 0.25, partials: bell))
+            }
+            return (run, [])
+        case .bloom:
+            let swell = Air(start: rel - 0.4, volume: 0.05, attack: 0.4, decay: 0.15, freq: 350, freqTo: 2400, bandpass: true, q: 0.9)
+            let thumpPartials = [Partial(ratio: 1, amp: 1, decay: 1), Partial(ratio: 2, amp: 0.25, decay: 0.5)]
+            var bloom: [Voice] = [Voice(start: rel, freq: 110, glideTo: 52, glideTime: 0.3, volume: 0.34, decay: 0.7,
+                                        partials: thumpPartials, detuneCents: 0, wet: 0.25)]
+            for (i, n) in [84, 88, 91, 95, 96, 100].enumerated() {
+                let pan: Float = i % 2 == 1 ? 0.4 : -0.4
+                bloom.append(Voice(start: rel + 0.05 + Double(i) * 0.045, freq: hz(n), volume: 0.03, decay: 0.9,
+                                   pan: pan, partials: glassFull))
+            }
+            return (bloom, [swell])
+        case .marimba:
+            let knocks: [(note: Int, delay: Double, pan: Float)] = [(67, 0, -0.25), (72, 0.085, 0), (79, 0.17, 0.25)]
+            return (knocks.map {
+                Voice(start: rel + $0.delay, freq: hz($0.note), volume: 0.2, decay: 0.9, attack: 0.002, pan: $0.pan,
+                      partials: woodFull, detuneCents: 0, wet: 0.6)
+            }, [])
+        case .shimmer:
+            let cloud = [84, 88, 91, 95, 98, 100, 103]
+            var shimmer: [Voice] = [Voice(start: rel, freq: hz(72), volume: 0.06, decay: 2.4, partials: bell)]
+            for i in 0..<12 {
+                let step = Double(i)
+                let pan = Float(sin(step * 1.7) * 0.6)
+                shimmer.append(Voice(start: rel + step * 0.03, freq: hz(cloud[(i * 3) % cloud.count]), volume: 0.022,
+                                     decay: 1.4 + Double(i % 3) * 0.3, pan: pan, partials: glassFull, detuneCents: 7))
+            }
+            return (shimmer, [])
+        }
+    }
+
     static func voices(for r: SoundRequest) -> [Voice] {
         let n = r.note, pan = r.pan
         switch r.cue {
@@ -236,17 +366,7 @@ public enum PipSynth {
             return [Voice(start: 0, freq: hz(n), glideTo: hz(n - 7), glideTime: 0.14, volume: 0.04, decay: 0.35,
                           attack: 0.012, pan: pan, partials: soft, wet: 0.6)]
         case .merge:
-            let chord = r.chord.isEmpty ? [64, 67, 69] : r.chord
-            let release = 0.42
-            return chord.enumerated().map {
-                Voice(start: Double($0.offset) * 0.05, freq: hz($0.element), volume: 0.038, decay: 1.6, attack: 0.02, partials: glass)
-            } + [
-                Voice(start: release, freq: 98, glideTo: 55, glideTime: 0.3, volume: 0.18, decay: 0.6, attack: 0.012,
-                      partials: pure, detuneCents: 0, wet: 0.25),
-                Voice(start: release, freq: hz(76), volume: 0.1, decay: 2, attack: 0.01, pan: -0.15, partials: glass),
-                Voice(start: release + 0.1, freq: hz(83), volume: 0.08, decay: 2.2, attack: 0.01, pan: 0.15, partials: glass),
-                Voice(start: release + 0.1, freq: hz(64), volume: 0.06, decay: 2.4, attack: 0.03, partials: soft)
-            ]
+            return completion(r).voices
         }
     }
 
@@ -279,9 +399,12 @@ public enum PipSynth {
 
     public static func render(_ r: SoundRequest, sampleRate sr: Double) -> (left: [Float], right: [Float]) {
         let vs = voices(for: r)
-        let length = max(vs.map(\.end).max() ?? 0, r.cue == .slide ? 0.42 : 0) + 1.2   // + reverb tail
+        let airs = r.cue == .merge ? completion(r).air : []
+        let airEnd = airs.map { $0.start + $0.attack + $0.hold + $0.decay * 1.3 }.max() ?? 0
+        let length = max(vs.map(\.end).max() ?? 0, r.cue == .slide ? 0.42 : 0, airEnd) + 1.2   // + reverb tail
         let mix = Mix(count: Int(length * sr))
         for v in vs { add(v, to: mix, sampleRate: sr) }
+        for a in airs { add(a, to: mix, sampleRate: sr) }
         if r.cue == .slide { addSlide(r, to: mix, sampleRate: sr) }
         let wetL = reverb(mix.wetL, sampleRate: sr, spread: 0)
         let wetR = reverb(mix.wetR, sampleRate: sr, spread: 0.0011)

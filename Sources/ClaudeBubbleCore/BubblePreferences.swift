@@ -28,14 +28,17 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var interaction: PointerInteraction
     /// Pip sounds on or off.
     public var sounds: Bool
+    /// What plays when every session finishes.
+    public var completionSound: CompletionSound
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
         diameter: OrbSize.defaultDiameter, opacity: 1, followPointer: false, relativeSpot: nil,
-        interaction: .attention, sounds: true)
+        interaction: .attention, sounds: true, completionSound: .pipChord)
 
     public init(palette: OrbPalette, presetName: String, customized: Bool, diameter: Double, opacity: Double,
-                followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction, sounds: Bool) {
+                followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction, sounds: Bool,
+                completionSound: CompletionSound) {
         self.palette = palette
         self.presetName = presetName
         self.customized = customized
@@ -45,6 +48,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         self.relativeSpot = relativeSpot
         self.interaction = interaction
         self.sounds = sounds
+        self.completionSound = completionSound
     }
 
     /// Missing keys (settings saved by an older version) take their defaults instead of resetting everything.
@@ -60,6 +64,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         relativeSpot = try c.decodeIfPresent([Double].self, forKey: .relativeSpot)
         interaction = (try? c.decodeIfPresent(PointerInteraction.self, forKey: .interaction)) ?? d.interaction
         sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? d.sounds
+        completionSound = (try? c.decodeIfPresent(CompletionSound.self, forKey: .completionSound)) ?? d.completionSound
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {

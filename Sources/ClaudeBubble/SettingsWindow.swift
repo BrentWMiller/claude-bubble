@@ -3,8 +3,8 @@ import ClaudeBubbleCore
 import SwiftUI
 
 final class SettingsWindowController: NSWindowController {
-    convenience init(settings: SettingsModel) {
-        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(settings: settings)))
+    convenience init(settings: SettingsModel, preview: @escaping (CompletionSound) -> Void) {
+        let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(settings: settings, preview: preview)))
         window.title = "Claude Bubble Settings"
         window.styleMask = [.titled, .closable]
         window.setContentSize(NSSize(width: 440, height: 600))
@@ -22,6 +22,7 @@ final class SettingsWindowController: NSWindowController {
 
 struct SettingsView: View {
     @ObservedObject var settings: SettingsModel
+    let preview: (CompletionSound) -> Void
 
     var body: some View {
         Form {
@@ -62,6 +63,13 @@ struct SettingsView: View {
             }
             Section("Sound") {
                 Toggle("Play sounds", isOn: $settings.prefs.sounds)
+                HStack {
+                    Picker("Completion sound", selection: $settings.prefs.completionSound) {
+                        ForEach(CompletionSound.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    Button { preview(settings.prefs.completionSound) } label: { Image(systemName: "play.fill") }
+                        .help("Preview")
+                }
             }
             Section("Display") {
                 Toggle("Follow the pointer to other displays",
