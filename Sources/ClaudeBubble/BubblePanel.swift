@@ -64,10 +64,16 @@ final class BubblePanel: NSPanel {
         set { orbView.onClick = newValue }
     }
 
-    /// Only user drags (not programmatic moves) report here, so follow's shared spot never drifts.
-    var onDragEnded: (() -> Void)? {
-        get { orbView.onDragEnded }
-        set { orbView.onDragEnded = newValue }
+    /// Reports moves the user made (dragging, Reset Position) — not the app's own follow/resize moves,
+    /// so follow's shared spot never drifts.
+    var onUserMoved: ((CGRect) -> Void)?
+    /// Origin of a move the app itself started; the matching didMove is ignored.
+    private var expectedOrigin: CGPoint?
+
+    /// Move the panel without it counting as a user move.
+    func move(to origin: CGPoint) {
+        expectedOrigin = origin
+        setFrameOrigin(origin)
     }
 
     func setRendering(_ on: Bool) { orbView.isPaused = !on }
@@ -86,6 +92,7 @@ final class BubblePanel: NSPanel {
         if let visible = Self.screen(containing: centre)?.visibleFrame {
             target.origin = RelativePlacement.origin(for: RelativePlacement.spot(of: target, in: visible), side: side, in: visible)
         }
+        expectedOrigin = target.origin
         setFrame(target, display: true)
         layoutPips()
     }
@@ -101,12 +108,18 @@ final class BubblePanel: NSPanel {
 
     @objc private func didMove() {
         UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
+        if let expected = expectedOrigin, abs(expected.x - frame.origin.x) < 0.5, abs(expected.y - frame.origin.y) < 0.5 {
+            expectedOrigin = nil
+            return
+        }
+        expectedOrigin = nil
+        onUserMoved?(frame)
     }
 
     /// A display was unplugged or rearranged: pull the bubble back on screen if it was stranded.
     @objc private func screensChanged() {
         let origin = Self.placement(for: frame.origin, side: frame.width)
-        if origin != frame.origin { setFrameOrigin(origin) }
+        if origin != frame.origin { move(to: origin) }
     }
 
     private static func initialOrigin(side: CGFloat) -> CGPoint {

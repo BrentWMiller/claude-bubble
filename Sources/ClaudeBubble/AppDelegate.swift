@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
         panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
-        panel.onDragEnded = { [weak self] in self?.rememberSpot() }
+        panel.onUserMoved = { [weak self] _ in self?.rememberSpot() }
         settings.currentSpot = { [weak self] in self?.currentSpot() }
         // @Published fires before storing; apply on the next run-loop turn so reads and writes see the new value.
         settingsSubscription = settings.$prefs.dropFirst().receive(on: RunLoop.main).sink { [weak self] prefs in self?.apply(prefs) }
@@ -179,7 +179,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return RelativePlacement.spot(of: frame, in: visible)
     }
 
-    /// After the user drags the orb while following, that spot becomes the shared one.
+    /// Wherever the user puts the orb while following becomes the shared spot for every display.
     private func rememberSpot() {
         guard applied.followPointer, let spot = currentSpot() else { return }
         let stored = [Double(spot.x), Double(spot.y)]
@@ -199,7 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             animator.vanish()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
                 guard let self else { return }
-                self.panel.setFrameOrigin(origin)
+                self.panel.move(to: origin)
                 self.animator.appear()
                 self.swappingDisplays = false
             }
