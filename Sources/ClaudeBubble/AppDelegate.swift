@@ -68,7 +68,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         listPanel = SessionListPanel(model: model) { [weak self] in
             self?.focusTerminal()
             self?.hover.dismiss()
-            self?.listPanel.orderOut(nil)
+            self?.listPanel.popOut()
         }
         startHoverTracking()
         listPanel.bubble = panel
@@ -273,7 +273,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             animator.pull(towards: SIMD2(Float(p.x - centre.x), Float(centre.y - p.y)))   // view is y-down
         }
         // The session list can overlap the pip arc; when the pointer is in the list, the list wins.
-        let overList = listPanel.isVisible && listPanel.frame.contains(mouse)
+        let overList = listPanel.isShown && listPanel.frame.contains(mouse)
         let hit = bubbleHidden || !model.present || overList ? nil : PipArc.hit(local, frame: frame, centre: centre, radius: radius)
         if hit != model.hoveredPip {
             model.hoveredPip = hit
@@ -341,7 +341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if placements != toastModel.placements { toastModel.placements = placements }
         if flipped != toastModel.flipped { toastModel.flipped = flipped }
         // The hover list already shows every session; toasts step aside while it's open.
-        if listPanel.isVisible || toasts.isEmpty {
+        if listPanel.isShown || toasts.isEmpty {
             if toastPanel.isVisible { toastPanel.orderOut(nil) }
         } else {
             toastPanel.show(at: frame)
@@ -443,14 +443,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         animator.setPointer(offset: PointerProximity.offset(mouse: mouse, centre: centre, radius: radius),
                             closeness: bubbleHidden ? 0 : PointerProximity.closeness(mouse: mouse, centre: centre, radius: radius))
         let open = hover.update(overOrb: !bubbleHidden && BubblePlacement.isOverOrb(mouse, panelFrame: panel.frame),
-                                overList: listPanel.isVisible && listPanel.frame.contains(mouse),
+                                overList: listPanel.isShown && listPanel.frame.contains(mouse),
                                 hasContent: !bubbleHidden && !model.sessions.isEmpty,
                                 now: CACurrentMediaTime())
-        if open, CACurrentMediaTime() - lastTodayRefresh > (listPanel.isVisible ? 30 : 0) { refreshToday() }
-        if open, !listPanel.isVisible {
+        if open, CACurrentMediaTime() - lastTodayRefresh > (listPanel.isShown ? 30 : 0) { refreshToday() }
+        if open, !listPanel.isShown {
             listPanel.show(near: panel.frame)
-        } else if !open, listPanel.isVisible {
-            listPanel.orderOut(nil)
+        } else if !open, listPanel.isShown {
+            listPanel.popOut()
         }
     }
 
@@ -524,7 +524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func showOrbMenu(with event: NSEvent, in view: NSView) {
         hover.dismiss()
-        listPanel.orderOut(nil)
+        listPanel.popOut()
         let menu = NSMenu()
         makeQuickSettingsItems().forEach(menu.addItem)
         menu.addItem(.separator())

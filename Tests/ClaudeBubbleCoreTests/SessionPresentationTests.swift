@@ -138,4 +138,32 @@ final class SessionPresentationTests: XCTestCase {
         XCTAssertEqual(tone(.idle, detail: "Completed"), .completed)
         XCTAssertEqual(tone(.idle, detail: "Idle"), .idle, "went quiet without finishing")
     }
+
+    // Hover card pop-in / pop-out
+    func testCardPopsInFromTheOrb() {
+        let start = CardMotion.appear(age: 0)
+        XCTAssertEqual(start.opacity, 0); XCTAssertEqual(start.reveal, 0); XCTAssertEqual(start.offset, 8)
+        XCTAssertEqual(start.scale, 0.96, accuracy: 0.001)
+        let mid = CardMotion.appear(age: 0.2)
+        XCTAssertGreaterThan(mid.opacity, 0.3); XCTAssertLessThan(mid.reveal, 1)
+        let done = CardMotion.appear(age: 0.5)
+        XCTAssertEqual(done.opacity, 1); XCTAssertEqual(done.reveal, 1); XCTAssertEqual(done.offset, 0)
+        XCTAssertEqual(done.scale, 1, accuracy: 0.001)
+        XCTAssertGreaterThan((0...45).map { CardMotion.appear(age: Double($0) / 100).scale }.max()!, 1, "a slight overshoot")
+    }
+
+    func testRowsCascade() {
+        XCTAssertEqual(CardMotion.row(0, age: 0.05), 0)
+        XCTAssertGreaterThan(CardMotion.row(0, age: 0.2), CardMotion.row(1, age: 0.2), "earlier rows lead")
+        XCTAssertEqual(CardMotion.row(4, age: 1), 1)
+    }
+
+    func testCardTucksAwayQuickly() {
+        XCTAssertEqual(CardMotion.disappear(age: 0).opacity, 1)
+        let gone = CardMotion.disappear(age: CardMotion.hideDuration)
+        XCTAssertEqual(gone.opacity, 0); XCTAssertEqual(gone.reveal, 0)
+        XCTAssertEqual(gone.scale, 0.97, accuracy: 0.001)
+        XCTAssertEqual(gone.offset, 6, accuracy: 0.001, "slips back toward the orb")
+        XCTAssertEqual(CardMotion.hideDuration, 0.22)
+    }
 }

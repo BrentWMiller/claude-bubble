@@ -130,6 +130,8 @@ struct SessionRow: View {
     let snapshot: NSImage?
     let palette: OrbPalette
     let highlighted: Bool
+    /// 0 → 1 as the row cascades in (text decodes like a toast); 1 when settled.
+    var entrance: Double = 1
 
     var body: some View {
         HStack(spacing: 12) {
@@ -142,7 +144,8 @@ struct SessionRow: View {
             }
             .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.displayName)
+                Text(entrance < 1 ? ToastDecode.text(session.displayName, progress: entrance, seed: session.id.hashValue & 0xffff,
+                                                     tick: Int(CACurrentMediaTime() / 0.045)) : session.displayName)
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
@@ -170,31 +173,73 @@ struct SessionRow: View {
         .padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(highlighted ? 0.06 : 0)))
         .contentShape(Rectangle())
+        .opacity(entrance)
+        .offset(x: (1 - entrance) * 6)
     }
+}
+
+/// When the hover card opened or started closing, and which edge faces the orb.
+final class CardMotionModel: ObservableObject {
+    @Published var shownAt: Double = 0
+    @Published var hiddenAt: Double?
+    /// The card hangs below the orb, so it unfolds from its top edge.
+    @Published var fromTop = true
 }
 
 struct SessionListView: View {
     @ObservedObject var model: SessionsModel
+    @ObservedObject var motion: CardMotionModel
     let onSelect: () -> Void
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(spacing: 2) {
-                ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
-                    SessionRow(session: session, now: context.date, snapshot: model.snapshots[session.state],
-                               palette: model.palette, highlighted: index == 0)
-                        .onTapGesture(perform: onSelect)
-                }
-                if let today = model.today {
-                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
-                    TodayFooter(summary: today)
-                }
-            }
-            .padding(8)
+        // Animate at display rate while popping in or out, otherwise just tick the timers once a second.
+        let settled = motion.hiddenAt == nil && CACurrentMediaTime() - motion.shownAt > 0.9
+        TimelineView(.animation(minimumInterval: settled ? 1 : nil, paused: false)) { context in
+            let now = CACurrentMediaTime()
+            let age = now - motion.shownAt
+            let pose = motion.hiddenAt.map { CardMotion.disappear(age: now - $0) } ?? CardMotion.appear(age: age)
+            card(now: context.date, age: motion.hiddenAt == nil ? age : 10)
+                .mask { CardReveal(reveal: pose.reveal, fromTop: motion.fromTop) }
+                .scaleEffect(pose.scale, anchor: motion.fromTop ? .top : .bottom)
+                .offset(y: (motion.fromTop ? -1 : 1) * pose.offset)
+                .opacity(pose.opacity)
         }
+    }
+
+    private func card(now: Date, age: Double) -> some View {
+        VStack(spacing: 2) {
+            ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
+                SessionRow(session: session, now: now, snapshot: model.snapshots[session.state],
+                           palette: model.palette, highlighted: index == 0, entrance: CardMotion.row(index, age: age))
+                    .onTapGesture(perform: onSelect)
+            }
+            if let today = model.today {
+                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
+                TodayFooter(summary: today)
+            }
+        }
+        .padding(8)
         .frame(width: 290)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x17 / 255, green: 0x16 / 255, blue: 0x1c / 255).opacity(0.96)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
+    }
+}
+
+/// The card's reveal: an ellipse centred on the edge facing the orb, growing until it covers the whole card.
+private struct CardReveal: View {
+    let reveal: Double
+    let fromTop: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            if reveal >= 1 {
+                Rectangle()
+            } else {
+                Ellipse()
+                    .frame(width: geo.size.width * 2.4 * reveal, height: geo.size.height * 2.6 * reveal)
+                    .position(x: geo.size.width / 2, y: fromTop ? 0 : geo.size.height)
+            }
+        }
     }
 }
 
