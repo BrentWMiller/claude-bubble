@@ -21,11 +21,11 @@ final class BubblePanel: NSPanel {
         hasShadow = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
-        // Pips sit in the bottom margin below the orb (the orb's lowest edge is 20% up); clicks pass through them.
+        // Pips sit on an arc under the orb (see ArcPipsView); clicks pass through, hover is computed from pointer math.
         let container = NSView(frame: NSRect(x: 0, y: 0, width: side, height: side))
         orbView.autoresizingMask = [.width, .height]
         container.addSubview(orbView)
-        let pips = PassthroughHostingView(rootView: PipsView(model: model))
+        let pips = PassthroughHostingView(rootView: ArcPipsView(model: model))
         container.addSubview(pips)
         self.pips = pips
         contentView = container
@@ -102,9 +102,9 @@ final class BubblePanel: NSPanel {
         layoutPips()
     }
 
+    /// The pip arc is laid out in the full panel; its view scales with the orb size.
     private func layoutPips() {
-        let side = frame.width
-        pips.frame = NSRect(x: 0, y: side * 0.033, width: side, height: min(14, side * 0.17))
+        pips.frame = NSRect(x: 0, y: 0, width: frame.width, height: frame.width)
     }
 
     static func screen(containing point: CGPoint) -> NSScreen? {

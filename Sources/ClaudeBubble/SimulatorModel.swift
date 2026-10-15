@@ -1,0 +1,71 @@
+import ClaudeBubbleCore
+import Combine
+import Foundation
+
+/// Fake sessions for the Session Simulator. While its window is open they replace the real sessions
+/// everywhere (orb, pips, list); they never touch the session files.
+final class SimulatorModel: ObservableObject {
+    struct Sim: Identifiable, Equatable {
+        let id: Int
+        let name: String
+        var state: BubbleState
+        var since: Date
+    }
+
+    @Published private(set) var sessions: [Sim] = []
+    @Published var isOpen = false
+    private var nextId = 0
+    private var storyWork: [DispatchWorkItem] = []
+
+    @discardableResult
+    func add(_ name: String? = nil, state: BubbleState = .working) -> Int {
+        let id = nextId
+        nextId += 1
+        let pool = SimulatorStory.namePool
+        sessions.append(Sim(id: id, name: name ?? pool[id % pool.count], state: state, since: Date()))
+        return id
+    }
+
+    func set(_ id: Int, _ state: BubbleState) {
+        guard let i = sessions.firstIndex(where: { $0.id == id }), sessions[i].state != state else { return }
+        sessions[i].state = state
+        sessions[i].since = Date()
+    }
+
+    func remove(_ id: Int) {
+        sessions.removeAll { $0.id == id }
+    }
+
+    func reset() {
+        storyWork.forEach { $0.cancel() }
+        storyWork = []
+        sessions = []
+        nextId = 0
+    }
+
+    /// The design's scripted 14-second story.
+    func playStory() {
+        reset()
+        var added: [Int] = []
+        for step in SimulatorStory.steps {
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                switch step.action {
+                case let .add(name, state): added.append(self.add(name, state: state))
+                case let .set(index, state) where added.indices.contains(index): self.set(added[index], state)
+                case .set: break
+                }
+            }
+            storyWork.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + step.at, execute: work)
+        }
+    }
+
+    /// As real-looking sessions, for the rest of the app.
+    var asSessions: [Session] {
+        sessions.map {
+            Session(id: "sim-\($0.id)", state: $0.state, updatedAt: Date(), project: $0.name,
+                    detail: SimulatorStory.detail(for: $0.state), stateSince: $0.since, title: $0.name)
+        }
+    }
+}

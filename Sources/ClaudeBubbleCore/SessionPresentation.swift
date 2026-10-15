@@ -1,25 +1,6 @@
 import CoreGraphics
 import Foundation
 
-public enum PipLayout {
-    public struct Result: Equatable, Sendable {
-        public let states: [BubbleState]
-        public let overflow: Int
-        public init(states: [BubbleState], overflow: Int) {
-            self.states = states
-            self.overflow = overflow
-        }
-    }
-
-    /// One pip per session, most urgent first; a single session needs no pips.
-    public static func pips(for sessions: [Session], max: Int = 6) -> Result {
-        guard sessions.count >= 2 else { return Result(states: [], overflow: 0) }
-        let states = SessionStore.sorted(sessions).map(\.state)
-        guard states.count > max else { return Result(states: states, overflow: 0) }
-        return Result(states: Array(states.prefix(max - 1)), overflow: states.count - (max - 1))
-    }
-}
-
 public enum ElapsedFormat {
     public static func string(_ seconds: TimeInterval) -> String {
         let s = Int(Swift.max(0, seconds))

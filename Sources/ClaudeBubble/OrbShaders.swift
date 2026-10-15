@@ -10,6 +10,7 @@ struct Uniforms {
     float4 b;   // glitch, wave, bright, pointSize
     float4 c;   // resX, resY, shiftX, unused
     float4 d;   // pointer offset x, y (radii, ≤ 1), attention, completion time (s; < 0 = not playing)
+    float4 e;   // ring pop time (s; < 0 = not playing), unused ×3
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -70,6 +71,15 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
         col += exp(-d1 * d1) * a1 * 1.3 + exp(-d2 * d2) * a2;
         float fl = step(.42, dT) * exp(-(dT - .42) * 3.);
         col += float3(1., .97, .95) * fl * .35 * (1. - smoothstep(0., R * 1.3, r));
+    }
+    // Ring pop (one session finished while others carry on): a single chromatic ring easing out.
+    float pT = u.e.x;
+    if (pT >= 0.) {
+        float lp1 = clamp(pT / 1.1, 0., 1.);
+        float ep = 1. - pow(1. - lp1, 3.);
+        float3 off = float3(.007, 0., -.007);
+        float3 dp = (float3(r) - (R * (1.02 + ep * .5) + off * ep)) / (.006 + .012 * ep);
+        col += exp(-dp * dp) * pow(1. - lp1, 1.6) * 1.1;
     }
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
     col *= 1. - smoothstep(.36, .5, r);
@@ -150,6 +160,13 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float sheen = hasD * step(.95, dT) * step(dT, 2.25) * exp(-band2 * band2 * 22.) * front;
     c = mix(c, float3(1.), sheen * .7);
     b += sheen * .9;
+    // Ring pop: just the sheen, sooner.
+    float pT = u.e.x;
+    float psweep = smoothstep(0., 1., (pT - .15) / 1.1);
+    float pband = dot(p.xy, float2(.83, .55)) - mix(-1.3, 1.3, psweep);
+    float psheen = step(.15, pT) * step(pT, 1.25) * exp(-pband * pband * 22.) * front;
+    c = mix(c, float3(1.), psheen * .6);
+    b += psheen * .8;
     o.color = c * b * bright;
     o.size = pt * (1. + p.z * .5) * (1. + flash * .6);
     return o;
@@ -174,4 +191,5 @@ struct OrbUniforms {
     var b: SIMD4<Float>
     var c: SIMD4<Float>
     var d: SIMD4<Float>
+    var e: SIMD4<Float>
 }

@@ -11,4 +11,8 @@ final class SessionsModel: ObservableObject {
     @Published var present = false
     /// Today's working time and session count, refreshed while the list is open.
     @Published var today: DailyActivity.Summary?
+    /// The pip arc's current choreography frame.
+    @Published var pips: PipsFrame = .empty
+    /// The session whose pip the pointer is on.
+    @Published var hoveredPip: String?
 }

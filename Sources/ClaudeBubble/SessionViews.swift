@@ -27,32 +27,82 @@ extension BubbleState {
     }
 }
 
-struct PipsView: View {
+/// Session pips on an arc under the orb, choreographed by `PipChoreographer` (spawn, hop, shake, flare, merge).
+struct ArcPipsView: View {
     @ObservedObject var model: SessionsModel
 
     var body: some View {
-        let layout = PipLayout.pips(for: model.sessions)
-        HStack(spacing: 5) {
-            ForEach(Array(layout.states.enumerated()), id: \.offset) { _, state in
-                Circle()
-                    .fill(state.color(in: model.palette))
-                    .frame(width: 6, height: 6)
-                    .shadow(color: state.color(in: model.palette).opacity(0.8), radius: 3)
-                    .transition(.scale.combined(with: .opacity))
-            }
-            if layout.overflow > 0 {
-                Text("+\(layout.overflow)")
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.7))
-                    .transition(.scale.combined(with: .opacity))
+        GeometryReader { geo in
+            let side = geo.size.width
+            let centre = CGPoint(x: side / 2, y: side / 2)
+            let radius = side * 0.3 * PipArc.radiusScale
+            let frame = model.pips
+            ZStack {
+                ForEach(frame.pips, id: \.id) { pip in
+                    PipDot(pip: pip, frame: frame, centre: centre, radius: radius,
+                           color: pip.state.color(in: model.palette), hovered: model.hoveredPip == pip.id)
+                }
+                if frame.overflow > 0 {
+                    Text("+\(frame.overflow)")
+                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                        .position(PipArc.position(slot: frame.slots - 1, slots: frame.slots, centre: centre, radius: radius))
+                        .opacity(frame.merged ? 0 : 1)
+                        .animation(.easeOut(duration: 0.3), value: frame.merged)
+                }
             }
         }
-        .scaleEffect(model.present ? 1 : 0.2)
-        .opacity(model.present ? 1 : 0)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: layout)
-        // Spring in alongside the orb's overshoot; drop out as fast as the orb vanishes.
+        .opacity(model.present && model.pips.visible ? 1 : 0)
         .animation(model.present ? .spring(response: 0.45, dampingFraction: 0.5) : .easeIn(duration: 0.15), value: model.present)
+    }
+}
+
+private struct PipDot: View {
+    let pip: PipFrame
+    let frame: PipsFrame
+    let centre: CGPoint
+    let radius: CGFloat
+    let color: Color
+    let hovered: Bool
+
+    var body: some View {
+        let position = pip.atCenter || pip.slot == nil
+            ? centre : PipArc.position(slot: pip.slot!, slots: frame.slots, centre: centre, radius: radius)
+        let scale: CGFloat = pip.atCenter ? 0.15 : pip.flaring ? 2.4 : pip.hopping ? 1.45 : hovered ? 1.3 : 1
+        Circle()
+            .fill(pip.flaring ? Color.white : color)
+            .frame(width: 6, height: 6)
+            .overlay(Circle().stroke(color, lineWidth: 1.2).padding(-2.5).opacity(hovered ? 1 : 0))
+            .shadow(color: pip.flaring ? .white : color.opacity(0.8), radius: pip.flaring ? 6 : 3)
+            .scaleEffect(scale)
+            .offset(x: pip.shake, y: pip.hopping ? -9 : 0)
+            .opacity(pip.slot == nil || frame.merged ? 0 : 1)
+            .position(position)
+            // Merging is pulled in, staggered by rank; everything else springs into place.
+            .animation(frame.merged ? .easeIn(duration: 0.45).delay(Double(pip.rank) * 0.05)
+                                    : .spring(response: 0.6, dampingFraction: 0.62), value: position)
+            .animation(frame.merged ? .easeIn(duration: 0.45).delay(Double(pip.rank) * 0.05) : .easeOut(duration: 0.35),
+                       value: frame.merged)
+            .animation(pip.shake != 0 ? .linear(duration: 0.05) : .spring(response: 0.32, dampingFraction: 0.5), value: pip.shake)
+            .animation(.spring(response: 0.32, dampingFraction: 0.45), value: scale)
+            .animation(.easeOut(duration: 0.4), value: pip.flaring)
+    }
+}
+
+/// The peek card shown under a hovered pip.
+struct PipCardView: View {
+    let session: Session
+    @ObservedObject var model: SessionsModel
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            SessionRow(session: session, now: context.date, snapshot: model.snapshots[session.state],
+                       palette: model.palette, highlighted: false)
+        }
+        .padding(4)
+        .frame(width: 250)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(red: 0x17 / 255, green: 0x16 / 255, blue: 0x1c / 255).opacity(0.96)))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.white.opacity(0.08), lineWidth: 1))
     }
 }
 

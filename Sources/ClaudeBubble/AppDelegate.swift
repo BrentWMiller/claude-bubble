@@ -21,6 +21,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hover = HoverTracker()
     private var hoverTimer: Timer?
     private var liveState: BubbleState = .idle
+    /// What the session watcher last reported; the simulator can stand in for it.
+    private var watchedState: BubbleState = .idle
+    private var watchedSessions: [Session] = []
+    private let simulator = SimulatorModel()
+    private var simulatorWindow: SimulatorWindowController?
+    private var simulatorSubscription: AnyCancellable?
+    private let choreographer = PipChoreographer()
+    private var pipCard: PipCardPanel!
     private var forcedState: BubbleState?
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggleBubble), keyEquivalent: "")
     private var debugItems: [NSMenuItem] = []
@@ -54,11 +62,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         startHoverTracking()
         refreshInstalledHook()
         setUpStatusItem()
+        pipCard = PipCardPanel(model: model)
         watcher = SessionWatcher(directory: SessionStore.defaultDirectory) { [weak self] state, sessions in
-            self?.liveState = state
-            self?.model.sessions = sessions
-            self?.applyState()
+            self?.watchedState = state
+            self?.watchedSessions = sessions
+            self?.syncSessions()
         }
+        simulatorSubscription = simulator.objectWillChange.receive(on: RunLoop.main).sink { [weak self] in self?.syncSessions() }
         watcher.start()
         updateVisibility()
         applyState()
@@ -92,6 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             debug.addItem(it)
             debugItems.append(it)
         }
+        debug.addItem(.separator())
+        debug.addItem(item("Session Simulator…", #selector(openSimulator)))
         let debugItem = NSMenuItem(title: "Debug", action: nil, keyEquivalent: "")
         debugItem.submenu = debug
         menu.addItem(debugItem)
@@ -106,9 +118,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return it
     }
 
-    private func applyState() {
-        let state = forcedState ?? liveState
-        animator.setState(state)
+    /// Real sessions, or the simulator's while its window is open.
+    private func syncSessions() {
+        if simulator.isOpen {
+            let sims = simulator.asSessions
+            model.sessions = sims
+            liveState = SessionStore.aggregate(sims)
+        } else {
+            model.sessions = watchedSessions
+            liveState = watchedState
+        }
+        applyState()
+    }
+
+    /// Hovering a pip previews that session's state on the orb, quietly (no celebration).
+    private var hoveredState: BubbleState? {
+        guard let id = model.hoveredPip, !model.pips.merged else { return nil }
+        return model.sessions.first { $0.id == id }?.state
+    }
+
+    private func applyState(quiet: Bool = false) {
+        let state = forcedState ?? hoveredState ?? liveState
+        animator.setState(state, quiet: quiet)
         statusItem.button?.image = Self.statusImage(for: state, palette: applied.palette)
         let selected = forcedState?.rawValue ?? "live"
         for it in debugItems { it.state = (it.representedObject as? String) == selected ? .on : .off }
@@ -172,6 +203,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let paletteChanged = prefs.palette != applied.palette
         applied = prefs
         if paletteChanged { applyState() }   // menu-bar icon color
+    }
+
+    /// Advances the pip choreography, reports finished sessions to the orb, and handles pip hover.
+    private func updatePips(mouse: CGPoint) {
+        let now = CACurrentMediaTime()
+        let events = choreographer.update(model.sessions.map { PipInput(id: $0.id, state: $0.state) }, now: now)
+        if events.contains(.ringPop) { animator.ringPop() }
+        let frame = choreographer.frame(now: now)
+        if frame != model.pips { model.pips = frame }
+
+        let side = panel.frame.width
+        let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y)   // y-down, like the view
+        let centre = CGPoint(x: side / 2, y: side / 2)
+        let radius = side * 0.3 * PipArc.radiusScale
+        let hit = bubbleHidden || !model.present ? nil : PipArc.hit(local, frame: frame, centre: centre, radius: radius)
+        if hit != model.hoveredPip {
+            model.hoveredPip = hit
+            applyState(quiet: true)
+        }
+        guard let id = hit, let pip = frame.pips.first(where: { $0.id == id }), let slot = pip.slot,
+              let session = model.sessions.first(where: { $0.id == id }) else {
+            if pipCard.isVisible { pipCard.hide() }
+            return
+        }
+        let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
+        pipCard.show(session, under: CGPoint(x: panel.frame.minX + p.x, y: panel.frame.maxY - p.y))
+    }
+
+    @objc private func openSimulator() {
+        if simulatorWindow == nil {
+            simulatorWindow = SimulatorWindowController(simulator: simulator) { [weak self] in self?.applied.palette ?? .agentsView }
+        }
+        simulatorWindow?.show()
     }
 
     /// Totals today's activity from the job timelines, off the main thread.
@@ -255,6 +319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateHover() {
         let mouse = NSEvent.mouseLocation
         followPointer(to: mouse)
+        updatePips(mouse: mouse)
         let centre = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
         let radius = panel.frame.width * 0.3
         animator.setPointer(offset: PointerProximity.offset(mouse: mouse, centre: centre, radius: radius),
@@ -354,6 +419,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             it.state = key == selected ? .on : .off
             menu.addItem(it)
         }
+        menu.addItem(.separator())
+        menu.addItem(item("Session Simulator…", #selector(openSimulator)))
         return menu
     }
 

@@ -8,23 +8,6 @@ final class SessionPresentationTests: XCTestCase {
         states.enumerated().map { Session(id: "\($0.offset)", state: $0.element, updatedAt: now) }
     }
 
-    // PipLayout
-    func testNoPipsForZeroOrOneSession() {
-        XCTAssertEqual(PipLayout.pips(for: []), .init(states: [], overflow: 0))
-        XCTAssertEqual(PipLayout.pips(for: sessions([.working])), .init(states: [], overflow: 0))
-    }
-
-    func testOnePipPerSessionSortedByUrgency() {
-        XCTAssertEqual(PipLayout.pips(for: sessions([.idle, .needs])), .init(states: [.needs, .idle], overflow: 0))
-        XCTAssertEqual(PipLayout.pips(for: sessions([.idle, .working, .error, .needs, .idle, .working])),
-                       .init(states: [.error, .needs, .working, .working, .idle, .idle], overflow: 0))
-    }
-
-    func testCollapsesPastSix() {
-        let nine = sessions([.idle, .idle, .idle, .working, .working, .needs, .error, .idle, .idle])
-        XCTAssertEqual(PipLayout.pips(for: nine), .init(states: [.error, .needs, .working, .working, .idle], overflow: 4))
-    }
-
     // ElapsedFormat
     func testElapsedFormats() {
         XCTAssertEqual(ElapsedFormat.string(-5), "0:00")
