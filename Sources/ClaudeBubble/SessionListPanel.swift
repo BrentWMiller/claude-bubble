@@ -32,10 +32,19 @@ final class SessionListPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
-    /// Keep the open list attached to the orb while it's dragged or moved.
+    /// Re-anchor after the orb has moved (flip above/below, stay on screen). While it's being dragged the list
+    /// rides along as a child window, so the window server moves both together, perfectly smoothly.
     func follow(_ bubbleFrame: CGRect) {
         guard isVisible, bubbleFrame != self.bubbleFrame else { return }
         show(near: bubbleFrame)
+    }
+
+    /// The orb's panel; the list is attached to it as a child window while open.
+    weak var bubble: NSWindow?
+
+    override func orderOut(_ sender: Any?) {
+        bubble?.removeChildWindow(self)
+        super.orderOut(sender)
     }
 
     func show(near bubbleFrame: CGRect) {
@@ -49,5 +58,6 @@ final class SessionListPanel: NSPanel {
                                                visibleFrame: visible)
         setFrame(frame, display: true)
         if !isVisible { orderFrontRegardless() }
+        if parent == nil { bubble?.addChildWindow(self, ordered: .above) }
     }
 }

@@ -11,6 +11,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsWindow: SettingsWindowController?
     private var pendingSnapshots: DispatchWorkItem?
     private var lastTodayRefresh: CFTimeInterval = 0
+    /// Re-anchors the list once a drag settles.
+    private var settleList: DispatchWorkItem?
     /// True while the orb is popping out of one display and into another.
     private var swappingDisplays = false
     private var panel: BubblePanel!
@@ -65,11 +67,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.listPanel.orderOut(nil)
         }
         startHoverTracking()
-        // The hover list rides along when the orb is dragged (didMove fires continuously during a drag).
+        listPanel.bubble = panel
+        // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
+        // re-anchor it (it may need to flip above/below or come back on screen).
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) { [weak self] _ in
             guard let self else { return }
-            self.listPanel.follow(self.panel.frame)
             if self.pipCard.isVisible { self.pipCard.hide() }
+            self.settleList?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                self.listPanel.follow(self.panel.frame)
+            }
+            self.settleList = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
         }
         refreshInstalledHook()
         setUpStatusItem()
