@@ -18,7 +18,7 @@ public struct OrbParams: Equatable, Sendable {
                       energy: energy, wave: wave, glow: glow, bright: bright, ring: ring, scale: scale, glitch: glitch)
         }
         switch state {
-        case .idle: return make(0.12, 0.08, 0.35, 0.5, 0.35, 0.72, 0)
+        case .idle: return make(0.12, 0.08, 0.8, 0.62, 0.95, 0.72, 0)   // glowy rest: bright rim, soft wide halo
         case .working: return make(1, 1, 1, 1, 1, 1, 0)
         case .needs: return make(0.22, 0.18, 0.85, 0.75, 0.9, 1, 0)
         case .error: return make(0.08, 0, 0.75, 0.8, 0.85, 0.9, 1)
