@@ -1,6 +1,30 @@
 import CoreGraphics
 import Foundation
 
+/// How a session's status line is coloured in the list, following the agents view's groups.
+public enum StatusTone: Equatable, Sendable {
+    /// Needs input or Ready for review (orange).
+    case attention
+    case error
+    case working
+    /// Finished (green).
+    case completed
+    /// Went quiet without finishing (grey).
+    case idle
+}
+
+extension Session {
+    public var tone: StatusTone {
+        if reviewReady { return .attention }
+        switch state {
+        case .needs: return .attention
+        case .error: return .error
+        case .working: return .working
+        case .idle: return detail == "Idle" ? .idle : .completed
+        }
+    }
+}
+
 public enum ElapsedFormat {
     public static func string(_ seconds: TimeInterval) -> String {
         let s = Int(Swift.max(0, seconds))
@@ -15,8 +39,8 @@ public enum ElapsedFormat {
 
 /// Open after resting on the orb, stay open while over orb or list, close shortly after leaving both.
 public struct HoverTracker {
-    public static let openDelay: Double = 0.3
-    public static let closeDelay: Double = 0.25
+    public static let openDelay: Double = 0.6
+    public static let closeDelay: Double = 0.35
 
     public private(set) var isOpen = false
     private var insideSince: Double?

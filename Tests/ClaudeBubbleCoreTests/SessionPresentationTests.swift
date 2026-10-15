@@ -21,74 +21,83 @@ final class SessionPresentationTests: XCTestCase {
         XCTAssertEqual(ElapsedFormat.string(86400 * 2 + 5), "2d")
     }
 
-    // HoverTracker
+    // HoverTracker (open after 0.6s resting on the orb, close 0.35s after leaving both)
+    let o = HoverTracker.openDelay, c = HoverTracker.closeDelay
+
+    func testDelays() {
+        XCTAssertEqual(HoverTracker.openDelay, 0.6)
+        XCTAssertEqual(HoverTracker.closeDelay, 0.35)
+    }
+
     func testOpensOnlyAfterTheDelay() {
         var h = HoverTracker()
         XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: 0))
-        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: 0.29))
-        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 0.31))
+        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: o - 0.01))
+        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: o + 0.01))
     }
 
     func testPassingOverDoesNotOpen() {
         var h = HoverTracker()
         _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)
-        _ = h.update(overOrb: false, overList: false, hasContent: true, now: 0.1)
-        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: 0.35))
+        _ = h.update(overOrb: false, overList: false, hasContent: true, now: 0.2)
+        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: o + 0.05))
     }
 
     func testMovingIntoTheListKeepsItOpen() {
         var h = HoverTracker()
         _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)
-        _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0.4)
-        XCTAssertTrue(h.update(overOrb: false, overList: true, hasContent: true, now: 1.0))
-        XCTAssertTrue(h.update(overOrb: false, overList: true, hasContent: true, now: 5.0))
+        _ = h.update(overOrb: true, overList: false, hasContent: true, now: o + 0.1)
+        XCTAssertTrue(h.update(overOrb: false, overList: true, hasContent: true, now: o + 0.5))
+        XCTAssertTrue(h.update(overOrb: false, overList: true, hasContent: true, now: o + 5))
     }
 
     func testClosesAfterLeavingBoth() {
         var h = HoverTracker()
+        let open = o + 0.1
         _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)
-        _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0.4)
-        XCTAssertTrue(h.update(overOrb: false, overList: false, hasContent: true, now: 0.5))
-        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 0.6))   // came back in time
-        XCTAssertTrue(h.update(overOrb: false, overList: false, hasContent: true, now: 0.7))
-        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: 0.96))
+        _ = h.update(overOrb: true, overList: false, hasContent: true, now: open)
+        XCTAssertTrue(h.update(overOrb: false, overList: false, hasContent: true, now: open + 0.1))
+        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: open + 0.2))   // came back in time
+        XCTAssertTrue(h.update(overOrb: false, overList: false, hasContent: true, now: open + 0.3))
+        XCTAssertTrue(h.update(overOrb: false, overList: false, hasContent: true, now: open + 0.3 + c - 0.01))
+        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: open + 0.3 + c + 0.01))
     }
 
     func testNoContentNeverOpens() {
         var h = HoverTracker()
         _ = h.update(overOrb: true, overList: false, hasContent: false, now: 0)
-        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: false, now: 1))
+        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: false, now: o + 1))
     }
 
     func testLosingContentCloses() {
         var h = HoverTracker()
         _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)
-        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 0.4))
-        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: false, now: 0.5))
+        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: o + 0.1))
+        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: false, now: o + 0.2))
     }
 
     func testDismissFromTheListDoesNotReopen() {
         var h = HoverTracker()
         _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)
-        _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0.35)
-        XCTAssertTrue(h.update(overOrb: false, overList: true, hasContent: true, now: 0.4))
+        _ = h.update(overOrb: true, overList: false, hasContent: true, now: o + 0.05)
+        XCTAssertTrue(h.update(overOrb: false, overList: true, hasContent: true, now: o + 0.1))
         h.dismiss()
         // The hidden list no longer reports overList; the close delay must not resurrect it.
-        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: 0.45))
-        XCTAssertFalse(h.update(overOrb: false, overList: true, hasContent: true, now: 0.5))
-        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: 1.0))
+        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: o + 0.15))
+        XCTAssertFalse(h.update(overOrb: false, overList: true, hasContent: true, now: o + 0.2))
+        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: o + 1))
     }
 
     func testDismissWhileOnTheOrbWaitsForThePointerToLeave() {
         var h = HoverTracker()
         _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)
-        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 0.4))
+        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: o + 0.1))
         h.dismiss()
-        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: 0.5))
-        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: 1.5))
-        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: 1.6))
-        _ = h.update(overOrb: true, overList: false, hasContent: true, now: 1.7)
-        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 2.05))
+        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: o + 0.2))
+        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: o + 1.2))
+        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: o + 1.3))
+        _ = h.update(overOrb: true, overList: false, hasContent: true, now: o + 1.4)
+        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 2 * o + 1.45))
     }
 
     // SessionListPlacement
@@ -114,5 +123,19 @@ final class SessionPresentationTests: XCTestCase {
     func testClampsToTheRightEdge() {
         let orb = CGRect(x: 1400, y: 600, width: 72, height: 72)
         XCTAssertEqual(SessionListPlacement.frame(listSize: size, orbRect: orb, visibleFrame: visible).maxX, 1432)
+    }
+
+    // Status tones in the list, like the agents view's groups
+    func testStatusTones() {
+        let now = Date()
+        func tone(_ state: BubbleState, detail: String = "", review: Bool = false) -> StatusTone {
+            Session(id: "x", state: state, updatedAt: now, detail: detail, reviewReady: review).tone
+        }
+        XCTAssertEqual(tone(.working, detail: "Running tests"), .working)
+        XCTAssertEqual(tone(.needs, detail: "Approve Edit auth.ts?"), .attention)
+        XCTAssertEqual(tone(.idle, detail: "Completed", review: true), .attention, "ready for review is orange too")
+        XCTAssertEqual(tone(.error, detail: "Build failed"), .error)
+        XCTAssertEqual(tone(.idle, detail: "Completed"), .completed)
+        XCTAssertEqual(tone(.idle, detail: "Idle"), .idle, "went quiet without finishing")
     }
 }

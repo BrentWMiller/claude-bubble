@@ -28,6 +28,19 @@ extension BubbleState {
 }
 
 /// Session pips on an arc under the orb, choreographed by `PipChoreographer` (spawn, hop, shake, flare, merge).
+extension StatusTone {
+    /// The agents view's colours, regardless of the orb's palette.
+    var color: Color {
+        switch self {
+        case .attention: Color(red: 0xf0 / 255, green: 0xa0 / 255, blue: 0x50 / 255)
+        case .error: Color(red: 0xe8 / 255, green: 0x55 / 255, blue: 0x4f / 255)
+        case .working: Color(red: 0xb0 / 255, green: 0x8c / 255, blue: 1)
+        case .completed: Color(red: 0x5f / 255, green: 0xd9 / 255, blue: 0x8a / 255)
+        case .idle: Color.white.opacity(0.45)
+        }
+    }
+}
+
 struct ArcPipsView: View {
     @ObservedObject var model: SessionsModel
 
@@ -144,7 +157,7 @@ struct SessionRow: View {
                     .truncationMode(.tail)
                 Text(session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
                     .font(.system(size: 12))
-                    .foregroundStyle((session.reviewReady ? BubbleState.needs : session.state).detailColor(in: palette))
+                    .foregroundStyle(session.tone.color)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
