@@ -4,7 +4,8 @@ import Foundation
 public enum HookInstaller {
     public static let events = [
         "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-        "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Notification", "Stop", "StopFailure"
+        "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Elicitation", "ElicitationResult",
+        "Notification", "Stop", "StopFailure"
     ]
 
     public enum InstallError: LocalizedError {
@@ -23,9 +24,10 @@ public enum HookInstaller {
         var settings = settings
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
         for event in events {
-            var groups = hooks[event] as? [[String: Any]] ?? []
+            // [Any], not [[String: Any]]: one unrecognised entry must not cost the user the whole list.
+            var groups = hooks[event] as? [Any] ?? []
             let present = groups.contains { group in
-                (group["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == command }
+                ((group as? [String: Any])?["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == command }
             }
             if !present {
                 groups.append(["matcher": "", "hooks": [["type": "command", "command": command, "timeout": 5]]])
@@ -36,8 +38,10 @@ public enum HookInstaller {
         return settings
     }
 
-    public static func install(settingsURL: URL, hookSource: URL, hookDestination: URL) throws {
+    public static func install(settingsURL link: URL, hookSource: URL, hookDestination: URL) throws {
         let fm = FileManager.default
+        // Dotfile setups symlink settings.json; edit the real file so the link survives.
+        let settingsURL = link.resolvingSymlinksInPath()
         var settings: [String: Any] = [:]
         if let data = try? Data(contentsOf: settingsURL) {
             if !data.isEmpty {
@@ -46,9 +50,11 @@ public enum HookInstaller {
                 }
                 settings = parsed
             }
-            let backup = settingsURL.appendingPathExtension("claude-bubble.bak")
-            try? fm.removeItem(at: backup)
-            try fm.copyItem(at: settingsURL, to: backup)
+            // Keep the first backup: it's the only copy of the settings from before the bubble existed.
+            let backup = link.appendingPathExtension("claude-bubble.bak")
+            if !fm.fileExists(atPath: backup.path) {
+                try fm.copyItem(at: settingsURL, to: backup)
+            }
         }
 
         try fm.createDirectory(at: hookDestination.deletingLastPathComponent(), withIntermediateDirectories: true)

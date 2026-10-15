@@ -13,7 +13,7 @@ final class HookInstallerTests: XCTestCase {
     override func tearDown() { try? FileManager.default.removeItem(at: dir) }
 
     func commands(_ settings: [String: Any], _ event: String) -> [String] {
-        let groups = (settings["hooks"] as? [String: Any])?[event] as? [[String: Any]] ?? []
+        let groups = ((settings["hooks"] as? [String: Any])?[event] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
         return groups.flatMap { ($0["hooks"] as? [[String: Any]] ?? []).compactMap { $0["command"] as? String } }
     }
 
@@ -24,7 +24,8 @@ final class HookInstallerTests: XCTestCase {
 
     func testSubscribesToEveryEventTheHookMaps() {
         let mapped: Set = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-                           "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Notification", "Stop", "StopFailure"]
+                           "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Elicitation", "ElicitationResult",
+                           "Notification", "Stop", "StopFailure"]
         XCTAssertEqual(Set(HookInstaller.events), mapped)
     }
 
@@ -35,6 +36,15 @@ final class HookInstallerTests: XCTestCase {
         ]
         let out = HookInstaller.merge(settings: existing, command: cmd)
         XCTAssertEqual(out["model"] as? String, "opus")
+        XCTAssertEqual(commands(out, "Stop"), ["peon.sh", cmd])
+    }
+
+    func testMergeKeepsUnrecognisedEntries() {
+        let existing: [String: Any] = ["hooks": ["Stop": ["legacy-string-entry", ["matcher": "", "hooks": [["type": "command", "command": "peon.sh"]]]]]]
+        let out = HookInstaller.merge(settings: existing, command: cmd)
+        let stop = (out["hooks"] as? [String: Any])?["Stop"] as? [Any] ?? []
+        XCTAssertEqual(stop.count, 3)
+        XCTAssertEqual(stop.first as? String, "legacy-string-entry")
         XCTAssertEqual(commands(out, "Stop"), ["peon.sh", cmd])
     }
 
@@ -74,6 +84,30 @@ final class HookInstallerTests: XCTestCase {
         try HookInstaller.install(settingsURL: settings, hookSource: try makeHook(), hookDestination: dir.appendingPathComponent("hook.sh"))
         let backup = try String(contentsOf: dir.appendingPathComponent("settings.json.claude-bubble.bak"), encoding: .utf8)
         XCTAssertEqual(backup, #"{"model":"opus"}"#)
+    }
+
+    func testReinstallKeepsTheOriginalBackup() throws {
+        let settings = dir.appendingPathComponent("settings.json")
+        try #"{"model":"opus"}"#.write(to: settings, atomically: true, encoding: .utf8)
+        try HookInstaller.install(settingsURL: settings, hookSource: try makeHook(), hookDestination: dir.appendingPathComponent("hook.sh"))
+        try HookInstaller.install(settingsURL: settings, hookSource: try makeHook(), hookDestination: dir.appendingPathComponent("hook.sh"))
+        let backup = try String(contentsOf: dir.appendingPathComponent("settings.json.claude-bubble.bak"), encoding: .utf8)
+        XCTAssertEqual(backup, #"{"model":"opus"}"#)
+    }
+
+    func testInstallWritesThroughSymlinkedSettings() throws {
+        let real = dir.appendingPathComponent("dotfiles/claude-settings.json")
+        try FileManager.default.createDirectory(at: real.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try #"{"model":"opus"}"#.write(to: real, atomically: true, encoding: .utf8)
+        let link = dir.appendingPathComponent("settings.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+
+        try HookInstaller.install(settingsURL: link, hookSource: try makeHook(), hookDestination: dir.appendingPathComponent("hook.sh"))
+
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), real.path)
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: real)) as! [String: Any]
+        XCTAssertEqual(json["model"] as? String, "opus")
+        XCTAssertNotNil(json["hooks"])
     }
 
     func testInstallRefusesUnparseableSettings() throws {

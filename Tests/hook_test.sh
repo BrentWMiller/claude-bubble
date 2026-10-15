@@ -63,6 +63,24 @@ send '{"hook_event_name":"Stop","session_id":"p"}';                             
 send '{"hook_event_name":"PreToolUse","session_id":"p","tool_use_id":"a3"}';         expect p working "nothing pending after Stop"
 send '{"hook_event_name":"SessionEnd","session_id":"p"}'
 
+# Polish #2: a real permission prompt right after `claude "prompt"` startup isn't dropped
+export CLAUDE_BUBBLE_REPLAY_WINDOW=3
+send '{"hook_event_name":"SessionStart","session_id":"q","source":"startup"}'
+send '{"hook_event_name":"UserPromptSubmit","session_id":"q"}'
+send '{"hook_event_name":"PermissionRequest","session_id":"q","tool_use_id":"x1"}'; expect q needs "permission right after first prompt counts"
+send '{"hook_event_name":"SessionEnd","session_id":"q"}'
+export CLAUDE_BUBBLE_REPLAY_WINDOW=0
+
+# Polish #3: MCP input requests ask for the user
+send '{"hook_event_name":"UserPromptSubmit","session_id":"m"}'
+send '{"hook_event_name":"Elicitation","session_id":"m"}';                          expect m needs "Elicitation -> needs"
+send '{"hook_event_name":"PostToolUse","session_id":"m","tool_use_id":"o1"}';       expect m needs "other tool events keep elicitation needs"
+send '{"hook_event_name":"ElicitationResult","session_id":"m"}';                    expect m working "ElicitationResult -> working"
+send '{"hook_event_name":"Notification","session_id":"m","notification_type":"elicitation_dialog"}';     expect m needs "elicitation_dialog -> needs"
+send '{"hook_event_name":"ElicitationResult","session_id":"m"}'
+send '{"hook_event_name":"Notification","session_id":"m","notification_type":"elicitation_url_dialog"}'; expect m needs "elicitation_url_dialog -> needs"
+send '{"hook_event_name":"SessionEnd","session_id":"m"}'
+
 out=$(printf 'not json' | "$HOOK"; echo "exit=$?"); check '[ "$out" = "exit=0" ]' "garbage stdin exits 0 silently"
 out=$(printf '' | "$HOOK"; echo "exit=$?");         check '[ "$out" = "exit=0" ]' "empty stdin exits 0 silently"
 send '{"hook_event_name":"Stop","session_id":"../evil"}'; check '[ ! -e "$CLAUDE_BUBBLE_DIR/evil.json" ]' "path-like session id rejected"
