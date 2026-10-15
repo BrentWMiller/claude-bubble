@@ -22,6 +22,8 @@ final class BubblePanel: NSPanel {
         isReleasedWhenClosed = false
         contentView = orbView
         NotificationCenter.default.addObserver(self, selector: #selector(didMove), name: NSWindow.didMoveNotification, object: self)
+        NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
+                                               name: NSApplication.didChangeScreenParametersNotification, object: nil)
     }
 
     override var canBecomeKey: Bool { false }
@@ -38,8 +40,17 @@ final class BubblePanel: NSPanel {
         UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
     }
 
+    /// A display was unplugged or rearranged: pull the bubble back on screen if it was stranded.
+    @objc private func screensChanged() {
+        let origin = Self.placement(for: frame.origin)
+        if origin != frame.origin { setFrameOrigin(origin) }
+    }
+
     private static func initialOrigin() -> CGPoint {
-        let saved = UserDefaults.standard.string(forKey: originKey).map { NSPointFromString($0) }
+        placement(for: UserDefaults.standard.string(forKey: originKey).map { NSPointFromString($0) })
+    }
+
+    private static func placement(for saved: CGPoint?) -> CGPoint {
         let main = NSScreen.screens.first?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         return BubblePlacement.origin(saved: saved, size: side, screenFrames: NSScreen.screens.map(\.frame), mainVisibleFrame: main)
     }

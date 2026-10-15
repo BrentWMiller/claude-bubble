@@ -34,6 +34,35 @@ send '{"hook_event_name":"PermissionRequest","session_id":"r"}';           expec
 send '{"hook_event_name":"UserPromptSubmit","session_id":"r"}';            expect r working "prompt inside window still counts"
 export CLAUDE_BUBBLE_REPLAY_WINDOW=0
 
+# I-1: failed or denied tools leave "needs" for "working"
+send '{"hook_event_name":"PermissionRequest","session_id":"f","tool_use_id":"t1"}'
+send '{"hook_event_name":"PostToolUseFailure","session_id":"f","tool_use_id":"t1"}'; expect f working "PostToolUseFailure -> working"
+send '{"hook_event_name":"PermissionRequest","session_id":"f","tool_use_id":"t2"}'
+send '{"hook_event_name":"PermissionDenied","session_id":"f","tool_use_id":"t2"}';   expect f working "PermissionDenied -> working"
+send '{"hook_event_name":"SessionEnd","session_id":"f"}'
+
+# I-2: auto-compact / resume keep the current state and don't reopen the replay window
+export CLAUDE_BUBBLE_REPLAY_WINDOW=3
+send '{"hook_event_name":"SessionStart","session_id":"c","source":"startup"}'
+send '{"hook_event_name":"UserPromptSubmit","session_id":"c"}'
+/usr/bin/python3 -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d["started_at"]=0;json.dump(d,open(p,"w"))' "$S/c.json"
+send '{"hook_event_name":"SessionStart","session_id":"c","source":"compact"}';       expect c working "compact SessionStart keeps working"
+send '{"hook_event_name":"PermissionRequest","session_id":"c","tool_use_id":"t9"}';  expect c needs "events right after compact still count"
+send '{"hook_event_name":"SessionStart","session_id":"c","source":"clear"}';         expect c idle "clear SessionStart -> idle"
+send '{"hook_event_name":"SessionEnd","session_id":"c"}'
+export CLAUDE_BUBBLE_REPLAY_WINDOW=0
+
+# I-4: a pending permission survives other subagents' tool events
+send '{"hook_event_name":"UserPromptSubmit","session_id":"p"}'
+send '{"hook_event_name":"PermissionRequest","session_id":"p","tool_use_id":"a1"}'
+send '{"hook_event_name":"PreToolUse","session_id":"p","tool_use_id":"b1"}';         expect p needs "other subagent PreToolUse keeps needs"
+send '{"hook_event_name":"PostToolUse","session_id":"p","tool_use_id":"b1"}';        expect p needs "other subagent PostToolUse keeps needs"
+send '{"hook_event_name":"PostToolUse","session_id":"p","tool_use_id":"a1"}';        expect p working "approved tool finishing clears needs"
+send '{"hook_event_name":"PermissionRequest","session_id":"p","tool_use_id":"a2"}'
+send '{"hook_event_name":"Stop","session_id":"p"}';                                  expect p idle "Stop clears pending permissions"
+send '{"hook_event_name":"PreToolUse","session_id":"p","tool_use_id":"a3"}';         expect p working "nothing pending after Stop"
+send '{"hook_event_name":"SessionEnd","session_id":"p"}'
+
 out=$(printf 'not json' | "$HOOK"; echo "exit=$?"); check '[ "$out" = "exit=0" ]' "garbage stdin exits 0 silently"
 out=$(printf '' | "$HOOK"; echo "exit=$?");         check '[ "$out" = "exit=0" ]' "empty stdin exits 0 silently"
 send '{"hook_event_name":"Stop","session_id":"../evil"}'; check '[ ! -e "$CLAUDE_BUBBLE_DIR/evil.json" ]' "path-like session id rejected"

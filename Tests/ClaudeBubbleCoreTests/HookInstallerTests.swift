@@ -22,6 +22,12 @@ final class HookInstallerTests: XCTestCase {
         for event in HookInstaller.events { XCTAssertEqual(commands(out, event), [cmd], event) }
     }
 
+    func testSubscribesToEveryEventTheHookMaps() {
+        let mapped: Set = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
+                           "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Notification", "Stop", "StopFailure"]
+        XCTAssertEqual(Set(HookInstaller.events), mapped)
+    }
+
     func testMergeKeepsExistingHooksAndOtherKeys() {
         let existing: [String: Any] = [
             "model": "opus",
