@@ -37,6 +37,12 @@ public final class OrbAnimator {
     /// A brief ring/glow brightening as the orb lands.
     private var flash: Float = 0
     public var interaction: PointerInteraction = .attention
+    /// Percent of the usage window left, or nil when usage is off / unknown. Warms the rim and glow below 50%,
+    /// and under 10% the orb shrinks, slows and dims (low-usage mode). Both ease in; nothing flashes.
+    public var usageLeft: Double?
+    private var usageWarm: Float = 0
+    private var usageCritical: Float = 0
+    private var lowUsage: Float = 0
     private var pointerTarget: (offset: SIMD2<Float>, closeness: Float) = (.zero, 0)
     private var pointerOffset = SIMD2<Float>(0, 0)
     private var pointerVelocity = SIMD2<Float>(0, 0)
@@ -133,8 +139,13 @@ public final class OrbAnimator {
         current = current.approached(.target(for: shown, palette: palette), k: k)
         bounceVelocity += (-bounce * 220 - bounceVelocity * 14) * dt
         bounce += bounceVelocity * dt
+        let tint = usageLeft.map(UsageTint.amounts(left:)) ?? (warm: 0, critical: 0)
+        let tintK = 1 - expf(-dt / 0.6)
+        usageWarm += (tint.warm - usageWarm) * tintK
+        usageCritical += (tint.critical - usageCritical) * tintK
+        lowUsage += ((usageLeft.map { $0 <= 10 } ?? false ? 1 : 0) - lowUsage) * (1 - expf(-dt / 0.4))
         // Every shader phase multiplier is a multiple of 0.05, so wrapping at 400π keeps floats precise without a visible seam.
-        phase = (phase + dt * (0.2 + current.energy * 1.5)).truncatingRemainder(dividingBy: 400 * .pi)
+        phase = (phase + dt * (0.2 + current.energy * 1.5) * (1 - 0.6 * lowUsage)).truncatingRemainder(dividingBy: 400 * .pi)
         shake *= powf(0.02, dt)
         if presenceTarget > 0 {
             // Same spring as the needs bounce, so the motion family matches.
@@ -152,8 +163,8 @@ public final class OrbAnimator {
         pointerOffset += pointerVelocity * dt
 
         let here = max(0, presence)
-        var scale = current.scale * (1 + bounce) * here
-        var glow = current.glow * min(here, 1) * (1 + 0.6 * flash)
+        var scale = current.scale * (1 + bounce) * here * (1 - 0.12 * lowUsage)
+        var glow = current.glow * min(here, 1) * (1 + 0.6 * flash) * (1 - 0.4 * lowUsage)
         var ring = current.ring * (1 + 0.4 * flash)
         switch state {
         case .idle:
@@ -208,7 +219,7 @@ public final class OrbAnimator {
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         // All done: wash into green on the release, hold, then fade back to the palette's rest colours.
-        var output = current
+        var output = UsageTint.apply(current, state: shown, palette: palette, warm: usageWarm, critical: usageCritical)
         if let bt = completionTime {
             let w = Self.smoothstep(0.42, 0.55, bt) * (1 - Self.smoothstep(1.0, 2.25, bt))
             let g = Self.doneGreen
