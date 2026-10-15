@@ -4,6 +4,8 @@ import Foundation
 /// What a toast announces (design: Pip Sounds toasts).
 public enum ToastKind: String, CaseIterable, Sendable {
     case started, needs, error, finished, review, resumed, allDone
+    /// Usage thresholds (25% and 10% left) and the window resetting; their text comes with the toast.
+    case usageLow, usageCritical, usageRefreshed
 
     public var text: String {
         switch self {
@@ -14,6 +16,7 @@ public enum ToastKind: String, CaseIterable, Sendable {
         case .review: "ready for review"
         case .resumed: "back to work"
         case .allDone: "complete"
+        case .usageLow, .usageCritical, .usageRefreshed: "usage"
         }
     }
 
@@ -21,8 +24,8 @@ public enum ToastKind: String, CaseIterable, Sendable {
     public var lifetime: Double {
         switch self {
         case .started: 4
-        case .needs, .error, .review: 8
-        case .finished, .allDone: 6
+        case .needs, .error, .review, .usageCritical: 8
+        case .finished, .allDone, .usageLow, .usageRefreshed: 6
         case .resumed: 3.5
         }
     }
@@ -32,6 +35,8 @@ public struct ToastItem: Equatable, Identifiable, Sendable {
     public let id: Int
     public let kind: ToastKind
     public let name: String
+    /// What it says; the kind's own text unless pushed with one (usage toasts carry their numbers).
+    public let text: String
     public let born: Double
     var remaining: Double
     public internal(set) var showing: Bool
@@ -45,6 +50,7 @@ public struct ToastPlacement: Equatable, Sendable {
     public let id: Int
     public let kind: ToastKind
     public let name: String
+    public let text: String
     public let born: Double
     public let showing: Bool
     public let top: CGFloat
@@ -66,9 +72,10 @@ public final class ToastQueue {
 
     public init() {}
 
-    public func push(_ kind: ToastKind, name: String, now: Double) {
+    public func push(_ kind: ToastKind, name: String, text: String? = nil, now: Double) {
         if lastTick == nil { lastTick = now }
-        items.append(ToastItem(id: nextId, kind: kind, name: name, born: now, remaining: kind.lifetime, showing: true))
+        items.append(ToastItem(id: nextId, kind: kind, name: name, text: text ?? kind.text, born: now,
+                               remaining: kind.lifetime, showing: true))
         nextId += 1
         let showing = newestFirst()
         for id in showing.dropFirst(Self.maxShown) { leave(id, now: now) }
@@ -99,10 +106,10 @@ public final class ToastQueue {
             let kf = CGFloat(k)
             let top = expanded ? 6 + 40 * kf : 6 + 7 * kf
             guard item.showing else {
-                return ToastPlacement(id: item.id, kind: item.kind, name: item.name, born: item.born, showing: false,
+                return ToastPlacement(id: item.id, kind: item.kind, name: item.name, text: item.text, born: item.born, showing: false,
                                       top: top, scale: 0.94, opacity: 0, blur: 0, z: 5 - min(k, 4))
             }
-            return ToastPlacement(id: item.id, kind: item.kind, name: item.name, born: item.born, showing: true, top: top,
+            return ToastPlacement(id: item.id, kind: item.kind, name: item.name, text: item.text, born: item.born, showing: true, top: top,
                                   scale: expanded ? 1 : 1 - 0.055 * kf,
                                   opacity: expanded ? 1 : (k > 2 ? 0 : 1 - 0.3 * Double(k)),
                                   blur: expanded ? 0 : 1.2 * CGFloat(min(k, 3)),

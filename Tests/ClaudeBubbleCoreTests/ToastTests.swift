@@ -25,7 +25,7 @@ final class ToastTests: XCTestCase {
         XCTAssertEqual(ToastKind.resumed.text, "back to work")
         XCTAssertEqual(ToastKind.allDone.text, "complete")
         XCTAssertEqual(ToastKind.review.text, "ready for review")
-        XCTAssertEqual(ToastKind.allCases.map(\.lifetime), [4, 8, 8, 6, 8, 3.5, 6])
+        XCTAssertEqual(ToastKind.allCases.map(\.lifetime), [4, 8, 8, 6, 8, 3.5, 6, 6, 8, 6])
     }
 
     // Lifetimes
@@ -121,5 +121,14 @@ final class ToastTests: XCTestCase {
         let toasts = ToastQueue.toasts(for: [.finished("a"), .reviewReady("b")], previous: before,
                                        names: ["a": "Billing: CSV Import", "b": "docs"], reviews: ["a", "b"])
         XCTAssertEqual(toasts.map(\.kind), [.review, .review])
+    }
+
+    func testTextOverrideShowsInPlacement() {
+        let q = ToastQueue()
+        q.push(.usageLow, name: "Usage", text: "25% left · resets 1h 12m", now: 0)
+        q.push(.finished, name: "a", now: 0.1)
+        let byKind = Dictionary(uniqueKeysWithValues: q.layout(expanded: false).map { ($0.kind, $0.text) })
+        XCTAssertEqual(byKind[.usageLow], "25% left · resets 1h 12m")
+        XCTAssertEqual(byKind[.finished], "finished")
     }
 }

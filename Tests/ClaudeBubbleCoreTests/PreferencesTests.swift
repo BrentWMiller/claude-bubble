@@ -80,4 +80,12 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(try JSONDecoder().decode(BubblePreferences.self, from: JSONSerialization.data(withJSONObject: json)).sounds,
                       "settings saved before sounds existed default to on")
     }
+
+    func testUsageDefaultsOnAndSurvivesOlderSettings() throws {
+        XCTAssertTrue(BubblePreferences.defaults.usage)
+        let old = Data(#"{"diameter": 90, "toasts": false}"#.utf8)
+        let prefs = try JSONDecoder().decode(BubblePreferences.self, from: old)
+        XCTAssertTrue(prefs.usage)
+        XCTAssertFalse(prefs.toasts)
+    }
 }
