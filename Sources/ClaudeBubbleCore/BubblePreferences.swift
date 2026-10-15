@@ -34,7 +34,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
         diameter: OrbSize.defaultDiameter, opacity: 1, followPointer: false, relativeSpot: nil,
-        interaction: .attention, sounds: true, completionSound: .pipChord)
+        interaction: .attention, sounds: true, completionSound: .bloom)
 
     public init(palette: OrbPalette, presetName: String, customized: Bool, diameter: Double, opacity: Double,
                 followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction, sounds: Bool,

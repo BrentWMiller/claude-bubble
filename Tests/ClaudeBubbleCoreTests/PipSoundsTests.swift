@@ -88,7 +88,7 @@ final class PipSoundsTests: XCTestCase {
     func testCompletionOptions() {
         XCTAssertEqual(CompletionSound.allCases.map(\.label),
                        ["Pip chord", "Glass chime", "Crystal arpeggio", "Soft bloom", "Wood marimba", "Shimmer"])
-        XCTAssertEqual(BubblePreferences.defaults.completionSound, .pipChord)
+        XCTAssertEqual(BubblePreferences.defaults.completionSound, .bloom)
     }
 
     func testEveryCompletionOptionRendersCleanly() {
@@ -126,6 +126,6 @@ final class PipSoundsTests: XCTestCase {
         var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(p)) as? [String: Any])
         json["completionSound"] = "kazoo"
         XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: JSONSerialization.data(withJSONObject: json)).completionSound,
-                       .pipChord, "an unknown saved choice falls back to the default")
+                       .bloom, "an unknown saved choice falls back to the default")
     }
 }
