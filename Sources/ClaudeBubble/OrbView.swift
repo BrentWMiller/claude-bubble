@@ -14,7 +14,9 @@ struct OrbUniforms {
 }
 
 final class OrbView: MTKView {
+    var onClick: (() -> Void)?
     private var renderer: OrbRenderer?
+    private var pendingClick: NSEvent?
 
     init(frame: NSRect, animator: OrbAnimator) {
         super.init(frame: frame, device: MTLCreateSystemDefaultDevice())
@@ -34,7 +36,22 @@ final class OrbView: MTKView {
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-    override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+    // A press becomes a drag once it moves a few points; otherwise it's a click.
+    override func mouseDown(with event: NSEvent) { pendingClick = event }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let down = pendingClick else { return }
+        let dx = event.locationInWindow.x - down.locationInWindow.x
+        let dy = event.locationInWindow.y - down.locationInWindow.y
+        guard dx * dx + dy * dy > 9 else { return }
+        pendingClick = nil
+        window?.performDrag(with: down)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if pendingClick != nil { onClick?() }
+        pendingClick = nil
+    }
 }
 
 final class OrbRenderer: NSObject, MTKViewDelegate {

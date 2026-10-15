@@ -110,6 +110,26 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertNotNil(json["hooks"])
     }
 
+    func testRefreshReplacesAnOutdatedInstalledHook() throws {
+        let dest = dir.appendingPathComponent("hook.sh")
+        try "#!/bin/bash\n# old\n".write(to: dest, atomically: true, encoding: .utf8)
+        XCTAssertTrue(try HookInstaller.refreshInstalledHook(source: try makeHook(), destination: dest))
+        XCTAssertEqual(try String(contentsOf: dest, encoding: .utf8), "#!/bin/bash\nexit 0\n")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: dest.path))
+    }
+
+    func testRefreshLeavesACurrentHookAlone() throws {
+        let dest = dir.appendingPathComponent("hook.sh")
+        try FileManager.default.copyItem(at: try makeHook(), to: dest)
+        XCTAssertFalse(try HookInstaller.refreshInstalledHook(source: try makeHook(), destination: dest))
+    }
+
+    func testRefreshNeverInstallsAHookTheUserDidNotInstall() throws {
+        let dest = dir.appendingPathComponent("hook.sh")
+        XCTAssertFalse(try HookInstaller.refreshInstalledHook(source: try makeHook(), destination: dest))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dest.path))
+    }
+
     func testInstallRefusesUnparseableSettings() throws {
         let settings = dir.appendingPathComponent("settings.json")
         try "{ broken".write(to: settings, atomically: true, encoding: .utf8)

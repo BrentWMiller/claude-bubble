@@ -20,6 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         panel = BubblePanel(animator: animator)
+        panel.onClick = { [weak self] in self?.focusTerminal() }
+        refreshInstalledHook()
         setUpStatusItem()
         watcher = SessionWatcher(directory: SessionStore.defaultDirectory) { [weak self] state in
             self?.liveState = state
@@ -85,6 +87,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func resetPosition() { panel.resetPosition() }
+
+    private func focusTerminal() {
+        let workspace = NSWorkspace.shared
+        let override = UserDefaults.standard.string(forKey: TerminalApp.overrideKey)
+        guard let id = TerminalApp.resolve(override: override, isInstalled: { workspace.urlForApplication(withBundleIdentifier: $0) != nil }),
+              let url = workspace.urlForApplication(withBundleIdentifier: id) else {
+            NSSound.beep()
+            return
+        }
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = true
+        workspace.openApplication(at: url, configuration: config)
+    }
+
+    /// Keeps an already-installed hook in step with this build, so rebuilds don't need a reinstall.
+    private func refreshInstalledHook() {
+        guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh") else { return }
+        let destination = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude-bubble/hook.sh")
+        do {
+            if try HookInstaller.refreshInstalledHook(source: source, destination: destination) {
+                NSLog("ClaudeBubble: refreshed installed hook")
+            }
+        } catch {
+            NSLog("ClaudeBubble: hook refresh failed: \(error)")
+        }
+    }
 
     /// Login-item state can change in System Settings, so re-read it each time the menu opens.
     func menuWillOpen(_ menu: NSMenu) {

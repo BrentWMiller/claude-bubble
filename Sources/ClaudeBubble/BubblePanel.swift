@@ -51,6 +51,11 @@ final class BubblePanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    var onClick: (() -> Void)? {
+        get { orbView.onClick }
+        set { orbView.onClick = newValue }
+    }
+
     func setRendering(_ on: Bool) { orbView.isPaused = !on }
 
     func resetPosition() {

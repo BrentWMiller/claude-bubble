@@ -38,6 +38,23 @@ public enum HookInstaller {
         return settings
     }
 
+    /// After an app update, swaps in the bundled hook if one is already installed and differs.
+    /// Never installs a hook the user hasn't installed. Returns whether it replaced the file.
+    @discardableResult
+    public static func refreshInstalledHook(source: URL, destination: URL) throws -> Bool {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: destination.path), !fm.contentsEqual(atPath: source.path, andPath: destination.path) else {
+            return false
+        }
+        let staged = destination.appendingPathExtension("new")
+        try? fm.removeItem(at: staged)
+        try fm.copyItem(at: source, to: staged)
+        // replaceItemAt keeps the old file's metadata, so mark it executable afterwards.
+        _ = try fm.replaceItemAt(destination, withItemAt: staged)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
+        return true
+    }
+
     public static func install(settingsURL link: URL, hookSource: URL, hookDestination: URL) throws {
         let fm = FileManager.default
         // Dotfile setups symlink settings.json; edit the real file so the link survives.
