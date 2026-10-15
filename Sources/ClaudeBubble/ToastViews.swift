@@ -15,7 +15,7 @@ extension ToastKind {
     func color(in palette: OrbPalette) -> Color {
         let c: SIMD3<Float> = switch self {
         case .started, .resumed: palette[.working].swatch
-        case .needs: palette[.needs].swatch
+        case .needs, .review: palette[.needs].swatch
         case .error: palette[.error].swatch
         case .finished: [0xf1 / 255, 0xef / 255, 0xfa / 255]   // pearl
         case .allDone: OrbAnimator.doneGreen.swatch

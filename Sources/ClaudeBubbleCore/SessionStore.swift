@@ -16,13 +16,15 @@ public struct Session: Equatable, Sendable {
     public let prompted: Bool
     /// Current context size, from Claude Code's job file.
     public let tokens: Int?
+    /// Finished with an open pull request: "Ready for review" (orange), like Claude Code's agents view.
+    public let reviewReady: Bool
 
     /// What to call the session: Claude Code's title, else the project folder.
     public var displayName: String { title ?? project }
 
     public init(id: String, state: BubbleState, cwd: String = "", updatedAt: Date,
                 project: String? = nil, detail: String = "", stateSince: Date? = nil, pid: Int32? = nil,
-                title: String? = nil, prompted: Bool = true, tokens: Int? = nil) {
+                title: String? = nil, prompted: Bool = true, tokens: Int? = nil, reviewReady: Bool = false) {
         self.id = id
         self.state = state
         self.cwd = cwd
@@ -34,6 +36,7 @@ public struct Session: Equatable, Sendable {
         self.title = title
         self.prompted = prompted
         self.tokens = tokens
+        self.reviewReady = reviewReady
     }
 
     static func projectName(for cwd: String) -> String {
@@ -119,7 +122,7 @@ public enum SessionStore {
             guard s.state != .idle else { return s }
             return Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
                            detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title, prompted: s.prompted,
-                           tokens: s.tokens)
+                           tokens: s.tokens, reviewReady: s.reviewReady)
         }
     }
 
@@ -149,7 +152,7 @@ public enum SessionStore {
             }
             return Session(id: s.id, state: s.state, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
                            detail: detail, stateSince: s.stateSince, pid: s.pid, title: title, prompted: s.prompted,
-                           tokens: job.tokens)
+                           tokens: job.tokens, reviewReady: s.state == .idle && job.hasPullRequest)
         }
     }
 }

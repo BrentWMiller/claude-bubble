@@ -90,6 +90,7 @@ public enum PipSounds {
                              chord: frame.pips.sorted { $0.rank < $1.rank }.prefix(7).enumerated().map { note(slot: $0.offset) },
                              completion: completion)
             case .ringPop: nil   // the finish sound covers it
+            case let .reviewReady(id): request(.needs, id)   // awaiting you, like needs input
             }
         }
     }

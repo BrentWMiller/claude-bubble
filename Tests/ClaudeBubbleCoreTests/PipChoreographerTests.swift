@@ -218,4 +218,21 @@ final class PipChoreographerTests: XCTestCase {
         let centre = CGPoint(x: 60, y: 60)
         XCTAssertNil(PipArc.hit(PipArc.position(slot: 0, slots: 2, centre: centre, radius: 46), frame: f, centre: centre, radius: 46))
     }
+
+    // Ready for review
+    func testReviewPipsLeadTheFinishedGroup() {
+        let c = PipChoreographer()
+        _ = c.update([PipInput(id: "a", state: .idle), PipInput(id: "b", state: .idle, review: true), PipInput(id: "c", state: .working)], now: 0)
+        let f = c.frame(now: 1)
+        XCTAssertEqual(slots(f), ["c": 0, "b": 1, "a": 2])
+        XCTAssertTrue(pip(f, "b").review)
+        XCTAssertFalse(pip(f, "a").review)
+    }
+
+    func testOpeningAPullRequestAfterFinishingIsReported() {
+        let c = PipChoreographer()
+        _ = c.update([PipInput(id: "a", state: .idle), PipInput(id: "b", state: .working)], now: 0)
+        XCTAssertEqual(c.update([PipInput(id: "a", state: .idle, review: true), PipInput(id: "b", state: .working)], now: 1),
+                       [.reviewReady("a")])
+    }
 }

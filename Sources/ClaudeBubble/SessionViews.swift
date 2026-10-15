@@ -40,7 +40,8 @@ struct ArcPipsView: View {
             ZStack {
                 ForEach(frame.pips, id: \.id) { pip in
                     PipDot(pip: pip, frame: frame, centre: centre, radius: radius,
-                           color: pip.state.color(in: model.palette), hovered: model.hoveredPip == pip.id)
+                           color: (pip.review ? BubbleState.needs : pip.state).color(in: model.palette),
+                           hovered: model.hoveredPip == pip.id)
                 }
                 if frame.overflow > 0 {
                     Text("+\(frame.overflow)")
@@ -141,9 +142,9 @@ struct SessionRow: View {
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(session.detail.isEmpty ? "Idle" : session.detail)
+                Text(session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
                     .font(.system(size: 12))
-                    .foregroundStyle(session.state.detailColor(in: palette))
+                    .foregroundStyle((session.reviewReady ? BubbleState.needs : session.state).detailColor(in: palette))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }

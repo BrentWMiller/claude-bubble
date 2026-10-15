@@ -104,4 +104,16 @@ final class JobStoreTests: XCTestCase {
         try writeJob(#"{"sessionId":"\#(sid)","name":"  ","state":"working"}"#)
         XCTAssertEqual(SessionStore.withJobs([session(.working)], from: dir).first?.displayName, "web-app")
     }
+
+    // Ready for review: finished with an open pull request (the agents view's rule)
+    func testFinishedSessionWithAPullRequestIsReadyForReview() throws {
+        try writeJob(#"{"sessionId":"\#(sid)","name":"Billing: CSV Import","state":"done","children":[{"id":"7330","href":"https://github.com/o/r/pull/7330","kind":"pr"}]}"#)
+        XCTAssertEqual(SessionStore.withJobs([session(.idle, detail: "Completed")], from: dir).first?.reviewReady, true)
+        XCTAssertEqual(SessionStore.withJobs([session(.working)], from: dir).first?.reviewReady, false, "only once finished")
+    }
+
+    func testFinishedWithoutAPullRequestIsJustCompleted() throws {
+        try writeJob(#"{"sessionId":"\#(sid)","name":"docs","state":"done","children":[{"id":"x","href":"https://example.com","kind":"link"}]}"#)
+        XCTAssertEqual(SessionStore.withJobs([session(.idle)], from: dir).first?.reviewReady, false)
+    }
 }

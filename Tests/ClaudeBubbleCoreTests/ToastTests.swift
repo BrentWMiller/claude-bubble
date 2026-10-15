@@ -24,7 +24,8 @@ final class ToastTests: XCTestCase {
         XCTAssertEqual(ToastKind.error.text, "hit an error")
         XCTAssertEqual(ToastKind.resumed.text, "back to work")
         XCTAssertEqual(ToastKind.allDone.text, "complete")
-        XCTAssertEqual(ToastKind.allCases.map(\.lifetime), [4, 8, 8, 6, 3.5, 6])
+        XCTAssertEqual(ToastKind.review.text, "ready for review")
+        XCTAssertEqual(ToastKind.allCases.map(\.lifetime), [4, 8, 8, 6, 8, 3.5, 6])
     }
 
     // Lifetimes
@@ -113,5 +114,12 @@ final class ToastTests: XCTestCase {
     func testSuccessGreenIsTheDesignsMint() {
         XCTAssertEqual(OrbAnimator.doneGreen.c1, [0.74, 1, 0.84])
         XCTAssertEqual(OrbAnimator.doneGreen.halo, [0.1, 0.3, 0.18])
+    }
+
+    func testFinishingWithAPullRequestAnnouncesReview() {
+        let before = PipsFrame(pips: [pip("a", .working, 0)], slots: 1, overflow: 0, merged: false, visible: false)
+        let toasts = ToastQueue.toasts(for: [.finished("a"), .reviewReady("b")], previous: before,
+                                       names: ["a": "Billing: CSV Import", "b": "docs"], reviews: ["a", "b"])
+        XCTAssertEqual(toasts.map(\.kind), [.review, .review])
     }
 }

@@ -3,7 +3,7 @@ import Foundation
 
 /// What a toast announces (design: Pip Sounds toasts).
 public enum ToastKind: String, CaseIterable, Sendable {
-    case started, needs, error, finished, resumed, allDone
+    case started, needs, error, finished, review, resumed, allDone
 
     public var text: String {
         switch self {
@@ -11,6 +11,7 @@ public enum ToastKind: String, CaseIterable, Sendable {
         case .needs: "needs you"
         case .error: "hit an error"
         case .finished: "finished"
+        case .review: "ready for review"
         case .resumed: "back to work"
         case .allDone: "complete"
         }
@@ -20,7 +21,7 @@ public enum ToastKind: String, CaseIterable, Sendable {
     public var lifetime: Double {
         switch self {
         case .started: 4
-        case .needs, .error: 8
+        case .needs, .error, .review: 8
         case .finished, .allDone: 6
         case .resumed: 3.5
         }
@@ -129,8 +130,8 @@ public final class ToastQueue {
 
     /// Toasts for a batch of choreographer events. `previous` is the pip frame before them (for "back to work",
     /// which only counts after needs-you or an error). All-done is announced separately, after the merge.
-    public static func toasts(for events: [PipEvent], previous: PipsFrame,
-                              names: [String: String]) -> [(kind: ToastKind, name: String)] {
+    public static func toasts(for events: [PipEvent], previous: PipsFrame, names: [String: String],
+                              reviews: Set<String> = []) -> [(kind: ToastKind, name: String)] {
         func name(_ id: String) -> String { names[id] ?? "session" }
         func wasStuck(_ id: String) -> Bool {
             guard let state = previous.pips.first(where: { $0.id == id })?.state else { return false }
@@ -141,7 +142,8 @@ public final class ToastQueue {
             case let .spawned(id): (.started, name(id))
             case let .needs(id): (.needs, name(id))
             case let .error(id): (.error, name(id))
-            case let .finished(id): (.finished, name(id))
+            case let .finished(id): (reviews.contains(id) ? .review : .finished, name(id))
+            case let .reviewReady(id): (.review, name(id))
             case let .resumed(id): wasStuck(id) ? (.resumed, name(id)) : nil
             default: nil
             }

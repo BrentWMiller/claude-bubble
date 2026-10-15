@@ -243,7 +243,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Advances the pip choreography, reports finished sessions to the orb, and handles pip hover.
     private func updatePips(mouse: CGPoint) {
         let now = CACurrentMediaTime()
-        let events = choreographer.update(model.sessions.map { PipInput(id: $0.id, state: $0.state) }, now: now)
+        let events = choreographer.update(model.sessions.map { PipInput(id: $0.id, state: $0.state, review: $0.reviewReady) },
+                                          now: now)
         if events.contains(.ringPop) { animator.ringPop() }
         if events.contains(.allDone), forcedState == nil { animator.celebrate(from: .idle) }
         let previous = model.pips
@@ -295,7 +296,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func announce(_ events: [PipEvent], previous: PipsFrame, now: CFTimeInterval) {
         let names = Dictionary(model.sessions.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
-        for toast in ToastQueue.toasts(for: events, previous: previous, names: names) {
+        let reviews = Set(model.sessions.filter(\.reviewReady).map(\.id))
+        for toast in ToastQueue.toasts(for: events, previous: previous, names: names, reviews: reviews) {
             toasts.push(toast.kind, name: toast.name, now: now)
             if toast.kind != .started { tugTowardToasts() }   // a new pip already has its own pull
         }
