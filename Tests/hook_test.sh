@@ -117,7 +117,8 @@ expect_field d detail "Approve Bash terraform apply -auto-approve?" "permission 
 send '{"hook_event_name":"StopFailure","session_id":"d","error":"terraform plan failed"}'; expect_field d detail "terraform plan failed" "error detail string"
 send '{"hook_event_name":"StopFailure","session_id":"d","error":{"message":"API overloaded"}}'; expect_field d detail "API overloaded" "error detail object"
 send '{"hook_event_name":"StopFailure","session_id":"d"}';                       expect_field d detail "Error" "error detail fallback"
-send '{"hook_event_name":"Stop","session_id":"d"}';                              expect_field d detail Idle "Stop detail Idle"
+send '{"hook_event_name":"Stop","session_id":"d"}';                              expect_field d detail Completed "Stop detail Completed"
+send '{"hook_event_name":"Notification","session_id":"d","notification_type":"idle_prompt"}'; expect_field d detail Completed "idle_prompt after a prompt says Completed"
 send '{"hook_event_name":"Elicitation","session_id":"d"}';                       expect_field d detail "Input requested" "elicitation detail"
 send '{"hook_event_name":"SessionEnd","session_id":"d"}'
 

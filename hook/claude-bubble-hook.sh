@@ -142,7 +142,7 @@ elif state == 'working':
     else:
         detail = prev_detail or 'Working'
 else:
-    detail = 'Idle'
+    detail = 'Completed' if prompted else 'Idle'
 
 cwd = data.get('cwd') or prev.get('cwd', '')
 project = base(cwd) or 'session'

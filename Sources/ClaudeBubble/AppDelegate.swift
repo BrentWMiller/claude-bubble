@@ -219,7 +219,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let color: NSColor? = switch state {
         case .idle: nil
         case .working: .systemPurple
-        case .needs: .systemOrange
+        case .needs: .systemYellow
         case .error: .systemRed
         }
         guard let color else {

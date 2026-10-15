@@ -38,6 +38,15 @@ final class JobStoreTests: XCTestCase {
         XCTAssertLessThan(BubbleState.error.swatch.y, 0.3)
     }
 
+    func testColorsMatchTheAgentsView() {
+        let idle = BubbleState.idle.swatch, needs = BubbleState.needs.swatch
+        XCTAssertGreaterThan(idle.y, idle.x, "idle/completed reads green")
+        XCTAssertGreaterThan(idle.y, idle.z)
+        XCTAssertGreaterThan(needs.x, 0.9, "needs reads yellow")
+        XCTAssertGreaterThan(needs.y, 0.75)
+        XCTAssertLessThan(needs.z, 0.4)
+    }
+
     // JobStore.load
     func testReadsNameDetailAndState() throws {
         try writeJob(#"{"sessionId":"\#(sid)","name":"Claude status bubble app","detail":"fixing 4 review findings","state":"working","updatedAt":"\#(iso(now))"}"#)

@@ -11,7 +11,7 @@ extension BubbleState {
 
     var detailColor: Color {
         switch self {
-        case .needs: Color(red: 0xf0 / 255, green: 0xa0 / 255, blue: 0x50 / 255)
+        case .needs: Color(red: 0xf2 / 255, green: 0xd0 / 255, blue: 0x4a / 255)
         case .error: Color(red: 0xe8 / 255, green: 0x55 / 255, blue: 0x4f / 255)
         case .idle, .working: Color.white.opacity(0.55)
         }

@@ -145,4 +145,26 @@ final class SessionStoreTests: XCTestCase {
         // This process started after 1970, so it can't have written an event back then.
         XCTAssertFalse(SessionStore.processIsAlive(getpid(), lastSeen: Date(timeIntervalSince1970: 1000)))
     }
+
+    func testNeverPromptedSessionsAreHidden() {
+        let spare = Session(id: "spare", state: .idle, updatedAt: now, pid: 5, prompted: false)
+        let real = Session(id: "real", state: .working, updatedAt: now, pid: 6)
+        XCTAssertEqual(SessionStore.live([spare, real], now: now).map(\.id), ["real"])
+    }
+
+    func testIdleSessionWithoutPidAgesOut() {
+        let old = Session(id: "old", state: .idle, updatedAt: now.addingTimeInterval(-20 * 60))
+        XCTAssertEqual(SessionStore.live([old], now: now), [])
+    }
+
+    func testLoadReadsPromptedAndDefaultsToTrue() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let t = now.timeIntervalSince1970
+        try #"{"state":"idle","updated_at":\#(t),"prompted":false}"#.write(to: dir.appendingPathComponent("a.json"), atomically: true, encoding: .utf8)
+        try #"{"state":"idle","updated_at":\#(t)}"#.write(to: dir.appendingPathComponent("b.json"), atomically: true, encoding: .utf8)
+        let byId = Dictionary(uniqueKeysWithValues: SessionStore.load(from: dir, now: now).map { ($0.id, $0.prompted) })
+        XCTAssertEqual(byId["a"], false)
+        XCTAssertEqual(byId["b"], true)
+    }
 }

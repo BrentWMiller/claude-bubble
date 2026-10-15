@@ -12,13 +12,15 @@ public struct Session: Equatable, Sendable {
     public let pid: Int32?
     /// Claude Code's own title for the session, when it has one.
     public let title: String?
+    /// False until the user's first prompt; unused sessions (e.g. pre-warmed spares) aren't shown.
+    public let prompted: Bool
 
     /// What to call the session: Claude Code's title, else the project folder.
     public var displayName: String { title ?? project }
 
     public init(id: String, state: BubbleState, cwd: String = "", updatedAt: Date,
                 project: String? = nil, detail: String = "", stateSince: Date? = nil, pid: Int32? = nil,
-                title: String? = nil) {
+                title: String? = nil, prompted: Bool = true) {
         self.id = id
         self.state = state
         self.cwd = cwd
@@ -28,6 +30,7 @@ public struct Session: Equatable, Sendable {
         self.stateSince = stateSince ?? updatedAt
         self.pid = pid
         self.title = title
+        self.prompted = prompted
     }
 
     static func projectName(for cwd: String) -> String {
@@ -55,6 +58,7 @@ public enum SessionStore {
         let detail: String?
         let state_since: Double?
         let pid: Int32?
+        let prompted: Bool?
     }
 
     /// Whether `pid` is still the process that wrote this session. A pid the kernel has reused for a
@@ -93,21 +97,25 @@ public enum SessionStore {
             }
             sessions.append(Session(id: String(name.dropLast(5)), state: state, cwd: record.cwd ?? "", updatedAt: updated,
                                     project: record.project, detail: record.detail ?? "",
-                                    stateSince: record.state_since.map(Date.init(timeIntervalSince1970:)), pid: pid))
+                                    stateSince: record.state_since.map(Date.init(timeIntervalSince1970:)), pid: pid,
+                                    prompted: record.prompted ?? true))
         }
         return sessions
     }
 
-    /// Sessions worth showing. A live process keeps its session listed, but a busy state that has gone
-    /// quiet past the staleness limit shows as idle (Esc interrupts never fire Stop). Without a pid,
-    /// stale sessions drop out entirely.
+    /// Sessions worth showing. Never-prompted sessions (pre-warmed spares, untouched launches) are
+    /// hidden, matching Claude Code's agents view. A live process keeps its session listed, but a busy
+    /// state gone quiet past the staleness limit shows as idle (Esc interrupts never fire Stop).
+    /// Without a pid, any stale session drops out.
     public static func live(_ sessions: [Session], now: Date = Date()) -> [Session] {
         sessions.compactMap { s in
+            guard s.prompted else { return nil }
             let limit = s.state == .needs ? needsStaleAfter : staleAfter
-            guard now.timeIntervalSince(s.updatedAt) > limit, s.state != .idle else { return s }
+            guard now.timeIntervalSince(s.updatedAt) > limit else { return s }
             guard s.pid != nil else { return nil }
-            return Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt,
-                           project: s.project, detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title)
+            guard s.state != .idle else { return s }
+            return Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
+                           detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title, prompted: s.prompted)
         }
     }
 
@@ -136,7 +144,7 @@ public enum SessionStore {
                 detail = summary
             }
             return Session(id: s.id, state: s.state, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
-                           detail: detail, stateSince: s.stateSince, pid: s.pid, title: title)
+                           detail: detail, stateSince: s.stateSince, pid: s.pid, title: title, prompted: s.prompted)
         }
     }
 }
