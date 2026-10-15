@@ -8,7 +8,7 @@ final class BubblePanel: NSPanel {
     private let orbView: OrbView
     private var mouseMonitors: [Any] = []
 
-    init(animator: OrbAnimator) {
+    init(animator: OrbAnimator, model: SessionsModel) {
         let side = Self.side
         orbView = OrbView(frame: NSRect(x: 0, y: 0, width: side, height: side), animator: animator)
         super.init(contentRect: NSRect(origin: Self.initialOrigin(), size: NSSize(width: side, height: side)),
@@ -21,7 +21,14 @@ final class BubblePanel: NSPanel {
         hasShadow = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
-        contentView = orbView
+        // Pips sit in the bottom margin below the orb (the orb's lowest edge is 24pt up); clicks pass through them.
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: side, height: side))
+        orbView.autoresizingMask = [.width, .height]
+        container.addSubview(orbView)
+        let pips = PassthroughHostingView(rootView: PipsView(model: model))
+        pips.frame = NSRect(x: 0, y: 4, width: side, height: 14)
+        container.addSubview(pips)
+        contentView = container
         NotificationCenter.default.addObserver(self, selector: #selector(didMove), name: NSWindow.didMoveNotification, object: self)
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)

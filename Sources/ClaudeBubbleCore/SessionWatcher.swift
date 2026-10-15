@@ -4,12 +4,13 @@ import Foundation
 /// The 5s timer catches missed events and lets stale sessions age out.
 public final class SessionWatcher {
     private let directory: URL
-    private let onChange: (BubbleState) -> Void
+    private let onChange: (BubbleState, [Session]) -> Void
     private var source: DispatchSourceFileSystemObject?
     private var timer: Timer?
     private var last: BubbleState?
+    private var lastSessions: [Session]?
 
-    public init(directory: URL, onChange: @escaping (BubbleState) -> Void) {
+    public init(directory: URL, onChange: @escaping (BubbleState, [Session]) -> Void) {
         self.directory = directory
         self.onChange = onChange
     }
@@ -24,16 +25,20 @@ public final class SessionWatcher {
             src.resume()
             source = src
         }
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.refresh() }
+        let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in self?.refresh() }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
         refresh()
     }
 
     public func refresh() {
         let now = Date()
-        let state = SessionStore.aggregate(SessionStore.load(from: directory, now: now), now: now)
-        if state != last {
+        let sessions = SessionStore.live(SessionStore.load(from: directory, now: now), now: now)
+        let state = SessionStore.aggregate(sessions, now: now)
+        if state != last || sessions != lastSessions {
             last = state
-            onChange(state)
+            lastSessions = sessions
+            onChange(state, sessions)
         }
     }
 }

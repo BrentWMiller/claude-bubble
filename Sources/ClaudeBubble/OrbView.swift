@@ -2,17 +2,6 @@ import AppKit
 import ClaudeBubbleCore
 import MetalKit
 
-/// Must match `Uniforms` in OrbShaders.source.
-struct OrbUniforms {
-    var c1: SIMD4<Float>
-    var c2: SIMD4<Float>
-    var c3: SIMD4<Float>
-    var halo: SIMD4<Float>
-    var a: SIMD4<Float>
-    var b: SIMD4<Float>
-    var c: SIMD4<Float>
-}
-
 final class OrbView: MTKView {
     var onClick: (() -> Void)?
     private var renderer: OrbRenderer?

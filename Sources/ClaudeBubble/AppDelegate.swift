@@ -7,6 +7,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var panel: BubblePanel!
     private var statusItem: NSStatusItem!
     private var watcher: SessionWatcher!
+    private let model = SessionsModel()
+    private var listPanel: SessionListPanel!
+    private var hover = HoverTracker()
+    private var hoverTimer: Timer?
     private var liveState: BubbleState = .idle
     private var forcedState: BubbleState?
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggleBubble), keyEquivalent: "")
@@ -19,12 +23,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        panel = BubblePanel(animator: animator)
+        panel = BubblePanel(animator: animator, model: model)
         panel.onClick = { [weak self] in self?.focusTerminal() }
+        listPanel = SessionListPanel(model: model, snapshots: Self.renderSnapshots()) { [weak self] in
+            self?.focusTerminal()
+            self?.listPanel.orderOut(nil)
+        }
+        startHoverTracking()
         refreshInstalledHook()
         setUpStatusItem()
-        watcher = SessionWatcher(directory: SessionStore.defaultDirectory) { [weak self] state in
+        watcher = SessionWatcher(directory: SessionStore.defaultDirectory) { [weak self] state, sessions in
             self?.liveState = state
+            self?.model.sessions = sessions
             self?.applyState()
         }
         watcher.start()
@@ -111,6 +121,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             NSLog("ClaudeBubble: hook refresh failed: \(error)")
+        }
+    }
+
+    private static func renderSnapshots() -> [BubbleState: NSImage] {
+        var images: [BubbleState: NSImage] = [:]
+        for state in BubbleState.allCases {
+            if let image = OrbSnapshot.render(state: state, size: 96) {
+                images[state] = NSImage(cgImage: image, size: NSSize(width: 48, height: 48))
+            }
+        }
+        return images
+    }
+
+    /// Polls the pointer at 20Hz; cheap, and catches hovers the click-through monitors don't see.
+    private func startHoverTracking() {
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in self?.updateHover() }
+        RunLoop.main.add(timer, forMode: .common)
+        hoverTimer = timer
+    }
+
+    private func updateHover() {
+        let mouse = NSEvent.mouseLocation
+        let open = hover.update(overOrb: !bubbleHidden && BubblePlacement.isOverOrb(mouse, panelFrame: panel.frame),
+                                overList: listPanel.isVisible && listPanel.frame.contains(mouse),
+                                hasContent: !bubbleHidden && !model.sessions.isEmpty,
+                                now: CACurrentMediaTime())
+        if open, !listPanel.isVisible {
+            listPanel.show(near: panel.frame)
+        } else if !open, listPanel.isVisible {
+            listPanel.orderOut(nil)
         }
     }
 

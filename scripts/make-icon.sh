@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
-{ echo "import Foundation"; cat Sources/ClaudeBubble/OrbShaders.swift Sources/ClaudeBubbleCore/{BubbleState,OrbParams,OrbAnimator,OrbGeometry}.swift | grep -v '^import Foundation$'; } > "$WORK/lib.swift"
+{ echo "import CoreGraphics"; echo "import Foundation"; echo "import Metal"; cat Sources/ClaudeBubble/{OrbShaders,OrbSnapshot}.swift Sources/ClaudeBubbleCore/{BubbleState,OrbParams,OrbAnimator,OrbGeometry}.swift | grep -vE '^import (Foundation|Metal|ClaudeBubbleCore|CoreGraphics)$'; } > "$WORK/lib.swift"
 swiftc -O "$WORK/lib.swift" scripts/icon/main.swift -o "$WORK/render-icon"
 "$WORK/render-icon" "$WORK/icon_1024.png"
 SET="$WORK/AppIcon.iconset"
