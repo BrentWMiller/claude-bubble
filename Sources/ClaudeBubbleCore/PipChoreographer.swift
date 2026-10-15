@@ -13,6 +13,8 @@ public struct PipInput: Equatable, Sendable {
 public enum PipEvent: Equatable, Sendable {
     /// One session finished while others are still active.
     case ringPop
+    /// A new session's pip is being drawn out of the orb.
+    case spawned(String)
 }
 
 public struct PipFrame: Equatable, Sendable {
@@ -22,8 +24,10 @@ public struct PipFrame: Equatable, Sendable {
     public let slot: Int?
     /// Sort position (also the merge stagger order).
     public let rank: Int
-    /// Spawning or merged: drawn at the orb's centre.
+    /// Merged into the orb: drawn at its centre.
     public let atCenter: Bool
+    /// Just spawned: hidden at the orb's rim while the orb reaches out toward its slot.
+    public let emerging: Bool
     public let flaring: Bool
     public let hopping: Bool
     /// Sideways shake offset in points.
@@ -50,7 +54,8 @@ public final class PipChoreographer {
     public static let maxSlots = 7
     public static let retireDelay = 0.65
     public static let mergeDelay = 0.9
-    public static let spawnDuration = 0.05
+    /// How long the orb reaches out before the new pip detaches (matches the shader's reach).
+    public static let emergeDuration = 0.26
     static let hopWindows: [Range<Double>] = [0..<0.19, 0.38..<0.57]
     static let shakeSteps: [Double] = [5, -5, 4, -4, 2, -2, 0]
     static let shakeInterval = 0.055
@@ -89,6 +94,7 @@ public final class PipChoreographer {
                 records[input.id] = Record(id: input.id, order: nextOrder, state: input.state, rankState: input.state,
                                            spawnedAt: now)
                 nextOrder += 1
+                events.append(.spawned(input.id))
                 if input.state != .idle { merged = false }
                 mergeCheckAt = now + Self.mergeDelay
                 continue
@@ -131,7 +137,8 @@ public final class PipChoreographer {
             return PipFrame(id: rec.id, state: rec.state,
                             slot: over && rank >= Self.maxSlots - 1 ? nil : rank,
                             rank: rank,
-                            atCenter: merged || now < rec.spawnedAt + Self.spawnDuration,
+                            atCenter: merged,
+                            emerging: !merged && now < rec.spawnedAt + Self.emergeDuration,
                             flaring: rec.flareStart.map { now - $0 < Self.retireDelay } ?? false,
                             hopping: hop, shake: shake)
         }

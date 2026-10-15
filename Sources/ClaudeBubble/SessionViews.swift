@@ -66,9 +66,14 @@ private struct PipDot: View {
     let hovered: Bool
 
     var body: some View {
-        let position = pip.atCenter || pip.slot == nil
-            ? centre : PipArc.position(slot: pip.slot!, slots: frame.slots, centre: centre, radius: radius)
-        let scale: CGFloat = pip.atCenter ? 0.15 : pip.flaring ? 2.4 : pip.hopping ? 1.45 : hovered ? 1.3 : 1
+        let slotPoint = pip.slot.map { PipArc.position(slot: $0, slots: frame.slots, centre: centre, radius: radius) } ?? centre
+        // A new pip waits at the rim (where the orb is reaching toward its slot), then springs out to the slot.
+        let toward = CGVector(dx: slotPoint.x - centre.x, dy: slotPoint.y - centre.y)
+        let length = max(hypot(toward.dx, toward.dy), 0.001)
+        let rim = CGPoint(x: centre.x + toward.dx / length * radius / PipArc.radiusScale * 1.15,
+                          y: centre.y + toward.dy / length * radius / PipArc.radiusScale * 1.15)
+        let position = pip.atCenter || pip.slot == nil ? centre : pip.emerging ? rim : slotPoint
+        let scale: CGFloat = pip.atCenter ? 0.15 : pip.emerging ? 1.6 : pip.flaring ? 2.4 : pip.hopping ? 1.45 : hovered ? 1.3 : 1
         Circle()
             .fill(pip.flaring ? Color.white : color)
             .frame(width: 6, height: 6)
@@ -76,7 +81,7 @@ private struct PipDot: View {
             .shadow(color: pip.flaring ? .white : color.opacity(0.8), radius: pip.flaring ? 6 : 3)
             .scaleEffect(scale)
             .offset(x: pip.shake, y: pip.hopping ? -9 : 0)
-            .opacity(pip.slot == nil || frame.merged ? 0 : 1)
+            .opacity(pip.slot == nil || frame.merged || pip.emerging ? 0 : 1)
             .position(position)
             // Merging is pulled in, staggered by rank; everything else springs into place.
             .animation(frame.merged ? .easeIn(duration: 0.45).delay(Double(pip.rank) * 0.05)

@@ -36,4 +36,17 @@ final class RingPopTests: XCTestCase {
         a.setState(.idle)
         XCTAssertGreaterThan(a.step(dt: 1.0 / 60).completion, 0, "a normal change still celebrates")
     }
+
+    func testEmitReachesOutThenSettles() {
+        let a = OrbAnimator(state: .working)
+        a.emit(towards: [0, -1])
+        let f = a.step(dt: 1.0 / 60)
+        XCTAssertEqual(f.emit, 1.0 / 60, accuracy: 0.001)
+        XCTAssertEqual(f.emitDirection, [0, -1])
+        XCTAssertEqual(steps(a, 1).emit, -1, "over within a second")
+    }
+
+    func testNoEmitUntilAsked() {
+        XCTAssertEqual(OrbAnimator(state: .working).step(dt: 1.0 / 60).emit, -1)
+    }
 }

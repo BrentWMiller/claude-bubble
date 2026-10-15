@@ -16,6 +16,10 @@ public struct OrbFrame: Sendable {
     public var completion: Float = -1
     /// Seconds into a ring pop (one session finished while others carry on), or -1.
     public var pop: Float = -1
+    /// Seconds into the orb reaching out to release a new pip, or -1.
+    public var emit: Float = -1
+    /// Which way the orb reaches (y-up, unit length).
+    public var emitDirection = SIMD2<Float>(0, -1)
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
@@ -44,6 +48,8 @@ public final class OrbAnimator {
     public static let completionSpeed: Float = 0.5
     /// A ring pop's clock; nil when not playing.
     private var popTime: Float?
+    private var emitTime: Float?
+    private var emitDirection = SIMD2<Float>(0, -1)
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -84,6 +90,13 @@ public final class OrbAnimator {
     /// One session finished while others are still busy: a single chromatic ring and a sheen.
     public func ringPop() {
         popTime = 0
+    }
+
+    /// A new pip is born: the orb stretches toward `direction` (y-up), the pip detaches, the orb springs back.
+    public func emit(towards direction: SIMD2<Float>) {
+        let length = (direction * direction).sum().squareRoot()
+        emitDirection = length > 0 ? direction / length : SIMD2(0, -1)
+        emitTime = 0
     }
 
     /// `quiet` changes (e.g. previewing a hovered pip's state) never start the celebration.
@@ -164,11 +177,17 @@ public final class OrbAnimator {
             let next = t + dt
             if next < 1.6 { popTime = next; pop = next } else { popTime = nil }
         }
+        var emit: Float = -1
+        if let t = emitTime {
+            let next = t + dt
+            if next < 0.9 { emitTime = next; emit = next } else { emitTime = nil }
+        }
         let attention = interaction == .attention ? closeness : 0
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
-                        pointer: pointerOffset, attention: attention, completion: completion, pop: pop)
+                        pointer: pointerOffset, attention: attention, completion: completion, pop: pop,
+                        emit: emit, emitDirection: emitDirection)
     }
 
     static func smoothstep(_ a: Float, _ b: Float, _ x: Float) -> Float {

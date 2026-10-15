@@ -34,11 +34,19 @@ final class PipChoreographerTests: XCTestCase {
     }
 
     // Spawn, hop, shake
-    func testSpawnStartsAtTheCentre() {
+    func testNewPipsAreDrawnOutOfTheOrb() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working)]), now: 0)
+        XCTAssertEqual(c.update(ins([("a", .working), ("b", .working)]), now: 1), [.spawned("b")])
+        XCTAssertTrue(pip(c.frame(now: 1.1), "b").emerging, "hidden at the rim while the orb reaches out")
+        XCTAssertFalse(pip(c.frame(now: 1.1), "b").atCenter)
+        XCTAssertFalse(pip(c.frame(now: 1.35), "b").emerging, "detached: now it travels to its slot")
+    }
+
+    func testFinishingAndSpawningInOneUpdateReportBoth() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
-        XCTAssertTrue(pip(c.frame(now: 0.01), "b").atCenter)
-        XCTAssertFalse(pip(c.frame(now: 0.2), "b").atCenter)
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .working), ("c", .working)]), now: 1), [.ringPop, .spawned("c")])
     }
 
     func testNeedsHopsTwice() {

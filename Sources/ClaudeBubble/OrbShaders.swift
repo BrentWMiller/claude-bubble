@@ -10,7 +10,7 @@ struct Uniforms {
     float4 b;   // glitch, wave, bright, pointSize
     float4 c;   // resX, resY, shiftX, unused
     float4 d;   // pointer offset x, y (radii, ≤ 1), attention, completion time (s; < 0 = not playing)
-    float4 e;   // ring pop time (s; < 0 = not playing), unused ×3
+    float4 e;   // ring pop time (s; < 0 = off), emit direction x, y (y-up), emit time (s; < 0 = off)
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -115,6 +115,20 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float band = step(.82, fract(sin(floor((pos.y + ph * .3) * 9.) * 91.7) * 437.5));
     p *= 1. + glitch * (gh * .1 + band * .12);
     p.x += glitch * band * .08 * sign(gh - .5);
+    // Emit: a new pip is pulled out of the orb. The cap facing its slot stretches into a teardrop with a
+    // narrowing neck, snaps at ~0.26s (the pip detaches), then springs back with a wobble.
+    float eT = u.e.w;
+    if (eT >= 0.) {
+        float3 D = normalize(float3(u.e.y, u.e.z, .2));
+        float along = dot(normalize(p), D);
+        float cap = smoothstep(.45, 1., along);
+        float grow = smoothstep(0., .26, eT);
+        float snap = eT > .26 ? exp(-(eT - .26) * 8.) * cos((eT - .26) * 20.) : 1.;
+        float stretch = grow * snap;
+        float reach = cap * cap * stretch;
+        p += D * reach * .6;
+        p -= (p - D * dot(p, D)) * cap * stretch * .45;   // pinch toward the axis: a neck
+    }
     // Completed moment: dots gather in, then spring out in a wave travelling bottom to top.
     float dT = u.d.w, hasD = step(0., dT);
     float gather = hasD * smoothstep(0., .38, dT) * (1. - smoothstep(.38, .46, dT));
