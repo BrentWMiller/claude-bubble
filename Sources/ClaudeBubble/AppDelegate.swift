@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var applied = BubblePreferences.defaults
     private var settingsSubscription: AnyCancellable?
     private var settingsWindow: SettingsWindowController?
-    private var pendingSnapshots: DispatchWorkItem?
     private var lastTodayRefresh: CFTimeInterval = 0
     private var hoverToasts = false
     /// Re-anchors the list once a drag settles.
@@ -54,7 +53,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         applied = settings.prefs
         model.palette = applied.palette
-        model.snapshots = Self.renderSnapshots(applied.palette)
         animator.interaction = applied.interaction
         sounds.enabled = applied.sounds
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
@@ -229,7 +227,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             toastModel.palette = prefs.palette
             animator.palette = prefs.palette
             model.palette = prefs.palette
-            scheduleSnapshots(prefs.palette)
         }
         if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
@@ -375,14 +372,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.present = false
     }
 
-    /// Color-well drags send a stream of palettes; re-render the mini orbs once the stream settles.
-    private func scheduleSnapshots(_ palette: OrbPalette) {
-        pendingSnapshots?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.model.snapshots = Self.renderSnapshots(palette) }
-        pendingSnapshots = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
-    }
-
     private func currentSpot() -> CGPoint? {
         let frame = panel.frame
         guard let visible = BubblePanel.screen(containing: CGPoint(x: frame.midX, y: frame.midY))?.visibleFrame else { return nil }
@@ -414,16 +403,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.swappingDisplays = false
             }
         }
-    }
-
-    private static func renderSnapshots(_ palette: OrbPalette) -> [BubbleState: NSImage] {
-        var images: [BubbleState: NSImage] = [:]
-        for state in BubbleState.allCases {
-            if let image = OrbSnapshot.render(state: state, size: 96, palette: palette) {
-                images[state] = NSImage(cgImage: image, size: NSSize(width: 48, height: 48))
-            }
-        }
-        return images
     }
 
     /// Polls the pointer at 20Hz; cheap, and catches hovers the click-through monitors don't see.

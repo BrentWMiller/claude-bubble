@@ -21,16 +21,24 @@ extension BubbleState {
 
 /// Session pips on an arc under the orb, choreographed by `PipChoreographer` (spawn, hop, shake, flare, merge).
 extension StatusTone {
-    /// The agents view's colours, regardless of the orb's palette.
-    var color: Color {
+    /// Status colours follow the orb's palette: needs/review, error, working, and finished take its swatches;
+    /// sessions that went quiet without finishing stay grey.
+    func color(in palette: OrbPalette) -> Color {
+        let state: BubbleState
         switch self {
-        case .attention: Color(red: 0xf0 / 255, green: 0xa0 / 255, blue: 0x50 / 255)
-        case .error: Color(red: 0xe8 / 255, green: 0x55 / 255, blue: 0x4f / 255)
-        case .working: Color(red: 0xb0 / 255, green: 0x8c / 255, blue: 1)
-        case .completed: Color(red: 0x5f / 255, green: 0xd9 / 255, blue: 0x8a / 255)
-        case .idle: Color.white.opacity(0.45)
+        case .attention: state = .needs
+        case .error: state = .error
+        case .working: state = .working
+        case .completed: state = .idle
+        case .idle: return Color.white.opacity(0.45)
         }
+        return state.color(in: palette)
     }
+}
+
+extension Session {
+    /// The pip colour, shared by the arc and the hover list.
+    func pipColor(in palette: OrbPalette) -> Color { tone.color(in: palette) }
 }
 
 struct ArcPipsView: View {
@@ -45,7 +53,7 @@ struct ArcPipsView: View {
             ZStack {
                 ForEach(frame.pips, id: \.id) { pip in
                     PipDot(pip: pip, frame: frame, centre: centre, radius: radius,
-                           color: (pip.review ? BubbleState.needs : pip.state).color(in: model.palette),
+                           color: pipColor(pip),
                            hovered: model.hoveredPip == pip.id)
                 }
                 if frame.overflow > 0 {
@@ -60,6 +68,13 @@ struct ArcPipsView: View {
         }
         .opacity(model.present && model.pips.visible ? 1 : 0)
         .animation(model.present ? .spring(response: 0.45, dampingFraction: 0.5) : .easeIn(duration: 0.15), value: model.present)
+    }
+
+    private func pipColor(_ pip: PipFrame) -> Color {
+        guard let session = model.sessions.first(where: { $0.id == pip.id }) else {
+            return (pip.review ? BubbleState.needs : pip.state).color(in: model.palette)
+        }
+        return session.pipColor(in: model.palette)
     }
 }
 
@@ -114,7 +129,7 @@ struct PipCardView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            SessionRow(session: session, now: context.date, snapshot: model.snapshots[session.state],
+            SessionRow(session: session, now: context.date,
                        palette: model.palette)
         }
         .padding(4)
@@ -127,7 +142,6 @@ struct PipCardView: View {
 struct SessionRow: View {
     let session: Session
     let now: Date
-    let snapshot: NSImage?
     let palette: OrbPalette
     /// 0 → 1 as the row cascades in (text decodes like a toast); 1 when settled.
     var entrance: Double = 1
@@ -135,14 +149,10 @@ struct SessionRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Group {
-                // Working rows keep the live mini orb; the rest take their status colour, like the status line.
-                if session.tone == .working, let snapshot {
-                    Image(nsImage: snapshot).resizable().frame(width: 40, height: 40)
-                } else {
-                    let color = session.tone == .working ? session.state.color(in: palette) : session.tone.color
-                    Circle().fill(color).frame(width: 10, height: 10)
-                        .shadow(color: color.opacity(session.tone == .idle ? 0 : 0.8), radius: 5)
-                }
+                // A pip, coloured like the ones under the orb.
+                let color = session.pipColor(in: palette)
+                Circle().fill(color).frame(width: 9, height: 9)
+                    .shadow(color: color.opacity(session.tone == .idle ? 0 : 0.8), radius: 4)
             }
             .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 2) {
@@ -154,7 +164,7 @@ struct SessionRow: View {
                     .truncationMode(.tail)
                 Text(session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
                     .font(.system(size: 12))
-                    .foregroundStyle(session.tone.color)
+                    .foregroundStyle(session.tone.color(in: palette))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -210,7 +220,7 @@ struct SessionListView: View {
     private func card(now: Date, age: Double) -> some View {
         VStack(spacing: 2) {
             ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
-                SessionRow(session: session, now: now, snapshot: model.snapshots[session.state],
+                SessionRow(session: session, now: now,
                            palette: model.palette, entrance: CardMotion.row(index, age: age))
                     .onTapGesture(perform: onSelect)
             }

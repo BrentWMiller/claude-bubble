@@ -14,7 +14,7 @@ Small decoded "toasts" under the orb that announce what just happened: a session
 | started | "started" | working swatch | 4s | pip spawned |
 | needs | "needs you" | needs swatch | 8s | → needs |
 | error | "hit an error" | error swatch | 8s | → error |
-| finished | "finished" | pearl `#f1effa` | 6s | → done (idle) |
+| finished | "finished" | idle (done) swatch | 6s | → done (idle) |
 | resumed | "back to work" | working swatch | 3.5s | → working *from needs or error only* |
 | allDone | "All sessions complete" (name "All sessions") | success mint | 6s | all-done merge, shown 0.45s later |
 
