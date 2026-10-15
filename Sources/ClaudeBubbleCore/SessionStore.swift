@@ -137,22 +137,31 @@ public enum SessionStore {
         }
     }
 
-    /// Adds Claude Code's session titles, and its own status line while a session is working and that
-    /// line was written during the current state. Needs/error keep the hook's more specific text.
+    /// Adds what Claude Code's job files know: session titles, its own status line while working, "Ready for
+    /// review" (finished with a PR), and "Needs input" (the turn ended on a question). Needs/error from the hook
+    /// keep its more specific text.
     public static func withJobs(_ sessions: [Session], from jobsDir: URL = JobStore.defaultDirectory) -> [Session] {
         sessions.map { s in
             guard let job = JobStore.load(sessionId: s.id, from: jobsDir) else { return s }
             let name = job.name?.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = (name?.isEmpty ?? true) ? nil : name
             var detail = s.detail
+            // The turn ended on a question Claude is waiting for you to answer: the job says "blocked"
+            // (the agents view's "Needs input"), even though the hook only saw a Stop.
+            let awaitingAnswer = s.state == .idle && job.state == "blocked"
+            if awaitingAnswer {
+                let question = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                detail = question.isEmpty ? "Needs input" : question
+            }
             if s.state == .working, job.state == "working",
                let summary = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty,
                let written = job.updatedAt, written >= s.stateSince.addingTimeInterval(-5) {
                 detail = summary
             }
-            return Session(id: s.id, state: s.state, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
-                           detail: detail, stateSince: s.stateSince, pid: s.pid, title: title, prompted: s.prompted,
-                           tokens: job.tokens, reviewReady: s.state == .idle && job.hasPullRequest)
+            return Session(id: s.id, state: awaitingAnswer ? .needs : s.state, cwd: s.cwd, updatedAt: s.updatedAt,
+                           project: s.project, detail: detail, stateSince: s.stateSince, pid: s.pid, title: title,
+                           prompted: s.prompted, tokens: job.tokens,
+                           reviewReady: s.state == .idle && !awaitingAnswer && job.hasPullRequest)
         }
     }
 }

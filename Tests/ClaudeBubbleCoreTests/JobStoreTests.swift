@@ -116,4 +116,23 @@ final class JobStoreTests: XCTestCase {
         try writeJob(#"{"sessionId":"\#(sid)","name":"docs","state":"done","children":[{"id":"x","href":"https://example.com","kind":"link"}]}"#)
         XCTAssertEqual(SessionStore.withJobs([session(.idle)], from: dir).first?.reviewReady, false)
     }
+
+    // Needs input: the turn ended on a question (the job says "blocked"), like the agents view
+    func testAFinishedTurnWaitingOnAnAnswerNeedsYou() throws {
+        try writeJob(#"{"sessionId":"\#(sid)","name":"AI Bubble","state":"blocked","detail":"Should a finished session hold the orb?"}"#)
+        let s = try XCTUnwrap(SessionStore.withJobs([session(.idle, detail: "Completed")], from: dir).first)
+        XCTAssertEqual(s.state, .needs)
+        XCTAssertEqual(s.detail, "Should a finished session hold the orb?")
+        XCTAssertEqual(SessionStore.aggregate([s], now: now), .needs, "the orb asks for you too")
+    }
+
+    func testReplyingWinsOverAStaleBlocked() throws {
+        try writeJob(#"{"sessionId":"\#(sid)","name":"AI Bubble","state":"blocked","detail":"old question"}"#)
+        XCTAssertEqual(SessionStore.withJobs([session(.working)], from: dir).first?.state, .working)
+    }
+
+    func testAFinishedJobStaysFinished() throws {
+        try writeJob(#"{"sessionId":"\#(sid)","name":"docs","state":"done"}"#)
+        XCTAssertEqual(SessionStore.withJobs([session(.idle)], from: dir).first?.state, .idle)
+    }
 }
