@@ -4,9 +4,12 @@ import Foundation
 public struct PipInput: Equatable, Sendable {
     public let id: String
     public let state: BubbleState
-    public init(id: String, state: BubbleState) {
+    /// Finished with an open pull request ("Ready for review").
+    public let review: Bool
+    public init(id: String, state: BubbleState, review: Bool = false) {
         self.id = id
         self.state = state
+        self.review = review
     }
 }
 
@@ -26,6 +29,8 @@ public enum PipEvent: Equatable, Sendable {
     /// A session went back to work.
     case resumed(String)
     case removed(String)
+    /// A finished session opened a pull request after finishing: "Ready for review".
+    case reviewReady(String)
 }
 
 public struct PipFrame: Equatable, Sendable {
@@ -45,6 +50,8 @@ public struct PipFrame: Equatable, Sendable {
     public let hopping: Bool
     /// Sideways shake offset in points.
     public let shake: Double
+    /// "Ready for review": drawn in the needs colour, first among the finished.
+    public var review = false
 }
 
 public struct PipsFrame: Equatable, Sendable {
@@ -86,6 +93,7 @@ public final class PipChoreographer {
         var retireAt: Double?
         var hopStart: Double?
         var shakeStart: Double?
+        var review = false
     }
 
     private var records: [String: Record] = [:]
@@ -114,12 +122,17 @@ public final class PipChoreographer {
         for input in inputs {
             guard var rec = records[input.id] else {
                 records[input.id] = Record(id: input.id, order: nextOrder, state: input.state, rankState: input.state,
-                                           spawnedAt: now)
+                                           spawnedAt: now, review: input.review)
                 nextOrder += 1
                 events.append(.spawned(input.id))
                 if input.state != .idle { merged = false; finishPending = false }
                 mergeCheckAt = now + Self.mergeDelay
                 continue
+            }
+            if rec.review != input.review {
+                if input.review, rec.state == .idle, input.state == .idle { events.append(.reviewReady(input.id)) }
+                rec.review = input.review
+                records[input.id] = rec
             }
             guard rec.state != input.state else { continue }
             rec.state = input.state
@@ -153,8 +166,9 @@ public final class PipChoreographer {
 
     public func frame(now: Double) -> PipsFrame {
         advance(now)
+        // Like the agents view, "Ready for review" leads the finished group.
         let sorted = records.values.sorted {
-            ($0.rankState.pipRank, $0.order) < ($1.rankState.pipRank, $1.order)
+            ($0.rankState.pipRank, $0.review ? 0 : 1, $0.order) < ($1.rankState.pipRank, $1.review ? 0 : 1, $1.order)
         }
         let n = sorted.count
         let over = n > Self.maxSlots
@@ -173,7 +187,7 @@ public final class PipChoreographer {
                             snapping: !merged && now >= rec.spawnedAt + Self.pullDuration
                                 && now < rec.spawnedAt + Self.pullDuration + Self.snapDuration,
                             flaring: rec.flareStart.map { now - $0 < Self.retireDelay } ?? false,
-                            hopping: hop, shake: shake)
+                            hopping: hop, shake: shake, review: rec.review && rec.state == .idle)
         }
         return PipsFrame(pips: pips, slots: over ? Self.maxSlots : n, overflow: over ? n - (Self.maxSlots - 1) : 0,
                          merged: merged, visible: n >= 2)

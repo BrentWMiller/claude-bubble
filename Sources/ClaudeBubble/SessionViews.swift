@@ -9,14 +9,6 @@ extension BubbleState {
         return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
     }
 
-    /// Needs and error rows take their state's color; the rest stay quiet.
-    func detailColor(in palette: OrbPalette) -> Color {
-        switch self {
-        case .needs, .error: color(in: palette)
-        case .idle, .working: Color.white.opacity(0.55)
-        }
-    }
-
     var settingsLabel: String {
         switch self {
         case .idle: "Completed"
@@ -28,6 +20,27 @@ extension BubbleState {
 }
 
 /// Session pips on an arc under the orb, choreographed by `PipChoreographer` (spawn, hop, shake, flare, merge).
+extension StatusTone {
+    /// Status colours follow the orb's palette: needs/review, error, working, and finished take its swatches;
+    /// sessions that went quiet without finishing stay grey.
+    func color(in palette: OrbPalette) -> Color {
+        let state: BubbleState
+        switch self {
+        case .attention: state = .needs
+        case .error: state = .error
+        case .working: state = .working
+        case .completed: state = .idle
+        case .idle: return Color.white.opacity(0.45)
+        }
+        return state.color(in: palette)
+    }
+}
+
+extension Session {
+    /// The pip colour, shared by the arc and the hover list.
+    func pipColor(in palette: OrbPalette) -> Color { tone.color(in: palette) }
+}
+
 struct ArcPipsView: View {
     @ObservedObject var model: SessionsModel
 
@@ -40,7 +53,8 @@ struct ArcPipsView: View {
             ZStack {
                 ForEach(frame.pips, id: \.id) { pip in
                     PipDot(pip: pip, frame: frame, centre: centre, radius: radius,
-                           color: pip.state.color(in: model.palette), hovered: model.hoveredPip == pip.id)
+                           color: pipColor(pip),
+                           hovered: model.hoveredPip == pip.id)
                 }
                 if frame.overflow > 0 {
                     Text("+\(frame.overflow)")
@@ -54,6 +68,13 @@ struct ArcPipsView: View {
         }
         .opacity(model.present && model.pips.visible ? 1 : 0)
         .animation(model.present ? .spring(response: 0.45, dampingFraction: 0.5) : .easeIn(duration: 0.15), value: model.present)
+    }
+
+    private func pipColor(_ pip: PipFrame) -> Color {
+        guard let session = model.sessions.first(where: { $0.id == pip.id }) else {
+            return (pip.review ? BubbleState.needs : pip.state).color(in: model.palette)
+        }
+        return session.pipColor(in: model.palette)
     }
 }
 
@@ -108,8 +129,8 @@ struct PipCardView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            SessionRow(session: session, now: context.date, snapshot: model.snapshots[session.state],
-                       palette: model.palette, highlighted: false)
+            SessionRow(session: session, now: context.date,
+                       palette: model.palette)
         }
         .padding(4)
         .frame(width: 250)
@@ -121,29 +142,29 @@ struct PipCardView: View {
 struct SessionRow: View {
     let session: Session
     let now: Date
-    let snapshot: NSImage?
     let palette: OrbPalette
-    let highlighted: Bool
+    /// 0 → 1 as the row cascades in (text decodes like a toast); 1 when settled.
+    var entrance: Double = 1
 
     var body: some View {
         HStack(spacing: 12) {
             Group {
-                if let snapshot {
-                    Image(nsImage: snapshot).resizable().frame(width: 40, height: 40)
-                } else {
-                    Circle().fill(session.state.color(in: palette)).frame(width: 18, height: 18)
-                }
+                // A pip, coloured like the ones under the orb.
+                let color = session.pipColor(in: palette)
+                Circle().fill(color).frame(width: 9, height: 9)
+                    .shadow(color: color.opacity(session.tone == .idle ? 0 : 0.8), radius: 4)
             }
             .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.displayName)
+                Text(entrance < 1 ? ToastDecode.text(session.displayName, progress: entrance, seed: session.id.hashValue & 0xffff,
+                                                     tick: Int(CACurrentMediaTime() / 0.045)) : session.displayName)
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(session.detail.isEmpty ? "Idle" : session.detail)
+                Text(session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
                     .font(.system(size: 12))
-                    .foregroundStyle(session.state.detailColor(in: palette))
+                    .foregroundStyle(session.tone.color(in: palette))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -162,33 +183,74 @@ struct SessionRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(highlighted ? 0.06 : 0)))
         .contentShape(Rectangle())
+        .opacity(entrance)
+        .offset(x: (1 - entrance) * 6)
     }
+}
+
+/// When the hover card opened or started closing, and which edge faces the orb.
+final class CardMotionModel: ObservableObject {
+    @Published var shownAt: Double = 0
+    @Published var hiddenAt: Double?
+    /// The card hangs below the orb, so it unfolds from its top edge.
+    @Published var fromTop = true
 }
 
 struct SessionListView: View {
     @ObservedObject var model: SessionsModel
+    @ObservedObject var motion: CardMotionModel
     let onSelect: () -> Void
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            VStack(spacing: 2) {
-                ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
-                    SessionRow(session: session, now: context.date, snapshot: model.snapshots[session.state],
-                               palette: model.palette, highlighted: index == 0)
-                        .onTapGesture(perform: onSelect)
-                }
-                if let today = model.today {
-                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
-                    TodayFooter(summary: today)
-                }
-            }
-            .padding(8)
+        // Animate at display rate while popping in or out, otherwise just tick the timers once a second.
+        let settled = motion.hiddenAt == nil && CACurrentMediaTime() - motion.shownAt > 0.9
+        TimelineView(.animation(minimumInterval: settled ? 1 : nil, paused: false)) { context in
+            let now = CACurrentMediaTime()
+            let age = now - motion.shownAt
+            let pose = motion.hiddenAt.map { CardMotion.disappear(age: now - $0) } ?? CardMotion.appear(age: age)
+            card(now: context.date, age: motion.hiddenAt == nil ? age : 10)
+                .mask { CardReveal(reveal: pose.reveal, fromTop: motion.fromTop) }
+                .scaleEffect(pose.scale, anchor: motion.fromTop ? .top : .bottom)
+                .offset(y: (motion.fromTop ? -1 : 1) * pose.offset)
+                .opacity(pose.opacity)
         }
+    }
+
+    private func card(now: Date, age: Double) -> some View {
+        VStack(spacing: 2) {
+            ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
+                SessionRow(session: session, now: now,
+                           palette: model.palette, entrance: CardMotion.row(index, age: age))
+                    .onTapGesture(perform: onSelect)
+            }
+            if let today = model.today {
+                Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
+                TodayFooter(summary: today)
+            }
+        }
+        .padding(8)
         .frame(width: 290)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x17 / 255, green: 0x16 / 255, blue: 0x1c / 255).opacity(0.96)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
+    }
+}
+
+/// The card's reveal: an ellipse centred on the edge facing the orb, growing until it covers the whole card.
+private struct CardReveal: View {
+    let reveal: Double
+    let fromTop: Bool
+
+    var body: some View {
+        GeometryReader { geo in
+            if reveal >= 1 {
+                Rectangle()
+            } else {
+                Ellipse()
+                    .frame(width: geo.size.width * 2.4 * reveal, height: geo.size.height * 2.6 * reveal)
+                    .position(x: geo.size.width / 2, y: fromTop ? 0 : geo.size.height)
+            }
+        }
     }
 }
 

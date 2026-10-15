@@ -30,15 +30,17 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var sounds: Bool
     /// What plays when every session finishes.
     public var completionSound: CompletionSound
+    /// Toasts under the orb on or off.
+    public var toasts: Bool
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
         diameter: OrbSize.defaultDiameter, opacity: 1, followPointer: false, relativeSpot: nil,
-        interaction: .attention, sounds: true, completionSound: .bloom)
+        interaction: .attention, sounds: true, completionSound: .bloom, toasts: true)
 
     public init(palette: OrbPalette, presetName: String, customized: Bool, diameter: Double, opacity: Double,
                 followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction, sounds: Bool,
-                completionSound: CompletionSound) {
+                completionSound: CompletionSound, toasts: Bool) {
         self.palette = palette
         self.presetName = presetName
         self.customized = customized
@@ -49,6 +51,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         self.interaction = interaction
         self.sounds = sounds
         self.completionSound = completionSound
+        self.toasts = toasts
     }
 
     /// Missing keys (settings saved by an older version) take their defaults instead of resetting everything.
@@ -65,6 +68,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         interaction = (try? c.decodeIfPresent(PointerInteraction.self, forKey: .interaction)) ?? d.interaction
         sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? d.sounds
         completionSound = (try? c.decodeIfPresent(CompletionSound.self, forKey: .completionSound)) ?? d.completionSound
+        toasts = try c.decodeIfPresent(Bool.self, forKey: .toasts) ?? d.toasts
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {

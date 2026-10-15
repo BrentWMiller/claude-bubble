@@ -9,6 +9,8 @@ public struct JobInfo: Equatable, Sendable {
     public let updatedAt: Date?
     /// The session's current context size.
     public let tokens: Int?
+    /// It opened a pull request (a `children` link of kind "pr"): the agents view's "Ready for review".
+    public var hasPullRequest = false
 }
 
 public enum JobStore {
@@ -23,6 +25,11 @@ public enum JobStore {
         let state: String?
         let updatedAt: String?
         let tokens: Int?
+        let children: [Child]?
+    }
+
+    private struct Child: Decodable {
+        let kind: String?
     }
 
     /// Jobs live in `<dir>/<first 8 chars of the session id>/state.json`; the full id must match.
@@ -33,7 +40,8 @@ public enum JobStore {
               let record = try? JSONDecoder().decode(Record.self, from: data),
               record.sessionId == sessionId else { return nil }
         return JobInfo(name: record.name, detail: record.detail, state: record.state,
-                       updatedAt: record.updatedAt.flatMap(parseDate), tokens: record.tokens)
+                       updatedAt: record.updatedAt.flatMap(parseDate), tokens: record.tokens,
+                       hasPullRequest: record.children?.contains { $0.kind == "pr" } ?? false)
     }
 
     static func parseDate(_ text: String) -> Date? {

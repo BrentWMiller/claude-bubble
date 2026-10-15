@@ -36,7 +36,9 @@ final class SimulatorWindowController: NSWindowController, NSWindowDelegate {
 struct SimulatorView: View {
     @ObservedObject var sim: SimulatorModel
     let palette: () -> OrbPalette
-    private let options: [(BubbleState, String)] = [(.working, "Work"), (.needs, "Needs"), (.error, "Error"), (.idle, "Done")]
+    private let options: [(BubbleState, Bool, String)] = [
+        (.working, false, "Work"), (.needs, false, "Needs"), (.error, false, "Error"), (.idle, false, "Done"), (.idle, true, "Review")
+    ]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -66,17 +68,18 @@ struct SimulatorView: View {
     private func row(_ s: SimulatorModel.Sim) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Circle().fill(s.state.color(in: palette())).frame(width: 7, height: 7)
+                Circle().fill((s.review ? BubbleState.needs : s.state).color(in: palette())).frame(width: 7, height: 7)
                 Text(s.name).font(.system(size: 12, weight: .medium, design: .monospaced))
                 Spacer()
                 Button { sim.remove(s.id) } label: { Image(systemName: "xmark") }.buttonStyle(.borderless)
             }
             HStack(spacing: 6) {
-                ForEach(options, id: \.1) { state, label in
-                    if s.state == state {
-                        Button(label) { sim.set(s.id, state) }.buttonStyle(.borderedProminent).tint(state.color(in: palette()))
+                ForEach(options, id: \.2) { state, review, label in
+                    let tint = (review ? BubbleState.needs : state).color(in: palette())
+                    if s.state == state && s.review == review {
+                        Button(label) { sim.set(s.id, state, review: review) }.buttonStyle(.borderedProminent).tint(tint)
                     } else {
-                        Button(label) { sim.set(s.id, state) }.buttonStyle(.bordered)
+                        Button(label) { sim.set(s.id, state, review: review) }.buttonStyle(.bordered)
                     }
                 }
             }

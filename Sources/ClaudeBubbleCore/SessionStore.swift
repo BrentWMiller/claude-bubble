@@ -16,13 +16,15 @@ public struct Session: Equatable, Sendable {
     public let prompted: Bool
     /// Current context size, from Claude Code's job file.
     public let tokens: Int?
+    /// Finished with an open pull request: "Ready for review" (orange), like Claude Code's agents view.
+    public let reviewReady: Bool
 
     /// What to call the session: Claude Code's title, else the project folder.
     public var displayName: String { title ?? project }
 
     public init(id: String, state: BubbleState, cwd: String = "", updatedAt: Date,
                 project: String? = nil, detail: String = "", stateSince: Date? = nil, pid: Int32? = nil,
-                title: String? = nil, prompted: Bool = true, tokens: Int? = nil) {
+                title: String? = nil, prompted: Bool = true, tokens: Int? = nil, reviewReady: Bool = false) {
         self.id = id
         self.state = state
         self.cwd = cwd
@@ -34,6 +36,7 @@ public struct Session: Equatable, Sendable {
         self.title = title
         self.prompted = prompted
         self.tokens = tokens
+        self.reviewReady = reviewReady
     }
 
     static func projectName(for cwd: String) -> String {
@@ -119,7 +122,7 @@ public enum SessionStore {
             guard s.state != .idle else { return s }
             return Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
                            detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title, prompted: s.prompted,
-                           tokens: s.tokens)
+                           tokens: s.tokens, reviewReady: s.reviewReady)
         }
     }
 
@@ -134,22 +137,31 @@ public enum SessionStore {
         }
     }
 
-    /// Adds Claude Code's session titles, and its own status line while a session is working and that
-    /// line was written during the current state. Needs/error keep the hook's more specific text.
+    /// Adds what Claude Code's job files know: session titles, its own status line while working, "Ready for
+    /// review" (finished with a PR), and "Needs input" (the turn ended on a question). Needs/error from the hook
+    /// keep its more specific text.
     public static func withJobs(_ sessions: [Session], from jobsDir: URL = JobStore.defaultDirectory) -> [Session] {
         sessions.map { s in
             guard let job = JobStore.load(sessionId: s.id, from: jobsDir) else { return s }
             let name = job.name?.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = (name?.isEmpty ?? true) ? nil : name
             var detail = s.detail
+            // The turn ended on a question Claude is waiting for you to answer: the job says "blocked"
+            // (the agents view's "Needs input"), even though the hook only saw a Stop.
+            let awaitingAnswer = s.state == .idle && job.state == "blocked"
+            if awaitingAnswer {
+                let question = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                detail = question.isEmpty ? "Needs input" : question
+            }
             if s.state == .working, job.state == "working",
                let summary = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty,
                let written = job.updatedAt, written >= s.stateSince.addingTimeInterval(-5) {
                 detail = summary
             }
-            return Session(id: s.id, state: s.state, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
-                           detail: detail, stateSince: s.stateSince, pid: s.pid, title: title, prompted: s.prompted,
-                           tokens: job.tokens)
+            return Session(id: s.id, state: awaitingAnswer ? .needs : s.state, cwd: s.cwd, updatedAt: s.updatedAt,
+                           project: s.project, detail: detail, stateSince: s.stateSince, pid: s.pid, title: title,
+                           prompted: s.prompted, tokens: job.tokens,
+                           reviewReady: s.state == .idle && !awaitingAnswer && job.hasPullRequest)
         }
     }
 }

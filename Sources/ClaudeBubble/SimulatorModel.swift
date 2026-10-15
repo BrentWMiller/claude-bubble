@@ -10,6 +10,8 @@ final class SimulatorModel: ObservableObject {
         let name: String
         var state: BubbleState
         var since: Date
+        /// Finished with an open PR ("Ready for review").
+        var review = false
     }
 
     @Published private(set) var sessions: [Sim] = []
@@ -26,10 +28,12 @@ final class SimulatorModel: ObservableObject {
         return id
     }
 
-    func set(_ id: Int, _ state: BubbleState) {
-        guard let i = sessions.firstIndex(where: { $0.id == id }), sessions[i].state != state else { return }
+    func set(_ id: Int, _ state: BubbleState, review: Bool = false) {
+        guard let i = sessions.firstIndex(where: { $0.id == id }),
+              sessions[i].state != state || sessions[i].review != review else { return }
+        if sessions[i].state != state { sessions[i].since = Date() }
         sessions[i].state = state
-        sessions[i].since = Date()
+        sessions[i].review = review && state == .idle
     }
 
     func remove(_ id: Int) {
@@ -65,7 +69,7 @@ final class SimulatorModel: ObservableObject {
     var asSessions: [Session] {
         sessions.map {
             Session(id: "sim-\($0.id)", state: $0.state, updatedAt: Date(), project: $0.name,
-                    detail: SimulatorStory.detail(for: $0.state), stateSince: $0.since, title: $0.name)
+                    detail: SimulatorStory.detail(for: $0.state), stateSince: $0.since, title: $0.name, reviewReady: $0.review)
         }
     }
 }

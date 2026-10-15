@@ -1,6 +1,70 @@
 import CoreGraphics
 import Foundation
 
+/// How a session's status line is coloured in the list, following the agents view's groups.
+public enum StatusTone: Equatable, Sendable {
+    /// Needs input or Ready for review (orange).
+    case attention
+    case error
+    case working
+    /// Finished (green).
+    case completed
+    /// Went quiet without finishing (grey).
+    case idle
+}
+
+extension Session {
+    public var tone: StatusTone {
+        if reviewReady { return .attention }
+        switch state {
+        case .needs: return .attention
+        case .error: return .error
+        case .working: return .working
+        case .idle: return detail == "Idle" ? .idle : .completed
+        }
+    }
+}
+
+/// The hover card's pop-in and pop-out, in the toasts' style: it unfolds from the orb's side, eases out of the orb
+/// with a slight overshoot, and its rows cascade in; leaving, it slips back toward the orb and closes.
+public enum CardMotion {
+    public struct Pose: Equatable, Sendable {
+        public let opacity: Double
+        public let scale: Double
+        /// Points shifted toward the orb.
+        public let offset: Double
+        /// 0 (closed) … 1 (fully revealed).
+        public let reveal: Double
+    }
+
+    public static let showDuration = 0.45
+    public static let hideDuration = 0.22
+
+    static func clamp(_ x: Double) -> Double { min(max(x, 0), 1) }
+    static func easeOut(_ x: Double) -> Double { 1 - pow(1 - x, 3) }
+    static func easeIn(_ x: Double) -> Double { x * x * x }
+    static func easeOutBack(_ x: Double) -> Double {
+        let c1 = 1.70158 * 0.6, c3 = c1 + 1
+        return 1 + c3 * pow(x - 1, 3) + c1 * pow(x - 1, 2)
+    }
+
+    public static func appear(age: Double) -> Pose {
+        let p = clamp(age / showDuration)
+        return Pose(opacity: easeOut(clamp(p * 1.4)), scale: 0.96 + 0.04 * easeOutBack(p),
+                    offset: 8 * (1 - easeOut(p)), reveal: easeOut(clamp(age / 0.4)))
+    }
+
+    public static func disappear(age: Double) -> Pose {
+        let e = easeIn(clamp(age / hideDuration))
+        return Pose(opacity: 1 - e, scale: 1 - 0.03 * e, offset: 6 * e, reveal: 1 - e)
+    }
+
+    /// Row `index`'s entrance progress (each row a little after the one before).
+    public static func row(_ index: Int, age: Double) -> Double {
+        easeOut(clamp((age - 0.08 - Double(index) * 0.04) / 0.3))
+    }
+}
+
 public enum ElapsedFormat {
     public static func string(_ seconds: TimeInterval) -> String {
         let s = Int(Swift.max(0, seconds))
@@ -15,8 +79,8 @@ public enum ElapsedFormat {
 
 /// Open after resting on the orb, stay open while over orb or list, close shortly after leaving both.
 public struct HoverTracker {
-    public static let openDelay: Double = 0.3
-    public static let closeDelay: Double = 0.25
+    public static let openDelay: Double = 0.6
+    public static let closeDelay: Double = 0.35
 
     public private(set) var isOpen = false
     private var insideSince: Double?
