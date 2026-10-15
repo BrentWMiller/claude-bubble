@@ -46,6 +46,8 @@ public final class OrbAnimator {
     private var completionTime: Float?
     /// The completed moment plays at half the design's speed (8s instead of 4s), so it's easy to take in.
     public static let completionSpeed: Float = 0.5
+    /// "All done" green the orb washes into on the release, whatever the palette.
+    public static let doneGreen = OrbPalette.agentsView.idle
     /// The look held through the gather (what the orb looked like when the celebration began).
     private var heldState: BubbleState = .working
     /// A ring pop's clock; nil when not playing.
@@ -201,7 +203,17 @@ public final class OrbAnimator {
         let attention = interaction == .attention ? closeness : 0
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
-        return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
+        // All done: wash into green on the release, hold, then fade back to the palette's rest colours.
+        var output = current
+        if let bt = completionTime {
+            let w = Self.smoothstep(0.42, 0.55, bt) * (1 - Self.smoothstep(1.0, 2.25, bt))
+            let g = Self.doneGreen
+            output.c1 += (g.c1 - output.c1) * w
+            output.c2 += (g.c2 - output.c2) * w
+            output.c3 += (g.c3 - output.c3) * w
+            output.halo += (g.halo - output.halo) * w
+        }
+        return OrbFrame(params: output, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
                         pointer: pointerOffset, attention: attention, completion: completion, pop: pop,
                         pull: pull, pullAngle: pullAngle)
     }

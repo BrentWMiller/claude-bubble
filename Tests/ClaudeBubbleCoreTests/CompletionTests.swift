@@ -68,4 +68,17 @@ final class CompletionTests: XCTestCase {
         let released = frames[Int(0.85 * 60)...].map(\.glow).max() ?? 0   // release at 0.42 / 0.5 = 0.84s
         XCTAssertGreaterThan(released, 2, "glow blooms on release")
     }
+
+    func testAllDoneGlowsGreenThenReturnsToThePalette() {
+        let a = OrbAnimator(state: .working, palette: .blue, random: { 0.5 })
+        _ = steps(a, 1)
+        a.setState(.idle)
+        a.celebrate(from: .working)
+        let frames = steps(a, 9)
+        let green = OrbAnimator.doneGreen.c1
+        func distance(_ c: SIMD3<Float>, _ d: SIMD3<Float>) -> Float { ((c - d) * (c - d)).sum().squareRoot() }
+        XCTAssertGreaterThan(distance(frames[Int(0.5 * 60)].params.c1, green), 0.2, "not green before the release")
+        XCTAssertLessThan(distance(frames[Int(2.0 * 60)].params.c1, green), 0.05, "green just after it")
+        XCTAssertLessThan(distance(frames.last!.params.c1, OrbPalette.blue.idle.c1), 0.01, "back to the palette's rest colour")
+    }
 }
