@@ -65,6 +65,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.listPanel.orderOut(nil)
         }
         startHoverTracking()
+        // The hover list rides along when the orb is dragged (didMove fires continuously during a drag).
+        NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.listPanel.follow(self.panel.frame)
+            if self.pipCard.isVisible { self.pipCard.hide() }
+        }
         refreshInstalledHook()
         setUpStatusItem()
         pipCard = PipCardPanel(model: model)

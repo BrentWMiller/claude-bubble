@@ -32,6 +32,12 @@ final class SessionListPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    /// Keep the open list attached to the orb while it's dragged or moved.
+    func follow(_ bubbleFrame: CGRect) {
+        guard isVisible, bubbleFrame != self.bubbleFrame else { return }
+        show(near: bubbleFrame)
+    }
+
     func show(near bubbleFrame: CGRect) {
         self.bubbleFrame = bubbleFrame
         host.layoutSubtreeIfNeeded()
