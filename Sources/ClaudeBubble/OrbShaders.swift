@@ -22,7 +22,8 @@ vertex QuadOut quadVertex(uint vid [[vertex_id]]) {
 fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buffer(0)]]) {
     float2 res = u.c.xy;
     float2 frag = float2(in.position.x, res.y - in.position.y);
-    float2 uv = (frag - .5 * res) / res.y - float2(u.c.z, 0);
+    // The whole orb drifts a little toward the pointer (matched in the particle pass).
+    float2 uv = (frag - .5 * res) / res.y - float2(u.c.z, 0) - u.d.xy * (.3 * .07) * u.d.z;
     float ph = u.a.x, sc = u.a.y, glowv = u.a.z, ringv = u.a.w, glitch = u.b.x;
     float3 C1 = u.c1.xyz, C2 = u.c2.xyz, C3 = u.c3.xyz, H = u.halo.xyz;
 
@@ -50,7 +51,7 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     // A soft bloom where the light sits on the sphere's face (the middle when the pointer is centred).
     float2 spot = po * R * .85;
     float sd = length(uv - spot);
-    col += mix(C2, C3, .5) * att * .6 * exp(-sd * sd / (R * R * .1)) * (1. - smoothstep(R * .85, R * 1.05, r));
+    col += mix(C2, C3, .5) * att * .4 * exp(-sd * sd / (R * R * .1)) * (1. - smoothstep(R * .85, R * 1.05, r));
     float o = max(r - R, 0.);
     col += H * glowv * (1. + 1.6 * toward) * (exp(-o * 7.) * .55 + exp(-o * 22.) * .5) * smoothstep(R * .7, R * 1.02, r);
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
@@ -92,12 +93,19 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     // ...and a light sits on its surface where the pointer is; dots near it brighten.
     float2 lp = po / max(1., length(po));
     float3 L = float3(lp, sqrt(max(1. - dot(lp, lp), 0.)));
+    float dl = distance(normalize(p), L);              // 0 at the cursor's spot on the sphere, up to 2 opposite
+    float near = exp(-dl * dl * 3.);
+    // Pull: dots near the cursor lift off the surface toward it (the front bulges out when it's centred)...
+    p += (L * 1.45 - p) * att * .4 * near;
+    // ...and rings ripple out through the dots from that spot.
+    p *= 1. + att * .075 * sin(dl * 16. - ph * 7.) * exp(-dl * 2.2);
     float lit = pow(max(dot(normalize(p), L), 0.), 6.) * att;
     float R = .6 * sc;
     float persp = 1. / (1. - p.z * .18);
 
     PointOut o;
-    o.position = float4(p.x * R * persp + u.c.z * 2., p.y * R * persp, 0, 1);
+    float2 drift = po * (R * .07) * att * 2.;          // clip space is 2× the quad's uv units
+    o.position = float4(p.x * R * persp + u.c.z * 2. + drift.x, p.y * R * persp + drift.y, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
     float3 c = mix(C2, C1, .5 + .5 * p.y);
