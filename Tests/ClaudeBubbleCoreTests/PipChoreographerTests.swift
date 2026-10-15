@@ -235,4 +235,14 @@ final class PipChoreographerTests: XCTestCase {
         XCTAssertEqual(c.update([PipInput(id: "a", state: .idle, review: true), PipInput(id: "b", state: .working)], now: 1),
                        [.reviewReady("a")])
     }
+
+    func testSmallOrbsSpreadPipsToStayApart() {
+        let centre = CGPoint(x: 33, y: 33)
+        let radius = OrbSize.panelSide(forDiameter: OrbSize.minDiameter) * 0.3 * PipArc.radiusScale
+        let a = PipArc.position(slot: 0, slots: 5, centre: centre, radius: radius)
+        let b = PipArc.position(slot: 1, slots: 5, centre: centre, radius: radius)
+        XCTAssertGreaterThanOrEqual(hypot(a.x - b.x, a.y - b.y), 8.7, "neighbours stay clear of each other")
+        // The default size keeps the design's 11° step.
+        XCTAssertEqual(PipArc.stepDegrees(radius: 72 / 0.6 * 0.3 * PipArc.radiusScale), 11)
+    }
 }
