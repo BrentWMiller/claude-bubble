@@ -36,8 +36,10 @@ public final class OrbAnimator {
     private var pointerVelocity = SIMD2<Float>(0, 0)
     private var closeness: Float = 0
     private var closenessVelocity: Float = 0
-    /// Time since working → idle (the completed moment); nil when not playing.
+    /// Time since working → idle (the completed moment), in sequence seconds; nil when not playing.
     private var completionTime: Float?
+    /// The completed moment plays at half the design's speed (8s instead of 4s), so it's easy to take in.
+    public static let completionSpeed: Float = 0.5
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -88,7 +90,7 @@ public final class OrbAnimator {
         let dt = Float(min(max(rawDt, 0), 0.05))
         time += Double(dt)
         let k = 1 - powf(0.02, dt)
-        if let t = completionTime { completionTime = t + dt }
+        if let t = completionTime { completionTime = t + dt * Self.completionSpeed }
         // The orb keeps its working look through the gather, and turns to rest on the release (0.42s).
         let shown: BubbleState = (completionTime.map { $0 < 0.42 } ?? false) ? .working : state
         current = current.approached(.target(for: shown, palette: palette), k: k)
@@ -144,7 +146,7 @@ public final class OrbAnimator {
             scale *= 1 - 0.06 * gather + released * 0.07 * expf(-l * 4.5) * sinf(l * 13 + 0.2)
             glow *= 1 + 1.6 * gather + released * 2.2 * expf(-l * 1.6)
             ring *= 1 + 0.8 * gather
-            phase += dt * (2.5 * gather + released * 2 * expf(-l * 2))
+            phase += dt * Self.completionSpeed * (2.5 * gather + released * 2 * expf(-l * 2))
             if bt < 4 { completion = bt } else { completionTime = nil }
         }
         let attention = interaction == .attention ? closeness : 0

@@ -16,14 +16,16 @@ final class CompletionTests: XCTestCase {
     func testWorkingToIdlePlaysTheCompletion() {
         let a = finishedWork()
         let first = a.step(dt: 1.0 / 60)
-        XCTAssertEqual(first.completion, 1.0 / 60, accuracy: 0.001)
-        _ = steps(a, 1)
+        XCTAssertEqual(first.completion, 0.5 / 60, accuracy: 0.001, "plays at half speed")
+        _ = steps(a, 2.2)
         XCTAssertGreaterThan(a.step(dt: 1.0 / 60).completion, 1)
     }
 
-    func testCompletionEndsAfterFourSeconds() {
+    func testCompletionEndsAfterEightSeconds() {
         let a = finishedWork()
-        _ = steps(a, 4.1)
+        _ = steps(a, 7.5)
+        XCTAssertGreaterThan(a.step(dt: 1.0 / 60).completion, 0, "still playing at 7.5s")
+        _ = steps(a, 0.6)
         XCTAssertEqual(a.step(dt: 1.0 / 60).completion, -1)
     }
 
@@ -45,19 +47,19 @@ final class CompletionTests: XCTestCase {
 
     func testColoursHoldUntilTheReleaseThenEaseToRest() {
         let a = finishedWork()
-        _ = steps(a, 0.35)
-        XCTAssertEqual(a.current.c1, OrbPalette.agentsView.working.c1, "still working colours before 0.42s")
-        _ = steps(a, 2.5)
+        _ = steps(a, 0.75)
+        XCTAssertEqual(a.current.c1, OrbPalette.agentsView.working.c1, "still working colours before the release (0.84s)")
+        _ = steps(a, 4)
         XCTAssertEqual(a.current.c1.y, OrbPalette.agentsView.idle.c1.y, accuracy: 0.02, "rest colours after")
     }
 
     func testGatherThenSpringyRelease() {
         let a = finishedWork()
-        let frames = steps(a, 1.2)
+        let frames = steps(a, 2.4)
         let base = OrbParams.target(for: .working).scale
-        let atGather = frames[Int(0.37 * 60)].scale        // just before the release
+        let atGather = frames[Int(0.74 * 60)].scale        // just before the release
         XCTAssertLessThan(atGather, base * 0.97, "inhales")
-        let released = frames[Int(0.5 * 60)...].map(\.glow).max() ?? 0
+        let released = frames[Int(0.85 * 60)...].map(\.glow).max() ?? 0   // release at 0.42 / 0.5 = 0.84s
         XCTAssertGreaterThan(released, 2, "glow blooms on release")
     }
 }
