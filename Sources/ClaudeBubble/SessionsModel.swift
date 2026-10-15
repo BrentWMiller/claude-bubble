@@ -7,4 +7,6 @@ final class SessionsModel: ObservableObject {
     @Published var sessions: [Session] = []
     @Published var palette: OrbPalette = .agentsView
     @Published var snapshots: [BubbleState: NSImage] = [:]
+    /// Mirrors the orb's appear/vanish so the pips pop in and out with it.
+    @Published var present = false
 }

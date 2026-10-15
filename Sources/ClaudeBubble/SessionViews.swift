@@ -38,15 +38,21 @@ struct PipsView: View {
                     .fill(state.color(in: model.palette))
                     .frame(width: 6, height: 6)
                     .shadow(color: state.color(in: model.palette).opacity(0.8), radius: 3)
+                    .transition(.scale.combined(with: .opacity))
             }
             if layout.overflow > 0 {
                 Text("+\(layout.overflow)")
                     .font(.system(size: 9, weight: .medium, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.7))
+                    .transition(.scale.combined(with: .opacity))
             }
         }
+        .scaleEffect(model.present ? 1 : 0.2)
+        .opacity(model.present ? 1 : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .animation(.easeOut(duration: 0.2), value: layout)
+        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: layout)
+        // Spring in alongside the orb's overshoot; drop out as fast as the orb vanishes.
+        .animation(model.present ? .spring(response: 0.45, dampingFraction: 0.5) : .easeIn(duration: 0.15), value: model.present)
     }
 }
 

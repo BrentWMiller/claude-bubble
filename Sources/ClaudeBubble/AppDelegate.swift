@@ -57,7 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         watcher.start()
         updateVisibility()
         applyState()
-        animator.appear()
+        appearOrb()
     }
 
     private func setUpStatusItem() {
@@ -115,7 +115,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleBubble() {
         bubbleHidden.toggle()
         updateVisibility()
-        if !bubbleHidden { animator.appear() }
+        if !bubbleHidden { appearOrb() }
     }
 
     @objc private func resetPosition() { panel.resetPosition() }
@@ -165,6 +165,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if paletteChanged { applyState() }   // menu-bar icon color
     }
 
+    private func appearOrb() {
+        animator.appear()
+        model.present = true
+    }
+
+    private func vanishOrb() {
+        animator.vanish()
+        model.present = false
+    }
+
     /// Color-well drags send a stream of palettes; re-render the mini orbs once the stream settles.
     private func scheduleSnapshots(_ palette: OrbPalette) {
         pendingSnapshots?.cancel()
@@ -196,11 +206,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                   spot: applied.relativeSpot.map { CGPoint(x: $0[0], y: $0[1]) }) {
             // Pop out here, jump while invisible, pop in there.
             swappingDisplays = true
-            animator.vanish()
+            vanishOrb()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
                 guard let self else { return }
                 self.panel.move(to: origin)
-                self.animator.appear()
+                self.appearOrb()
                 self.swappingDisplays = false
             }
         }
