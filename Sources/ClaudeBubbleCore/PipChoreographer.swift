@@ -15,6 +15,8 @@ public enum PipEvent: Equatable, Sendable {
     case ringPop
     /// A new session's pip is being drawn out of the orb.
     case spawned(String)
+    /// Every session has finished (the pips merge): the orb's full celebration.
+    case allDone
 }
 
 public struct PipFrame: Equatable, Sendable {
@@ -77,13 +79,18 @@ public final class PipChoreographer {
     private var nextOrder = 0
     private var mergeCheckAt: Double?
     public private(set) var merged = false
+    /// A session finished since anything was last active, so the next merge is a real "all done".
+    private var finishPending = false
+    /// Events produced while advancing time, handed out by the next `update`.
+    private var queued: [PipEvent] = []
 
     public init() {}
 
     /// Feed the current sessions; returns what the orb should react to.
     public func update(_ inputs: [PipInput], now: Double) -> [PipEvent] {
         advance(now)
-        var events: [PipEvent] = []
+        var events = queued
+        queued = []
         let ids = Set(inputs.map(\.id))
         if records.keys.contains(where: { !ids.contains($0) }) {
             records = records.filter { ids.contains($0.key) }
@@ -95,7 +102,7 @@ public final class PipChoreographer {
                                            spawnedAt: now)
                 nextOrder += 1
                 events.append(.spawned(input.id))
-                if input.state != .idle { merged = false }
+                if input.state != .idle { merged = false; finishPending = false }
                 mergeCheckAt = now + Self.mergeDelay
                 continue
             }
@@ -105,6 +112,7 @@ public final class PipChoreographer {
                 rec.flareStart = now
                 rec.retireAt = now + Self.retireDelay
                 mergeCheckAt = now + Self.mergeDelay
+                finishPending = true
                 let othersActive = inputs.contains { $0.id != input.id && $0.state != .idle }
                 if othersActive { events.append(.ringPop) }
             } else {
@@ -114,6 +122,7 @@ public final class PipChoreographer {
                 rec.hopStart = input.state == .needs ? now : nil
                 rec.shakeStart = input.state == .error ? now : nil
                 merged = false
+                finishPending = false
             }
             records[input.id] = rec
         }
@@ -155,7 +164,11 @@ public final class PipChoreographer {
         }
         if let at = mergeCheckAt, now >= at {
             mergeCheckAt = nil
-            if !records.isEmpty, records.values.allSatisfy({ $0.state == .idle }) { merged = true }
+            if !records.isEmpty, records.values.allSatisfy({ $0.state == .idle }) {
+                if !merged, finishPending { queued.append(.allDone) }
+                merged = true
+                finishPending = false
+            }
         }
     }
 }
@@ -185,14 +198,18 @@ public enum PipArc {
         return CGPoint(x: centre.x + CGFloat(cos(a)) * radius, y: centre.y + CGFloat(sin(a)) * radius)
     }
 
-    /// The session whose visible pip is under `point`, if any.
+    /// The session whose visible pip is nearest `point`, within half the pip spacing (at most 7pt), if any.
     public static func hit(_ point: CGPoint, frame: PipsFrame, centre: CGPoint, radius: CGFloat) -> String? {
         guard frame.visible, !frame.merged else { return nil }
+        let spacing = radius * CGFloat(stepDegrees * .pi / 180)
+        let tolerance = min(hitTolerance, spacing / 2)
+        var best: (id: String, distance: CGFloat)?
         for pip in frame.pips {
             guard let slot = pip.slot else { continue }
             let p = position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
-            if hypot(p.x - point.x, p.y - point.y) <= hitTolerance { return pip.id }
+            let d = hypot(p.x - point.x, p.y - point.y)
+            if d <= tolerance, d < (best?.distance ?? .infinity) { best = (pip.id, d) }
         }
-        return nil
+        return best?.id
     }
 }

@@ -86,7 +86,7 @@ final class PipChoreographerTests: XCTestCase {
     func testTheLastToFinishMergesInsteadOfPopping() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .idle), ("b", .working)]), now: 0)
-        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5), [], "the orb's full celebration covers it")
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5), [], "no ring pop: the merge celebrates")
         XCTAssertFalse(c.frame(now: 5.5).merged)
         let merged = c.frame(now: 5.95)
         XCTAssertTrue(merged.merged)
@@ -113,6 +113,37 @@ final class PipChoreographerTests: XCTestCase {
         XCTAssertFalse(f.merged)
     }
 
+    func testEverythingFinishingCelebratesOnceAtTheMerge() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .idle), ("b", .working)]), now: 0)
+        _ = c.update(ins([("a", .idle), ("b", .idle)]), now: 5)
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5.5), [], "not yet")
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5.95), [.allDone], "at the merge")
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 7), [], "once")
+    }
+
+    func testFinishingFromNeedsOrErrorCelebratesToo() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .idle), ("b", .needs)]), now: 0)
+        _ = c.update(ins([("a", .idle), ("b", .idle)]), now: 1)
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 2), [.allDone])
+    }
+
+    func testSessionsThatArriveFinishedMergeQuietly() {
+        // Launching, or switching to/from the simulator, with everything already done is not a finish.
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .idle), ("b", .idle)]), now: 0)
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 2), [])
+        XCTAssertTrue(c.frame(now: 2).merged)
+    }
+
+    func testEverythingDisappearingIsNotAFinish() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
+        _ = c.update([], now: 1)   // e.g. the simulator opened with no sessions
+        XCTAssertEqual(c.update([], now: 3), [])
+    }
+
     func testRemovingTheLastActiveDuringFinishMergesCleanly() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .idle), ("b", .working), ("c", .working)]), now: 0)
@@ -137,6 +168,19 @@ final class PipChoreographerTests: XCTestCase {
         let at = PipArc.position(slot: 1, slots: 2, centre: centre, radius: 46)
         XCTAssertEqual(PipArc.hit(CGPoint(x: at.x + 3, y: at.y), frame: f, centre: centre, radius: 46), "b")
         XCTAssertNil(PipArc.hit(CGPoint(x: 0, y: 0), frame: f, centre: centre, radius: 46))
+    }
+
+    func testHitPicksTheNearestPipAtSmallSizes() {
+        // Small quick pick: side 80, arc radius ≈ 30.7, pips under 6pt apart.
+        let c = PipChoreographer()
+        _ = c.update((0..<5).map { PipInput(id: "s\($0)", state: .working) }, now: 0)
+        let f = c.frame(now: 1)
+        let centre = CGPoint(x: 40, y: 40)
+        let radius: CGFloat = 80 * 0.3 * PipArc.radiusScale
+        for slot in 0..<5 {
+            let p = PipArc.position(slot: slot, slots: 5, centre: centre, radius: radius)
+            XCTAssertEqual(PipArc.hit(p, frame: f, centre: centre, radius: radius), "s\(slot)")
+        }
     }
 
     func testHiddenPipsAreNotHittable() {

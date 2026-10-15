@@ -6,17 +6,18 @@ final class CompletionTests: XCTestCase {
         (0..<Int(seconds * 60)).map { _ in a.step(dt: 1.0 / 60) }
     }
 
+    /// Work finished: the orb shows idle and celebrates, holding its working look until the release.
     func finishedWork() -> OrbAnimator {
         let a = OrbAnimator(state: .working, random: { 0.5 })
         _ = steps(a, 1)
         a.setState(.idle)
+        a.celebrate(from: .working)
         return a
     }
 
-    func testWorkingToIdlePlaysTheCompletion() {
+    func testCelebratePlaysTheCompletion() {
         let a = finishedWork()
-        let first = a.step(dt: 1.0 / 60)
-        XCTAssertEqual(first.completion, 0.5 / 60, accuracy: 0.001, "plays at half speed")
+        XCTAssertEqual(a.step(dt: 1.0 / 60).completion, 0.5 / 60, accuracy: 0.001, "plays at half speed")
         _ = steps(a, 2.2)
         XCTAssertGreaterThan(a.step(dt: 1.0 / 60).completion, 1)
     }
@@ -29,28 +30,33 @@ final class CompletionTests: XCTestCase {
         XCTAssertEqual(a.step(dt: 1.0 / 60).completion, -1)
     }
 
-    func testOtherTransitionsDontCelebrate() {
-        for from in [BubbleState.needs, .error] {
-            let a = OrbAnimator(state: from)
-            a.setState(.idle)
-            XCTAssertEqual(a.step(dt: 1.0 / 60).completion, -1, "\(from) → idle")
-        }
-        XCTAssertEqual(OrbAnimator(state: .idle).step(dt: 1.0 / 60).completion, -1, "startup")
+    func testStateChangesAloneNeverCelebrate() {
+        // Hover previews, the simulator switching sources, and Debug all just change what's shown.
+        let a = OrbAnimator(state: .working)
+        a.setState(.idle)
+        XCTAssertEqual(a.step(dt: 1.0 / 60).completion, -1)
     }
 
-    func testStartingWorkAgainCancelsIt() {
+    func testNewActivityCancelsIt() {
         let a = finishedWork()
         _ = steps(a, 0.3)
         a.setState(.working)
         XCTAssertEqual(a.step(dt: 1.0 / 60).completion, -1)
     }
 
-    func testColoursHoldUntilTheReleaseThenEaseToRest() {
+    func testHeldLookUntilTheReleaseThenRest() {
         let a = finishedWork()
         _ = steps(a, 0.75)
-        XCTAssertEqual(a.current.c1, OrbPalette.agentsView.working.c1, "still working colours before the release (0.84s)")
+        XCTAssertEqual(a.current.c1, OrbPalette.agentsView.working.c1, "holds the look it celebrates from until 0.84s")
         _ = steps(a, 4)
         XCTAssertEqual(a.current.c1.y, OrbPalette.agentsView.idle.c1.y, accuracy: 0.02, "rest colours after")
+    }
+
+    func testCelebratingFromRestKeepsTheRestColours() {
+        let a = OrbAnimator(state: .idle, random: { 0.5 })
+        a.celebrate(from: .idle)
+        _ = steps(a, 0.5)
+        XCTAssertEqual(a.current.c1, OrbPalette.agentsView.idle.c1, "no flash back to working colours")
     }
 
     func testGatherThenSpringyRelease() {

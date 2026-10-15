@@ -46,6 +46,8 @@ public final class OrbAnimator {
     private var completionTime: Float?
     /// The completed moment plays at half the design's speed (8s instead of 4s), so it's easy to take in.
     public static let completionSpeed: Float = 0.5
+    /// The look held through the gather (what the orb looked like when the celebration began).
+    private var heldState: BubbleState = .working
     /// A ring pop's clock; nil when not playing.
     private var popTime: Float?
     private var emitTime: Float?
@@ -99,11 +101,17 @@ public final class OrbAnimator {
         emitTime = 0
     }
 
-    /// `quiet` changes (e.g. previewing a hovered pip's state) never start the celebration.
-    public func setState(_ new: BubbleState, quiet: Bool = false) {
+    /// Everything finished: play the completed moment, holding `held`'s look until the release.
+    /// Changing state never celebrates on its own; the caller decides (the pips' all-done merge, or Debug).
+    public func celebrate(from held: BubbleState) {
+        heldState = held
+        completionTime = 0
+    }
+
+    public func setState(_ new: BubbleState) {
         guard new != state else { return }
-        // Finishing work plays the completed moment; any other change cancels it.
-        completionTime = (!quiet && state == .working && new == .idle) ? 0 : nil
+        // New activity cancels a celebration in progress.
+        if new != .idle { completionTime = nil }
         if new == .needs { bounce = -0.28; bounceVelocity = 0 }
         if new == .error { shake = 1 }
         state = new
@@ -114,8 +122,8 @@ public final class OrbAnimator {
         time += Double(dt)
         let k = 1 - powf(0.02, dt)
         if let t = completionTime { completionTime = t + dt * Self.completionSpeed }
-        // The orb keeps its working look through the gather, and turns to rest on the release (0.42s).
-        let shown: BubbleState = (completionTime.map { $0 < 0.42 } ?? false) ? .working : state
+        // The orb keeps the look it celebrates from through the gather, and turns to rest on the release (0.42s).
+        let shown: BubbleState = (completionTime.map { $0 < 0.42 } ?? false) ? heldState : state
         current = current.approached(.target(for: shown, palette: palette), k: k)
         bounceVelocity += (-bounce * 220 - bounceVelocity * 14) * dt
         bounce += bounceVelocity * dt

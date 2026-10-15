@@ -28,15 +28,6 @@ final class RingPopTests: XCTestCase {
         XCTAssertEqual(steps(a, 0.1).completion, -1, "a ring pop is not the full celebration")
     }
 
-    func testQuietStateChangeNeverCelebrates() {
-        let a = OrbAnimator(state: .working)
-        a.setState(.idle, quiet: true)
-        XCTAssertEqual(a.step(dt: 1.0 / 60).completion, -1)
-        a.setState(.working, quiet: true)
-        a.setState(.idle)
-        XCTAssertGreaterThan(a.step(dt: 1.0 / 60).completion, 0, "a normal change still celebrates")
-    }
-
     func testEmitReachesOutThenSettles() {
         let a = OrbAnimator(state: .working)
         a.emit(towards: [0, -1])

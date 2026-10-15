@@ -131,16 +131,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyState()
     }
 
-    /// Hovering a pip previews that session's state on the orb, quietly (no celebration).
+    /// Hovering a pip previews that session's state on the orb (previews never celebrate).
     private var hoveredState: BubbleState? {
         guard let id = model.hoveredPip, !model.pips.merged else { return nil }
         return model.sessions.first { $0.id == id }?.state
     }
 
-    private func applyState(quiet: Bool = false) {
+    /// What the orb shows. Never celebrates by itself: that's the pips' all-done merge (or Debug).
+    private func applyState() {
         let state = forcedState ?? hoveredState ?? liveState
-        animator.setState(state, quiet: quiet)
-        statusItem.button?.image = Self.statusImage(for: state, palette: applied.palette)
+        animator.setState(state)
+        // The menu-bar icon tracks the real (or forced) state, not a hover preview.
+        statusItem.button?.image = Self.statusImage(for: forcedState ?? liveState, palette: applied.palette)
         let selected = forcedState?.rawValue ?? "live"
         for it in debugItems { it.state = (it.representedObject as? String) == selected ? .on : .off }
     }
@@ -210,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = CACurrentMediaTime()
         let events = choreographer.update(model.sessions.map { PipInput(id: $0.id, state: $0.state) }, now: now)
         if events.contains(.ringPop) { animator.ringPop() }
+        if events.contains(.allDone), forcedState == nil { animator.celebrate(from: .idle) }
         let frame = choreographer.frame(now: now)
         if frame != model.pips { model.pips = frame }
 
@@ -224,10 +227,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
             animator.emit(towards: SIMD2(Float(p.x - centre.x), Float(centre.y - p.y)))   // view is y-down
         }
-        let hit = bubbleHidden || !model.present ? nil : PipArc.hit(local, frame: frame, centre: centre, radius: radius)
+        // The session list can overlap the pip arc; when the pointer is in the list, the list wins.
+        let overList = listPanel.isVisible && listPanel.frame.contains(mouse)
+        let hit = bubbleHidden || !model.present || overList ? nil : PipArc.hit(local, frame: frame, centre: centre, radius: radius)
         if hit != model.hoveredPip {
             model.hoveredPip = hit
-            applyState(quiet: true)
+            applyState()
         }
         guard let id = hit, let pip = frame.pips.first(where: { $0.id == id }), let slot = pip.slot,
               let session = model.sessions.first(where: { $0.id == id }) else {
@@ -482,8 +487,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func setDebugState(_ sender: NSMenuItem) {
+        let before = forcedState ?? liveState
         forcedState = (sender.representedObject as? String).flatMap(BubbleState.init(rawValue:))
         applyState()
+        // Debug ▸ Working then Idle previews the completed moment.
+        if before == .working, forcedState == .idle { animator.celebrate(from: .working) }
     }
 
     @objc private func installHooks() {
