@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsWindow: SettingsWindowController?
     private var pendingSnapshots: DispatchWorkItem?
     private var lastTodayRefresh: CFTimeInterval = 0
+    private var hoverToasts = false
     /// Re-anchors the list once a drag settles.
     private var settleList: DispatchWorkItem?
     /// True while the orb is popping out of one display and into another.
@@ -32,6 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let choreographer = PipChoreographer()
     private var pipCard: PipCardPanel!
     private let sounds = SoundPlayer()
+    private let toasts = ToastQueue()
+    private let toastModel = ToastModel()
+    private var toastPanel: ToastPanel!
     private var soundLimiter = SoundRateLimiter()
     /// No sounds for the burst of pips that appear at launch.
     private let launchedAt = CACurrentMediaTime()
@@ -68,6 +72,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         startHoverTracking()
         listPanel.bubble = panel
+        toastPanel = ToastPanel(model: toastModel)
+        toastPanel.bubble = panel
+        toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
         // re-anchor it (it may need to flip above/below or come back on screen).
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) { [weak self] _ in
@@ -217,7 +224,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Pushes changed preferences to the orb, pips, list and window.
     private func apply(_ prefs: BubblePreferences) {
+        if !prefs.toasts { toasts.clear() }
         if prefs.palette != applied.palette {
+            toastModel.palette = prefs.palette
             animator.palette = prefs.palette
             model.palette = prefs.palette
             scheduleSnapshots(prefs.palette)
@@ -240,6 +249,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let previous = model.pips
         let frame = choreographer.frame(now: now)
         if frame != model.pips { model.pips = frame }
+        if now - launchedAt > 1.5, !bubbleHidden, applied.toasts {
+            announce(events, previous: previous, now: now)
+        }
         if now - launchedAt > 1.5, !bubbleHidden {
             for request in PipSounds.requests(for: events, frame: frame, previous: previous, completion: applied.completionSound)
             where soundLimiter.allow(request.cue, now: now) {
@@ -277,6 +289,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
         pipCard.show(session, under: CGPoint(x: panel.frame.minX + p.x, y: panel.frame.maxY - p.y))
+    }
+
+    // MARK: Toasts
+
+    private func announce(_ events: [PipEvent], previous: PipsFrame, now: CFTimeInterval) {
+        let names = Dictionary(model.sessions.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
+        for toast in ToastQueue.toasts(for: events, previous: previous, names: names) {
+            toasts.push(toast.kind, name: toast.name, now: now)
+            if toast.kind != .started { tugTowardToasts() }   // a new pip already has its own pull
+        }
+        if events.contains(.allDone) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                guard let self, self.applied.toasts else { return }
+                self.toasts.push(.allDone, name: "All sessions", now: CACurrentMediaTime())
+                self.tugTowardToasts()
+            }
+        }
+    }
+
+    /// A toast appearing gives the orb a small taffy pull toward the stack.
+    private func tugTowardToasts() {
+        animator.pull(towards: toastModel.flipped ? [0, 1] : [0, -1], amplitude: 0.32)
+    }
+
+    /// Ages the toasts, lays out the stack and places its panel under (or above) the orb.
+    private func updateToasts(mouse: CGPoint, now: CFTimeInterval) {
+        guard applied.toasts, !toasts.isEmpty, !bubbleHidden else {
+            if toastPanel.isVisible { toastPanel.orderOut(nil) }
+            if !toasts.isEmpty { toasts.tick(now: now, hovering: false) }
+            return
+        }
+        let orb = panel.frame
+        let reach = orb.width * 0.3 * 1.49
+        let size = ToastPanel.size
+        let visible = BubblePanel.screen(containing: CGPoint(x: orb.midX, y: orb.midY))?.visibleFrame ?? orb
+        let belowTop = orb.midY - reach
+        let flipped = belowTop - size.height < visible.minY
+        let frame = CGRect(x: orb.midX - size.width / 2, y: flipped ? orb.midY + reach : belowTop - size.height,
+                           width: size.width, height: size.height)
+        // Expanded while the pointer is over the stack (lifetimes pause too).
+        let collapsedHeight = toasts.stackHeight(expanded: false)
+        let height = toastModel.placements.isEmpty ? collapsedHeight : max(collapsedHeight, toasts.stackHeight(expanded: hoverToasts))
+        let stack = flipped ? CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: height)
+                            : CGRect(x: frame.minX, y: frame.maxY - height, width: frame.width, height: height)
+        hoverToasts = stack.contains(mouse)
+        toasts.tick(now: now, hovering: hoverToasts)
+        let placements = toasts.layout(expanded: hoverToasts)
+        if placements != toastModel.placements { toastModel.placements = placements }
+        if flipped != toastModel.flipped { toastModel.flipped = flipped }
+        // The hover list already shows every session; toasts step aside while it's open.
+        if listPanel.isVisible || toasts.isEmpty {
+            if toastPanel.isVisible { toastPanel.orderOut(nil) }
+        } else {
+            toastPanel.show(at: frame)
+        }
     }
 
     @objc private func openSimulator() {
@@ -368,6 +435,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let mouse = NSEvent.mouseLocation
         followPointer(to: mouse)
         updatePips(mouse: mouse)
+        updateToasts(mouse: mouse, now: CACurrentMediaTime())
         let centre = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
         let radius = panel.frame.width * 0.3
         animator.setPointer(offset: PointerProximity.offset(mouse: mouse, centre: centre, radius: radius),
@@ -429,6 +497,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             it.state = prefs.interaction == mode ? .on : .off
             interactions.addItem(it)
         }
+        let toastItem = item("Toasts", #selector(toggleToasts))
+        toastItem.state = prefs.toasts ? .on : .off
         let soundItem = item("Sounds", #selector(toggleSounds))
         soundItem.state = prefs.sounds ? .on : .off
         let completions = NSMenu()
@@ -441,7 +511,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
         return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
-                submenu("Interaction", interactions), soundItem, submenu("Completion Sound", completions), follow]
+                submenu("Interaction", interactions), toastItem, soundItem, submenu("Completion Sound", completions), follow]
     }
 
     private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
@@ -503,6 +573,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let raw = sender.representedObject as? String, let option = CompletionSound(rawValue: raw) else { return }
         settings.prefs.completionSound = option
         sounds.previewCompletion(option)
+    }
+
+    @objc private func toggleToasts() {
+        settings.prefs.toasts.toggle()
     }
 
     @objc private func toggleSounds() {

@@ -72,6 +72,7 @@ struct SettingsView: View {
                 }
             }
             Section("Display") {
+                Toggle("Show toasts", isOn: $settings.prefs.toasts)
                 Toggle("Follow the pointer to other displays",
                        isOn: Binding(get: { settings.prefs.followPointer }, set: { settings.setFollowPointer($0) }))
             }
