@@ -1,0 +1,151 @@
+import XCTest
+@testable import ClaudeBubbleCore
+
+final class PipChoreographerTests: XCTestCase {
+    func ins(_ pairs: [(String, BubbleState)]) -> [PipInput] { pairs.map { PipInput(id: $0.0, state: $0.1) } }
+    func slots(_ f: PipsFrame) -> [String: Int] {
+        Dictionary(uniqueKeysWithValues: f.pips.compactMap { p in p.slot.map { (p.id, $0) } })
+    }
+    func pip(_ f: PipsFrame, _ id: String) -> PipFrame { f.pips.first { $0.id == id }! }
+
+    // Order
+    func testOrderedByUrgencyThenFirstSeen() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .needs), ("c", .error), ("d", .idle), ("e", .working)]), now: 0)
+        XCTAssertEqual(slots(c.frame(now: 1)), ["b": 0, "c": 1, "a": 2, "e": 3, "d": 4])
+    }
+
+    func testOverflowCollapsesIntoPlusN() {
+        let c = PipChoreographer()
+        _ = c.update((0..<9).map { PipInput(id: "s\($0)", state: .working) }, now: 0)
+        let f = c.frame(now: 1)
+        XCTAssertEqual(f.slots, 7)
+        XCTAssertEqual(f.overflow, 3)
+        XCTAssertEqual(f.pips.filter { $0.slot != nil }.count, 6)
+        XCTAssertNil(pip(f, "s8").slot)
+    }
+
+    func testPipsShowOnlyWithTwoOrMoreSessions() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working)]), now: 0)
+        XCTAssertFalse(c.frame(now: 1).visible)
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 1)
+        XCTAssertTrue(c.frame(now: 2).visible)
+    }
+
+    // Spawn, hop, shake
+    func testSpawnStartsAtTheCentre() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
+        XCTAssertTrue(pip(c.frame(now: 0.01), "b").atCenter)
+        XCTAssertFalse(pip(c.frame(now: 0.2), "b").atCenter)
+    }
+
+    func testNeedsHopsTwice() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
+        _ = c.update(ins([("a", .working), ("b", .needs)]), now: 10)
+        XCTAssertEqual([10.05, 10.25, 10.45, 10.65].map { pip(c.frame(now: $0), "b").hopping }, [true, false, true, false])
+        XCTAssertEqual(slots(c.frame(now: 10.1))["b"], 0, "slides to the front")
+    }
+
+    func testErrorShakes() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
+        _ = c.update(ins([("a", .working), ("b", .error)]), now: 5)
+        XCTAssertEqual([5.01, 5.06, 5.12, 5.5].map { pip(c.frame(now: $0), "b").shake }, [5, -5, 4, 0])
+    }
+
+    // Finishing
+    func testFinishedPipFlaresThenRetiresToTheEnd() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working), ("c", .working)]), now: 0)
+        _ = c.update(ins([("a", .idle), ("b", .working), ("c", .working)]), now: 10)
+        let during = c.frame(now: 10.3)
+        XCTAssertTrue(pip(during, "a").flaring)
+        XCTAssertEqual(slots(during)["a"], 0, "holds its place while flaring")
+        let after = c.frame(now: 10.7)
+        XCTAssertFalse(pip(after, "a").flaring)
+        XCTAssertEqual(slots(after)["a"], 2, "then moves to the end")
+    }
+
+    func testFinishingWhileOthersWorkPopsTheRing() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .working)]), now: 1), [.ringPop])
+    }
+
+    func testTheLastToFinishMergesInsteadOfPopping() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .idle), ("b", .working)]), now: 0)
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5), [], "the orb's full celebration covers it")
+        XCTAssertFalse(c.frame(now: 5.5).merged)
+        let merged = c.frame(now: 5.95)
+        XCTAssertTrue(merged.merged)
+        XCTAssertTrue(merged.pips.allSatisfy(\.atCenter))
+    }
+
+    func testNewActivityUnmerges() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .idle), ("b", .working)]), now: 0)
+        _ = c.update(ins([("a", .idle), ("b", .idle)]), now: 1)
+        XCTAssertTrue(c.frame(now: 2).merged)
+        _ = c.update(ins([("a", .working), ("b", .idle)]), now: 3)
+        XCTAssertFalse(c.frame(now: 3.1).merged)
+    }
+
+    func testReturningToWorkCancelsTheRetire() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working), ("c", .working)]), now: 0)
+        _ = c.update(ins([("a", .idle), ("b", .working), ("c", .working)]), now: 10)
+        _ = c.update(ins([("a", .working), ("b", .working), ("c", .working)]), now: 10.3)
+        let f = c.frame(now: 11)
+        XCTAssertFalse(pip(f, "a").flaring)
+        XCTAssertEqual(slots(f)["a"], 0, "no leftover retire")
+        XCTAssertFalse(f.merged)
+    }
+
+    func testRemovingTheLastActiveDuringFinishMergesCleanly() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .idle), ("b", .working), ("c", .working)]), now: 0)
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 1), [], "c left and b finished: nothing else is active")
+        XCTAssertTrue(c.frame(now: 2).merged)
+    }
+
+    // Arc and hit testing
+    func testArcCentresUnderTheOrb() {
+        let centre = CGPoint(x: 60, y: 60)
+        let mid = PipArc.position(slot: 1, slots: 3, centre: centre, radius: 46)
+        XCTAssertEqual(mid.x, 60, accuracy: 0.001)
+        XCTAssertEqual(mid.y, 106, accuracy: 0.001, "straight down in view space")
+        XCTAssertLessThan(PipArc.position(slot: 0, slots: 3, centre: centre, radius: 46).x, 60, "first slot on the left")
+    }
+
+    func testHitTestFindsAVisiblePip() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
+        let f = c.frame(now: 1)
+        let centre = CGPoint(x: 60, y: 60)
+        let at = PipArc.position(slot: 1, slots: 2, centre: centre, radius: 46)
+        XCTAssertEqual(PipArc.hit(CGPoint(x: at.x + 3, y: at.y), frame: f, centre: centre, radius: 46), "b")
+        XCTAssertNil(PipArc.hit(CGPoint(x: 0, y: 0), frame: f, centre: centre, radius: 46))
+    }
+
+    func testHiddenPipsAreNotHittable() {
+        let c = PipChoreographer()
+        _ = c.update((0..<9).map { PipInput(id: "s\($0)", state: .working) }, now: 0)
+        let f = c.frame(now: 1)
+        let centre = CGPoint(x: 60, y: 60)
+        let plusN = PipArc.position(slot: 6, slots: 7, centre: centre, radius: 46)
+        XCTAssertNil(PipArc.hit(plusN, frame: f, centre: centre, radius: 46), "the +N slot isn't a session")
+    }
+
+    func testMergedPipsAreNotHittable() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .idle), ("b", .idle)]), now: 0)
+        let f = c.frame(now: 2)
+        XCTAssertTrue(f.merged)
+        let centre = CGPoint(x: 60, y: 60)
+        XCTAssertNil(PipArc.hit(PipArc.position(slot: 0, slots: 2, centre: centre, radius: 46), frame: f, centre: centre, radius: 46))
+    }
+}
