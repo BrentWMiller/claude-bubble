@@ -40,6 +40,14 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         if let data = try? JSONEncoder().encode(self) { store.set(data, forKey: Self.key) }
     }
 
+    /// Turning follow on remembers where the orb sits now, so it reappears there on other displays.
+    public func withFollow(_ on: Bool, currentSpot: CGPoint?) -> BubblePreferences {
+        var p = self
+        p.followPointer = on
+        if on, let spot = currentSpot { p.relativeSpot = [Double(spot.x), Double(spot.y)] }
+        return p
+    }
+
     public func clamped() -> BubblePreferences {
         var p = self
         p.diameter = min(max(diameter, OrbSize.minDiameter), OrbSize.maxDiameter)

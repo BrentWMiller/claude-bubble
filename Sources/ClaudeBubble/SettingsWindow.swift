@@ -54,7 +54,8 @@ struct SettingsView: View {
                 }
             }
             Section("Display") {
-                Toggle("Follow the pointer to other displays", isOn: $settings.prefs.followPointer)
+                Toggle("Follow the pointer to other displays",
+                       isOn: Binding(get: { settings.prefs.followPointer }, set: { settings.setFollowPointer($0) }))
             }
         }
         .formStyle(.grouped)

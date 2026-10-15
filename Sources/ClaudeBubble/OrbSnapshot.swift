@@ -4,27 +4,48 @@ import Metal
 
 /// Still frame of the orb rendered offscreen with the live shaders; used for list mini orbs and the app icon.
 enum OrbSnapshot {
-    static func render(state: BubbleState, size: Int, palette: OrbPalette = .agentsView) -> CGImage? {
-        guard let device = MTLCreateSystemDefaultDevice(),
-              let queue = device.makeCommandQueue(),
-              let library = try? device.makeLibrary(source: OrbShaders.source, options: nil) else { return nil }
-        func pipeline(_ vertex: String, _ fragment: String) -> MTLRenderPipelineState? {
-            let d = MTLRenderPipelineDescriptor()
-            d.vertexFunction = library.makeFunction(name: vertex)
-            d.fragmentFunction = library.makeFunction(name: fragment)
-            guard let ca = d.colorAttachments[0] else { return nil }
-            ca.pixelFormat = .bgra8Unorm
-            ca.isBlendingEnabled = true
-            ca.sourceRGBBlendFactor = .one
-            ca.destinationRGBBlendFactor = .one
-            ca.sourceAlphaBlendFactor = .one
-            ca.destinationAlphaBlendFactor = .one
-            return try? device.makeRenderPipelineState(descriptor: d)
+    /// Device, compiled shaders and pipelines are built once; palette changes re-render often.
+    private struct Renderer {
+        let device: MTLDevice
+        let queue: MTLCommandQueue
+        let quad: MTLRenderPipelineState
+        let dots: MTLRenderPipelineState
+        let points: MTLBuffer
+
+        init?() {
+            guard let device = MTLCreateSystemDefaultDevice(),
+                  let queue = device.makeCommandQueue(),
+                  let library = try? device.makeLibrary(source: OrbShaders.source, options: nil) else { return nil }
+            func pipeline(_ vertex: String, _ fragment: String) -> MTLRenderPipelineState? {
+                let d = MTLRenderPipelineDescriptor()
+                d.vertexFunction = library.makeFunction(name: vertex)
+                d.fragmentFunction = library.makeFunction(name: fragment)
+                guard let ca = d.colorAttachments[0] else { return nil }
+                ca.pixelFormat = .bgra8Unorm
+                ca.isBlendingEnabled = true
+                ca.sourceRGBBlendFactor = .one
+                ca.destinationRGBBlendFactor = .one
+                ca.sourceAlphaBlendFactor = .one
+                ca.destinationAlphaBlendFactor = .one
+                return try? device.makeRenderPipelineState(descriptor: d)
+            }
+            let pts = OrbGeometry.fibonacciSphere()
+            guard let quad = pipeline("quadVertex", "quadFragment"),
+                  let dots = pipeline("pointVertex", "pointFragment"),
+                  let points = device.makeBuffer(bytes: pts, length: pts.count * MemoryLayout<Float>.stride) else { return nil }
+            self.device = device
+            self.queue = queue
+            self.quad = quad
+            self.dots = dots
+            self.points = points
         }
-        let pts = OrbGeometry.fibonacciSphere()
-        guard let quad = pipeline("quadVertex", "quadFragment"),
-              let dots = pipeline("pointVertex", "pointFragment"),
-              let points = device.makeBuffer(bytes: pts, length: pts.count * MemoryLayout<Float>.stride) else { return nil }
+    }
+
+    private static let shared = Renderer()
+
+    static func render(state: BubbleState, size: Int, palette: OrbPalette = .agentsView) -> CGImage? {
+        guard let r = shared else { return nil }
+        let device = r.device, queue = r.queue, quad = r.quad, dots = r.dots, points = r.points
 
         // Let the wave settle into a pleasing frame.
         let animator = OrbAnimator(state: state, palette: palette, random: { 0.35 })

@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var applied = BubblePreferences.defaults
     private var settingsSubscription: AnyCancellable?
     private var settingsWindow: SettingsWindowController?
+    private var pendingSnapshots: DispatchWorkItem?
     private var panel: BubblePanel!
     private var statusItem: NSStatusItem!
     private var watcher: SessionWatcher!
@@ -34,8 +35,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
         panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
-        panel.onMoved = { [weak self] frame in self?.rememberSpot(of: frame) }
-        settingsSubscription = settings.$prefs.dropFirst().sink { [weak self] prefs in self?.apply(prefs) }
+        panel.onDragEnded = { [weak self] in self?.rememberSpot() }
+        settings.currentSpot = { [weak self] in self?.currentSpot() }
+        // @Published fires before storing; apply on the next run-loop turn so reads and writes see the new value.
+        settingsSubscription = settings.$prefs.dropFirst().receive(on: RunLoop.main).sink { [weak self] prefs in self?.apply(prefs) }
         listPanel = SessionListPanel(model: model) { [weak self] in
             self?.focusTerminal()
             self?.hover.dismiss()
@@ -149,32 +152,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if prefs.palette != applied.palette {
             animator.palette = prefs.palette
             model.palette = prefs.palette
-            model.snapshots = Self.renderSnapshots(prefs.palette)
+            scheduleSnapshots(prefs.palette)
         }
         if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
-        let startedFollowing = prefs.followPointer && !applied.followPointer
+        let paletteChanged = prefs.palette != applied.palette
         applied = prefs
-        applyState()
-        if startedFollowing { rememberSpot(of: panel.frame) }
+        if paletteChanged { applyState() }   // menu-bar icon color
     }
 
-    /// While following the pointer, the orb's spot on its display is shared by every display.
-    private func rememberSpot(of frame: CGRect) {
-        guard settings.prefs.followPointer,
-              let visible = BubblePanel.screen(containing: CGPoint(x: frame.midX, y: frame.midY))?.visibleFrame else { return }
-        let spot = RelativePlacement.spot(of: frame, in: visible)
+    /// Color-well drags send a stream of palettes; re-render the mini orbs once the stream settles.
+    private func scheduleSnapshots(_ palette: OrbPalette) {
+        pendingSnapshots?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.model.snapshots = Self.renderSnapshots(palette) }
+        pendingSnapshots = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
+    }
+
+    private func currentSpot() -> CGPoint? {
+        let frame = panel.frame
+        guard let visible = BubblePanel.screen(containing: CGPoint(x: frame.midX, y: frame.midY))?.visibleFrame else { return nil }
+        return RelativePlacement.spot(of: frame, in: visible)
+    }
+
+    /// After the user drags the orb while following, that spot becomes the shared one.
+    private func rememberSpot() {
+        guard applied.followPointer, let spot = currentSpot() else { return }
         let stored = [Double(spot.x), Double(spot.y)]
         if settings.prefs.relativeSpot != stored { settings.prefs.relativeSpot = stored }
     }
 
     /// Moves the orb to the pointer's display, at the shared spot.
     private func followPointer(to mouse: CGPoint) {
-        guard applied.followPointer, !bubbleHidden,
-              let target = BubblePanel.screen(containing: mouse),
-              !target.frame.contains(CGPoint(x: panel.frame.midX, y: panel.frame.midY)) else { return }
-        let spot = settings.prefs.relativeSpot.map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: 0.5, y: 0.1)
-        panel.setFrameOrigin(RelativePlacement.origin(for: spot, side: panel.frame.width, in: target.visibleFrame))
+        guard !bubbleHidden else { return }
+        let displays = NSScreen.screens.map { PointerFollow.Display(frame: $0.frame, visible: $0.visibleFrame) }
+        if let origin = PointerFollow.destination(enabled: applied.followPointer,
+                                                  buttonDown: NSEvent.pressedMouseButtons & 1 != 0,
+                                                  mouse: mouse, panelFrame: panel.frame, displays: displays,
+                                                  spot: applied.relativeSpot.map { CGPoint(x: $0[0], y: $0[1]) }) {
+            panel.setFrameOrigin(origin)
+        }
     }
 
     private static func renderSnapshots(_ palette: OrbPalette) -> [BubbleState: NSImage] {

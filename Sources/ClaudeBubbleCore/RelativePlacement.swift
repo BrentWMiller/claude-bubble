@@ -14,3 +14,28 @@ public enum RelativePlacement {
                        y: min(max(y, visible.minY), visible.maxY - side))
     }
 }
+
+/// Decides when the orb should hop to the display under the pointer, and where it lands.
+public enum PointerFollow {
+    public struct Display: Equatable, Sendable {
+        public let frame: CGRect
+        public let visible: CGRect
+        public init(frame: CGRect, visible: CGRect) {
+            self.frame = frame
+            self.visible = visible
+        }
+    }
+
+    /// Where the spot falls before the user has placed the orb: bottom-centre.
+    public static let defaultSpot = CGPoint(x: 0.5, y: 0.1)
+
+    /// The new panel origin, or nil to stay put. Never moves while a mouse button is down, so dragging
+    /// the orb across displays isn't hijacked.
+    public static func destination(enabled: Bool, buttonDown: Bool, mouse: CGPoint, panelFrame: CGRect,
+                                   displays: [Display], spot: CGPoint?) -> CGPoint? {
+        guard enabled, !buttonDown,
+              let target = displays.first(where: { $0.frame.contains(mouse) }),
+              !target.frame.contains(CGPoint(x: panelFrame.midX, y: panelFrame.midY)) else { return nil }
+        return RelativePlacement.origin(for: spot ?? defaultSpot, side: panelFrame.width, in: target.visible)
+    }
+}

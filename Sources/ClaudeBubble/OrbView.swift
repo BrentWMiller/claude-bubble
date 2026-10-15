@@ -4,6 +4,8 @@ import MetalKit
 
 final class OrbView: MTKView {
     var onClick: (() -> Void)?
+    /// Called once a user drag of the orb finishes.
+    var onDragEnded: (() -> Void)?
     private var renderer: OrbRenderer?
     private var pendingClick: NSEvent?
 
@@ -34,7 +36,8 @@ final class OrbView: MTKView {
         let dy = event.locationInWindow.y - down.locationInWindow.y
         guard dx * dx + dy * dy > 9 else { return }
         pendingClick = nil
-        window?.performDrag(with: down)
+        window?.performDrag(with: down)   // returns when the drag ends
+        onDragEnded?()
     }
 
     override func mouseUp(with event: NSEvent) {

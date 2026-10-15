@@ -6,8 +6,6 @@ final class BubblePanel: NSPanel {
     private static let originKey = "bubbleOrigin"
     private let orbView: OrbView
     private var pips: NSView!
-    /// Called after every move (drag or programmatic) with the new frame.
-    var onMoved: ((CGRect) -> Void)?
     private var mouseMonitors: [Any] = []
 
     init(animator: OrbAnimator, model: SessionsModel, diameter: Double) {
@@ -66,6 +64,12 @@ final class BubblePanel: NSPanel {
         set { orbView.onClick = newValue }
     }
 
+    /// Only user drags (not programmatic moves) report here, so follow's shared spot never drifts.
+    var onDragEnded: (() -> Void)? {
+        get { orbView.onDragEnded }
+        set { orbView.onDragEnded = newValue }
+    }
+
     func setRendering(_ on: Bool) { orbView.isPaused = !on }
 
     func resetPosition() {
@@ -97,7 +101,6 @@ final class BubblePanel: NSPanel {
 
     @objc private func didMove() {
         UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
-        onMoved?(frame)
     }
 
     /// A display was unplugged or rearranged: pull the bubble back on screen if it was stranded.

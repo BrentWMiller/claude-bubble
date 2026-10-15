@@ -8,8 +8,15 @@ final class SettingsModel: ObservableObject {
         didSet { if prefs != oldValue { prefs.save(to: .standard) } }
     }
 
+    /// Where the orb sits on its display right now; supplied by the app.
+    var currentSpot: () -> CGPoint? = { nil }
+
     init() {
         prefs = BubblePreferences.load(from: .standard)
+    }
+
+    func setFollowPointer(_ on: Bool) {
+        prefs = prefs.withFollow(on, currentSpot: currentSpot())
     }
 
     func applyPreset(_ name: String) {
