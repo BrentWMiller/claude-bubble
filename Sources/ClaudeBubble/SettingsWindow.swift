@@ -54,6 +54,12 @@ struct SettingsView: View {
                     }
                 }
             }
+            Section("Pointer") {
+                Picker("When the cursor is near", selection: $settings.prefs.interaction) {
+                    ForEach(PointerInteraction.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+            }
             Section("Display") {
                 Toggle("Follow the pointer to other displays",
                        isOn: Binding(get: { settings.prefs.followPointer }, set: { settings.setFollowPointer($0) }))

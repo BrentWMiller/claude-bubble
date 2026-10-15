@@ -25,10 +25,38 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var followPointer: Bool
     /// The orb centre as [fraction across, fraction up] a display's visible area; shared by all displays.
     public var relativeSpot: [Double]?
+    public var interaction: PointerInteraction
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
-        diameter: OrbSize.defaultDiameter, opacity: 1, followPointer: false, relativeSpot: nil)
+        diameter: OrbSize.defaultDiameter, opacity: 1, followPointer: false, relativeSpot: nil,
+        interaction: .attention)
+
+    public init(palette: OrbPalette, presetName: String, customized: Bool, diameter: Double, opacity: Double,
+                followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction) {
+        self.palette = palette
+        self.presetName = presetName
+        self.customized = customized
+        self.diameter = diameter
+        self.opacity = opacity
+        self.followPointer = followPointer
+        self.relativeSpot = relativeSpot
+        self.interaction = interaction
+    }
+
+    /// Missing keys (settings saved by an older version) take their defaults instead of resetting everything.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = BubblePreferences.defaults
+        palette = try c.decodeIfPresent(OrbPalette.self, forKey: .palette) ?? d.palette
+        presetName = try c.decodeIfPresent(String.self, forKey: .presetName) ?? d.presetName
+        customized = try c.decodeIfPresent(Bool.self, forKey: .customized) ?? d.customized
+        diameter = try c.decodeIfPresent(Double.self, forKey: .diameter) ?? d.diameter
+        opacity = try c.decodeIfPresent(Double.self, forKey: .opacity) ?? d.opacity
+        followPointer = try c.decodeIfPresent(Bool.self, forKey: .followPointer) ?? d.followPointer
+        relativeSpot = try c.decodeIfPresent([Double].self, forKey: .relativeSpot)
+        interaction = (try? c.decodeIfPresent(PointerInteraction.self, forKey: .interaction)) ?? d.interaction
+    }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {
         guard let data = store.data(forKey: key),

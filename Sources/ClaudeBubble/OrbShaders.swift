@@ -9,6 +9,7 @@ struct Uniforms {
     float4 a;   // phase, scale, glow, ring
     float4 b;   // glitch, wave, bright, pointSize
     float4 c;   // resX, resY, shiftX, unused
+    float4 d;   // pointerAngle, attention, magnet, unused
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -33,7 +34,10 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     w *= 1. - glitch * gap * .7;
     float d1 = (r - R * 1.02) / w; float ring = exp(-d1 * d1);
     float d2 = (r - R * 1.05) / (w * 2.6); float fuzz = exp(-d2 * d2) * .45;
-    float hl = pow(.5 + .5 * cos(a - ph * .8 - 1.2), 5.);
+    // Attention swings the highlight arc from its drift toward the pointer.
+    float hlBase = ph * .8 + 1.2;
+    float2 hv = mix(float2(cos(hlBase), sin(hlBase)), float2(cos(u.d.x), sin(u.d.x)), u.d.y);
+    float hl = pow(.5 + .5 * cos(a - atan2(hv.y, hv.x)), 5.);
     float3 col = rc * (ring * (.55 + 1.6 * hl) + fuzz * (.4 + hl)) * ringv;
     col += float3(1.) * ring * hl * hl * .6 * ringv;
     float o = max(r - R, 0.);
@@ -71,6 +75,14 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     p *= 1. + glitch * (gh * .1 + band * .12);
     p.x += glitch * band * .08 * sign(gh - .5);
     p = rx(.35) * p;
+    // Attention: the sphere tilts to face the pointer. Magnetic: the near side bulges toward it.
+    float2 pd = float2(cos(u.d.x), sin(u.d.x));
+    p = ry(pd.x * .45 * u.d.y) * rx(-pd.y * .45 * u.d.y) * p;
+    float sl = length(p.xy);
+    if (sl > .0001) {
+        float facing = max(dot(p.xy / sl, pd), 0.);
+        p *= 1. + u.d.z * .22 * facing * facing * facing * (.6 + .4 * max(p.z, 0.));
+    }
     float R = .6 * sc;
     float persp = 1. / (1. - p.z * .18);
 
@@ -104,4 +116,5 @@ struct OrbUniforms {
     var a: SIMD4<Float>
     var b: SIMD4<Float>
     var c: SIMD4<Float>
+    var d: SIMD4<Float>
 }

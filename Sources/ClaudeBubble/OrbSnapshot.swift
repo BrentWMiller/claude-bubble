@@ -66,7 +66,8 @@ enum OrbSnapshot {
             c1: SIMD4(f.params.c1, 0), c2: SIMD4(f.params.c2, 0), c3: SIMD4(f.params.c3, 0), halo: SIMD4(f.params.halo, 0),
             a: [f.phase, f.scale, f.glow, f.ring],
             b: [f.params.glitch, f.params.wave, f.params.bright, max(1, Float(size) / 400) * 3.2],
-            c: [Float(size), Float(size), 0, 0]
+            c: [Float(size), Float(size), 0, 0],
+            d: [0, 0, 0, 0]
         )
         guard let cmd = queue.makeCommandBuffer(), let enc = cmd.makeRenderCommandEncoder(descriptor: pass) else { return nil }
         let len = MemoryLayout<OrbUniforms>.stride

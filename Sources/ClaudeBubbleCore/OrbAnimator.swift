@@ -8,6 +8,12 @@ public struct OrbFrame: Sendable {
     public var ring: Float
     /// Horizontal shake offset as a fraction of the view width.
     public var shakeX: Float
+    /// Angle (radians) from the orb's centre toward the pointer.
+    public var pointerAngle: Float = 0
+    /// 0…1 strength of the attention effect (highlight, tilt, glow).
+    public var attention: Float = 0
+    /// 0…1 strength of the magnetic bulge.
+    public var magnet: Float = 0
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
@@ -24,6 +30,10 @@ public final class OrbAnimator {
     private var presenceVelocity: Float = 0
     /// A brief ring/glow brightening as the orb lands.
     private var flash: Float = 0
+    public var interaction: PointerInteraction = .attention
+    private var pointerTarget: (direction: SIMD2<Float>, closeness: Float) = (.zero, 0)
+    private var pointerDirection = SIMD2<Float>(1, 0)
+    private var closeness: Float = 0
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -53,6 +63,11 @@ public final class OrbAnimator {
         presenceVelocity = 0
     }
 
+    /// Where the pointer is relative to the orb; eased each step so the reaction never twitches.
+    public func setPointer(direction: SIMD2<Float>, closeness: Float) {
+        pointerTarget = (direction, min(max(closeness, 0), 1))
+    }
+
     public var isVanished: Bool { presenceTarget == 0 && presence <= 0.001 }
 
     public func setState(_ new: BubbleState) {
@@ -80,6 +95,9 @@ public final class OrbAnimator {
             presence = max(0, presence - dt / 0.15)
         }
         flash *= powf(0.03, dt)
+        let follow = 1 - powf(0.004, dt)
+        closeness += (pointerTarget.closeness - closeness) * follow
+        if pointerTarget.direction != .zero { pointerDirection += (pointerTarget.direction - pointerDirection) * follow }
 
         let here = max(0, presence)
         var scale = current.scale * (1 + bounce) * here
@@ -101,7 +119,11 @@ public final class OrbAnimator {
         case .working:
             break
         }
+        let attention = interaction == .attention ? closeness : 0
+        let magnet = interaction == .magnetic ? closeness : 0
+        glow *= 1 + 0.2 * attention
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
-        return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX)
+        return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
+                        pointerAngle: atan2f(pointerDirection.y, pointerDirection.x), attention: attention, magnet: magnet)
     }
 }

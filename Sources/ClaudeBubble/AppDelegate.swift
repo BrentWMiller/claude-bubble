@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applied = settings.prefs
         model.palette = applied.palette
         model.snapshots = Self.renderSnapshots(applied.palette)
+        animator.interaction = applied.interaction
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
         panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
@@ -167,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
+        animator.interaction = prefs.interaction
         let paletteChanged = prefs.palette != applied.palette
         applied = prefs
         if paletteChanged { applyState() }   // menu-bar icon color
@@ -253,6 +255,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateHover() {
         let mouse = NSEvent.mouseLocation
         followPointer(to: mouse)
+        let centre = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
+        animator.setPointer(direction: PointerProximity.direction(mouse: mouse, centre: centre),
+                            closeness: bubbleHidden ? 0 : PointerProximity.closeness(mouse: mouse, centre: centre,
+                                                                                    radius: panel.frame.width * 0.3))
         let open = hover.update(overOrb: !bubbleHidden && BubblePlacement.isOverOrb(mouse, panelFrame: panel.frame),
                                 overList: listPanel.isVisible && listPanel.frame.contains(mouse),
                                 hasContent: !bubbleHidden && !model.sessions.isEmpty,
@@ -303,9 +309,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             it.state = checkedOpacity == opacity ? .on : .off
             opacities.addItem(it)
         }
+        let interactions = NSMenu()
+        for mode in PointerInteraction.allCases {
+            let it = item(mode.label, #selector(pickInteraction(_:)))
+            it.representedObject = mode.rawValue
+            it.state = prefs.interaction == mode ? .on : .off
+            interactions.addItem(it)
+        }
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
-        return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities), follow]
+        return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
+                submenu("Interaction", interactions), follow]
     }
 
     private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
@@ -339,6 +353,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func pickOpacity(_ sender: NSMenuItem) {
         if let opacity = sender.representedObject as? Double { settings.prefs.opacity = opacity }
+    }
+
+    @objc private func pickInteraction(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let mode = PointerInteraction(rawValue: raw) {
+            settings.prefs.interaction = mode
+        }
     }
 
     @objc private func toggleFollow() {
