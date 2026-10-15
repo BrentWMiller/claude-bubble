@@ -67,30 +67,36 @@ private struct PipDot: View {
 
     var body: some View {
         let slotPoint = pip.slot.map { PipArc.position(slot: $0, slots: frame.slots, centre: centre, radius: radius) } ?? centre
-        // A new pip waits hidden at its slot while the orb's droplet travels there, then condenses into view.
-        let position = pip.atCenter || pip.slot == nil ? centre : slotPoint
-        let scale: CGFloat = pip.atCenter ? 0.15 : pip.emerging || pip.launching ? 0.4 : pip.flaring ? 2.4 : pip.hopping ? 1.45 : hovered ? 1.3 : 1
-        let shown = !(pip.slot == nil || frame.merged || pip.emerging)
-        ZStack {
-            Circle()
-                .fill(pip.flaring ? Color.white : color)
-                .frame(width: 6, height: 6)
-                .overlay(Circle().stroke(color, lineWidth: 1.2).padding(-2.5).opacity(hovered ? 1 : 0))
-                .shadow(color: pip.flaring ? .white : color.opacity(0.8), radius: pip.flaring ? 6 : 3)
-                .scaleEffect(scale)
-                .opacity(shown && !pip.launching ? 1 : 0)
-                .animation(.easeOut(duration: 0.2), value: pip.launching)
-        }
+        // Spawn (design: Pip Sounds): hidden at the centre while the rim stretches toward the slot; at the snap it
+        // appears just inside the slot as a droplet stretched along the pull, then springs round into the slot.
+        let angle = atan2(slotPoint.y - centre.y, slotPoint.x - centre.x)
+        let snapPoint = CGPoint(x: centre.x + cos(angle) * radius * 0.92, y: centre.y + sin(angle) * radius * 0.92)
+        let position = pip.atCenter || pip.pulling || pip.slot == nil ? centre : pip.snapping ? snapPoint : slotPoint
+        let base: CGFloat = pip.atCenter || pip.pulling ? 0.15 : pip.flaring ? 2.4 : pip.hopping ? 1.45 : hovered ? 1.3 : 1
+        let stretch = pip.snapping ? CGSize(width: 2.6, height: 0.55) : CGSize(width: base, height: base)
+        let shown = !(pip.slot == nil || frame.merged || pip.pulling)
+        // The snap is instant (no animation into it); everything after springs.
+        let move: Animation? = pip.snapping ? nil
+            : frame.merged ? .easeIn(duration: 0.45).delay(Double(pip.rank) * 0.05)
+            : .spring(response: 0.6, dampingFraction: 0.62)
+        let bounce: Animation? = pip.snapping ? nil
+            : pip.shake != 0 ? .linear(duration: 0.05) : .spring(response: 0.45, dampingFraction: 0.42)
+        Circle()
+            .fill(pip.flaring ? Color.white : color)
+            .frame(width: 6, height: 6)
+            .overlay(Circle().stroke(color, lineWidth: 1.2).padding(-2.5).opacity(hovered ? 1 : 0))
+            .shadow(color: pip.flaring ? .white : color.opacity(0.8), radius: pip.flaring ? 6 : 3)
+            .scaleEffect(x: stretch.width, y: stretch.height)
+            .rotationEffect(.radians(pip.snapping ? angle : 0))
+            .animation(bounce, value: stretch)
+            .animation(bounce, value: pip.snapping)
             .offset(x: pip.shake, y: pip.hopping ? -9 : 0)
+            .animation(bounce, value: pip.shake)
+            .animation(bounce, value: pip.hopping)
             .opacity(shown ? 1 : 0)
             .position(position)
-            // Merging is pulled in, staggered by rank; everything else springs into place.
-            .animation(frame.merged ? .easeIn(duration: 0.45).delay(Double(pip.rank) * 0.05)
-                                    : .spring(response: 0.6, dampingFraction: 0.62), value: position)
-            .animation(frame.merged ? .easeIn(duration: 0.45).delay(Double(pip.rank) * 0.05) : .easeOut(duration: 0.35),
-                       value: frame.merged)
-            .animation(pip.shake != 0 ? .linear(duration: 0.05) : .spring(response: 0.32, dampingFraction: 0.5), value: pip.shake)
-            .animation(.spring(response: 0.32, dampingFraction: 0.45), value: scale)
+            .animation(move, value: position)
+            .animation(pip.snapping ? nil : frame.merged ? move : .easeOut(duration: 0.35), value: shown)
             .animation(.easeOut(duration: 0.4), value: pip.flaring)
     }
 }

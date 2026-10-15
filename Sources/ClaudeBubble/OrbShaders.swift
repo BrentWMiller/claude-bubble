@@ -10,7 +10,7 @@ struct Uniforms {
     float4 b;   // glitch, wave, bright, pointSize
     float4 c;   // resX, resY, shiftX, unused
     float4 d;   // pointer offset x, y (radii, ≤ 1), attention, completion time (s; < 0 = not playing)
-    float4 e;   // ring pop time (s; < 0 = off), emit target x, y (orb radii, y-up), emit time (s; < 0 = off)
+    float4 e;   // ring pop time (s; < 0 = off), spawn pull amount, pull angle (radians, y-up), unused
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -34,8 +34,10 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float w = .016 + .01 * sin(a * 3. + ph);
     float gap = step(.7, fract(sin(floor(a * 6. + ph * 4.) * 57.3) * 913.1));
     w *= 1. - glitch * gap * .7;
-    float d1 = (r - R * 1.02) / w; float ring = exp(-d1 * d1);
-    float d2 = (r - R * 1.05) / (w * 2.6); float fuzz = exp(-d2 * d2) * .45;
+    // Spawn pull (design: Pip Sounds): the ring bulges toward the new pip's slot like taffy.
+    float bul = u.e.y * .3 * pow(max(cos(a - u.e.z), 0.), 18.);
+    float d1 = (r - R * (1.02 + bul)) / w; float ring = exp(-d1 * d1);
+    float d2 = (r - R * (1.05 + bul)) / (w * 2.6); float fuzz = exp(-d2 * d2) * .45;
     // Attention: a light follows the pointer over the sphere. Off-centre effects scale with how far out it is,
     // so passing over the middle is continuous.
     float2 po = u.d.xy; float att = u.d.z;
@@ -46,6 +48,7 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float hl = pow(.5 + .5 * cos(a - atan2(hv.y, hv.x)), 5.);
     float3 col = rc * (ring * (.55 + 1.6 * hl) + fuzz * (.4 + hl)) * ringv;
     col += float3(1.) * ring * hl * hl * .6 * ringv;
+    col += rc * ring * abs(bul) * 5. * ringv;
     // The rim and halo brighten on the side the light is on.
     float toward = pow(.5 + .5 * cos(a - pa), 2.) * att * plen;
     col *= 1. + .9 * toward;
@@ -71,22 +74,6 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
         col += exp(-d1 * d1) * a1 * 1.3 + exp(-d2 * d2) * a2;
         float fl = step(.42, dT) * exp(-(dT - .42) * 3.);
         col += float3(1., .97, .95) * fl * .35 * (1. - smoothstep(0., R * 1.3, r));
-    }
-    // Drip: a soft glowing body travels with the droplet of dots (same path as the particle pass), so it reads
-    // as a little ball of orb, fading as it condenses into the pip.
-    float eT = u.e.w;
-    if (eT >= 0. && eT < .85) {
-        float2 T = u.e.yz;
-        float3 D3 = normalize(float3(T / max(sc, .01), .2));
-        float grow = smoothstep(0., .26, eT);
-        float travel = smoothstep(.26, .7, eT);
-        travel = travel * travel * (3. - 2. * travel);
-        float tipLen = 1. + (length(T / max(sc, .01)) * .82 - 1.) * grow;
-        float2 dc = mix(D3.xy * tipLen * R, T * .3, travel);   // T is in full-size orb radii (.3 uv)
-        float dr = mix(.3, .06, smoothstep(.26, .78, eT)) * R;
-        float dd = length(uv - dc);
-        float body = smoothstep(.1, .26, eT) * (1. - smoothstep(.72, .84, eT));
-        col += (H * 1.6 + C2 * .55) * exp(-dd * dd / (dr * dr * 1.4)) * body;
     }
     // Ring pop (one session finished while others carry on): a single chromatic ring easing out.
     float pT = u.e.x;
@@ -155,47 +142,20 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     // Slow, wide waves roll out through the dots from that spot.
     p *= 1. + att * .035 * sin(dl * 8. - ph * 4.) * exp(-dl * 1.4);
     float lit = pow(max(dot(normalize(p), L), 0.), 3.) * att;
-    // Emit: a new pip drips out of the orb. The tip facing the pip swells into a droplet on a stretched neck,
-    // the neck snaps back (~0.26s), the droplet - the orb's own dots - travels to the pip and condenses
-    // into it (~0.8s), and the dots that left fade back in on the orb (to ~1.15s).
-    float eT = u.e.w;
-    float dripFade = 1.;
-    if (eT >= 0.) {
-        // The pip, in (full-size) orb radii, y-up. Divide by the orb's current scale so the drop lands on it
-        // even when the orb is smaller (idle), and apply this after every rotation so the tilt can't skew it.
-        float2 T = u.e.yz / max(sc, .01);
-        float3 D = normalize(float3(T, .2));
-        float3 n = normalize(p);
-        float along = dot(n, D);
-        float grow = smoothstep(0., .26, eT);
-        float snap = eT > .26 ? exp(-(eT - .26) * 8.) * cos((eT - .26) * 20.) : 1.;
-        float stretch = grow * snap;
-        float neck = smoothstep(.45, .8, along) * (1. - smoothstep(.8, .84, along));
-        p += D * neck * neck * stretch * (length(T) * .82 - 1.);
-        p -= (p - D * dot(p, D)) * neck * stretch * .45;
-        float drop = smoothstep(.8, .84, along);              // the tip: these dots become the droplet
-        if (drop > 0.) {
-            if (eT < .82) {
-                float3 tang = n - D * along;                  // where on the tip this dot sits (|tang| <= ~.54)
-                float travel = smoothstep(.26, .7, eT);
-                travel = travel * travel * (3. - 2. * travel);
-                float dropR = mix(.3, .06, smoothstep(.26, .78, eT));
-                float3 tip = D * (1. + (length(T) * .82 - 1.) * grow);   // reaches toward the pip, stops short
-                float3 centre = mix(tip, float3(T, .05), travel);
-                // Round, not a flat disc: spread along the drip axis too.
-                p = mix(p, centre + (tang / .54 + D * (along - .92) / .08 * .6) * dropR, drop);
-                dripFade = (1. - smoothstep(.72, .82, eT) * drop) * (1. + .8 * drop);   // a brighter droplet
-            } else {
-                dripFade = mix(1., smoothstep(.85, 1.15, eT), drop);   // the orb heals
-            }
-        }
-    }
     float R = .6 * sc;
     float persp = 1. / (1. - p.z * .18);
 
     PointOut o;
     float2 drift = po * (R * .07) * att * 2.;          // clip space is 2× the quad's uv units
-    o.position = float4(p.x * R * persp + u.c.z * 2. + drift.x, p.y * R * persp + drift.y, 0, 1);
+    // Spawn pull: rim dots facing the new pip's slot stretch toward it (up to a third of the radius) and pinch in.
+    float2 sp = float2(p.x, p.y) * R * persp;
+    float pullAmt = u.e.y;
+    float2 pdir = float2(cos(u.e.z), sin(u.e.z));
+    float pal = dot(normalize(sp + float2(1e-5)), pdir);
+    float pk = pow(max(pal, 0.), 14.) * smoothstep(.25 * R, .85 * R, length(sp)) * (.55 + .45 * step(0., p.z));
+    sp += pdir * pk * pullAmt * R * .32;
+    sp -= (sp - pdir * dot(sp, pdir)) * pk * max(pullAmt, 0.) * .45;
+    o.position = float4(sp.x + u.c.z * 2. + drift.x, sp.y + drift.y, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
     float3 c = mix(C2, C1, .5 + .5 * p.y);
@@ -218,7 +178,9 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float psheen = step(.15, pT) * step(pT, 1.25) * exp(-pband * pband * 22.) * front;
     c = mix(c, float3(1.), psheen * .6);
     b += psheen * .8;
-    o.color = c * b * bright * dripFade;
+    b += pk * abs(pullAmt) * 1.3;
+    c = mix(c, float3(1.), pk * max(pullAmt, 0.) * .3);
+    o.color = c * b * bright;
     o.size = pt * (1. + p.z * .5) * (1. + flash * .6);
     return o;
 }

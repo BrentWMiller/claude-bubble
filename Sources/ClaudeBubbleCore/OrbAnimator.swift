@@ -16,10 +16,10 @@ public struct OrbFrame: Sendable {
     public var completion: Float = -1
     /// Seconds into a ring pop (one session finished while others carry on), or -1.
     public var pop: Float = -1
-    /// Seconds into the orb dripping out a new pip, or -1.
-    public var emit: Float = -1
-    /// Where the new pip sits, in orb radii from the centre (y-up): the drip travels there.
-    public var emitTarget = SIMD2<Float>(0, -1.28)
+    /// The rim's taffy pull toward a new pip: 0 at rest, 1 fully stretched, negative while wobbling back.
+    public var pull: Float = 0
+    /// Direction of the pull (radians, y-up).
+    public var pullAngle: Float = 0
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
@@ -50,8 +50,8 @@ public final class OrbAnimator {
     private var heldState: BubbleState = .working
     /// A ring pop's clock; nil when not playing.
     private var popTime: Float?
-    private var emitTime: Float?
-    private var emitTarget = SIMD2<Float>(0, -1.28)
+    private var pullTime: Float?
+    private var pullAngle: Float = 0
     private var bounceVelocity: Float = 0
     private var phase: Float
     private var time: Double = 0
@@ -94,11 +94,11 @@ public final class OrbAnimator {
         popTime = 0
     }
 
-    /// A new pip is born: a droplet of the orb's own dots swells at the tip facing `target`, pinches off,
-    /// travels to it and condenses into the pip, while the orb heals. `target` is in orb radii (y-up).
-    public func emit(to target: SIMD2<Float>) {
-        emitTarget = target
-        emitTime = 0
+    /// A new pip is born (design: Pip Sounds): the rim stretches toward `direction` (y-up) like taffy for 0.32s,
+    /// the pip snaps off, and the rim wobbles back.
+    public func pull(towards direction: SIMD2<Float>) {
+        pullAngle = atan2f(direction.y, direction.x)
+        pullTime = 0
     }
 
     /// Everything finished: play the completed moment, holding `held`'s look until the release.
@@ -185,17 +185,25 @@ public final class OrbAnimator {
             let next = t + dt
             if next < 1.6 { popTime = next; pop = next } else { popTime = nil }
         }
-        var emit: Float = -1
-        if let t = emitTime {
-            let next = t + dt
-            if next < 1.2 { emitTime = next; emit = next } else { emitTime = nil }
+        var pull: Float = 0
+        if let t = pullTime {
+            let pt = t + dt
+            if pt < 0.32 {
+                let x = pt / 0.32
+                pull = x * x * (3 - 2 * x)
+            } else {
+                let l = pt - 0.32
+                pull = expf(-l * 7) * cosf(l * 30)
+            }
+            pullTime = pt > 2 ? nil : pt
+            if pullTime == nil { pull = 0 }
         }
         let attention = interaction == .attention ? closeness : 0
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
                         pointer: pointerOffset, attention: attention, completion: completion, pop: pop,
-                        emit: emit, emitTarget: emitTarget)
+                        pull: pull, pullAngle: pullAngle)
     }
 
     static func smoothstep(_ a: Float, _ b: Float, _ x: Float) -> Float {

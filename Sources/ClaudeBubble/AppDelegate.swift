@@ -220,13 +220,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y)   // y-down, like the view
         let centre = CGPoint(x: side / 2, y: side / 2)
         let radius = side * 0.3 * PipArc.radiusScale
-        // A droplet of the orb drips out to the newest pip's slot.
+        // The orb's rim stretches toward the newest pip's slot, then the pip snaps off.
         if frame.visible, model.present, !bubbleHidden,
            let id = events.reversed().compactMap({ if case let .spawned(id) = $0 { id } else { nil } }).first,
            let slot = frame.pips.first(where: { $0.id == id })?.slot {
             let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
-            let orbRadius = side * 0.3
-            animator.emit(to: SIMD2(Float((p.x - centre.x) / orbRadius), Float((centre.y - p.y) / orbRadius)))   // view is y-down
+            animator.pull(towards: SIMD2(Float(p.x - centre.x), Float(centre.y - p.y)))   // view is y-down
         }
         // The session list can overlap the pip arc; when the pointer is in the list, the list wins.
         let overList = listPanel.isVisible && listPanel.frame.contains(mouse)

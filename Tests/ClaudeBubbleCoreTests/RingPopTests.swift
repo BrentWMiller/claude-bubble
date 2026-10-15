@@ -28,17 +28,20 @@ final class RingPopTests: XCTestCase {
         XCTAssertEqual(steps(a, 0.1).completion, -1, "a ring pop is not the full celebration")
     }
 
-    func testEmitDripsTowardThePipThenHeals() {
+    func testPullStretchesTowardThePipThenWobblesBack() {
         let a = OrbAnimator(state: .working)
-        a.emit(to: [0.3, -1.25])   // the pip's slot, in orb radii (y-up)
-        let f = a.step(dt: 1.0 / 60)
-        XCTAssertEqual(f.emit, 1.0 / 60, accuracy: 0.001)
-        XCTAssertEqual(f.emitTarget, [0.3, -1.25], "the drip aims at the slot itself, not just a direction")
-        XCTAssertGreaterThan(steps(a, 1).emit, 1, "still healing at 1s")
-        XCTAssertEqual(steps(a, 0.3).emit, -1, "done by ~1.25s")
+        a.pull(towards: [0, -1])   // straight down (y-up)
+        XCTAssertEqual(a.step(dt: 1.0 / 60).pullAngle, -.pi / 2, accuracy: 0.001)
+        let stretch = (0..<18).map { _ in a.step(dt: 1.0 / 60).pull }   // up to 0.317s, just before the snap
+        XCTAssertEqual(stretch.last ?? 0, 1, accuracy: 0.03, "fully stretched at the snap (0.32s)")
+        XCTAssertEqual(stretch, stretch.sorted(), "stretches smoothly, never backwards")
+        let after = (0..<30).map { _ in a.step(dt: 1.0 / 60).pull }
+        XCTAssertLessThan(after.min() ?? 0, 0, "springs back past rest: a wobble")
+        _ = steps(a, 2)
+        XCTAssertEqual(a.step(dt: 1.0 / 60).pull, 0, "settled after ~2s")
     }
 
-    func testNoEmitUntilAsked() {
-        XCTAssertEqual(OrbAnimator(state: .working).step(dt: 1.0 / 60).emit, -1)
+    func testNoPullUntilAsked() {
+        XCTAssertEqual(OrbAnimator(state: .working).step(dt: 1.0 / 60).pull, 0)
     }
 }

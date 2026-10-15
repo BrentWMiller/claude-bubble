@@ -28,10 +28,10 @@ public struct PipFrame: Equatable, Sendable {
     public let rank: Int
     /// Merged into the orb: drawn at its centre.
     public let atCenter: Bool
-    /// Just spawned: hidden at the orb's rim while the orb reaches out toward its slot.
-    public let emerging: Bool
-    /// Popped off the orb: drawn as a little ball flying to its slot, before it condenses into the pip.
-    public let launching: Bool
+    /// Just spawned: hidden while the orb's rim stretches toward its slot.
+    public let pulling: Bool
+    /// The moment it pinches off: drawn as a stretched droplet near the rim, then springs round into its slot.
+    public let snapping: Bool
     public let flaring: Bool
     public let hopping: Bool
     /// Sideways shake offset in points.
@@ -58,10 +58,10 @@ public final class PipChoreographer {
     public static let maxSlots = 7
     public static let retireDelay = 0.65
     public static let mergeDelay = 0.9
-    /// How long the orb reaches out before the new pip detaches (matches the shader's reach).
-    public static let emergeDuration = 0.26
-    /// When the popped-off ball has arrived and condenses into the pip.
-    public static let launchEnd = 0.75
+    /// How long the rim stretches before the pip snaps off (matches the orb's pull).
+    public static let pullDuration = 0.32
+    /// How long the stretched droplet is shown before it springs round (about one tick).
+    public static let snapDuration = 0.06
     static let hopWindows: [Range<Double>] = [0..<0.19, 0.38..<0.57]
     static let shakeSteps: [Double] = [5, -5, 4, -4, 2, -2, 0]
     static let shakeInterval = 0.055
@@ -151,8 +151,9 @@ public final class PipChoreographer {
                             slot: over && rank >= Self.maxSlots - 1 ? nil : rank,
                             rank: rank,
                             atCenter: merged,
-                            emerging: !merged && now < rec.spawnedAt + Self.emergeDuration,
-                            launching: !merged && now >= rec.spawnedAt + Self.emergeDuration && now < rec.spawnedAt + Self.launchEnd,
+                            pulling: !merged && now < rec.spawnedAt + Self.pullDuration,
+                            snapping: !merged && now >= rec.spawnedAt + Self.pullDuration
+                                && now < rec.spawnedAt + Self.pullDuration + Self.snapDuration,
                             flaring: rec.flareStart.map { now - $0 < Self.retireDelay } ?? false,
                             hopping: hop, shake: shake)
         }

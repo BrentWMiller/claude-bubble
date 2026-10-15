@@ -34,21 +34,18 @@ final class PipChoreographerTests: XCTestCase {
     }
 
     // Spawn, hop, shake
-    func testNewPipsAreDrawnOutOfTheOrb() {
+    func testNewPipsArePulledOutThenSnapOff() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .working)]), now: 0)
         XCTAssertEqual(c.update(ins([("a", .working), ("b", .working)]), now: 1), [.spawned("b")])
-        XCTAssertTrue(pip(c.frame(now: 1.1), "b").emerging, "hidden at the rim while the orb reaches out")
-        XCTAssertFalse(pip(c.frame(now: 1.1), "b").atCenter)
-        XCTAssertFalse(pip(c.frame(now: 1.35), "b").emerging, "detached: now it travels to its slot")
-    }
-
-    func testThePoppedBallFliesThenBecomesThePip() {
-        let c = PipChoreographer()
-        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
-        XCTAssertFalse(pip(c.frame(now: 0.1), "b").launching, "still being pulled out")
-        XCTAssertTrue(pip(c.frame(now: 0.4), "b").launching, "a little ball is flying to the slot")
-        XCTAssertFalse(pip(c.frame(now: 0.9), "b").launching, "it has condensed into the pip")
+        let pulling = pip(c.frame(now: 1.1), "b")
+        XCTAssertTrue(pulling.pulling, "hidden while the orb's rim stretches toward its slot")
+        XCTAssertFalse(pulling.snapping)
+        let snap = pip(c.frame(now: 1.34), "b")
+        XCTAssertTrue(snap.snapping, "pinches off as a stretched droplet")
+        XCTAssertFalse(snap.pulling)
+        let settled = pip(c.frame(now: 1.45), "b")
+        XCTAssertFalse(settled.pulling || settled.snapping, "then springs round into its slot")
     }
 
     func testFinishingAndSpawningInOneUpdateReportBoth() {
