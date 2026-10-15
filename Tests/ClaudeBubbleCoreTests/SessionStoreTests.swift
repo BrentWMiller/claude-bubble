@@ -84,7 +84,7 @@ final class SessionStoreTests: XCTestCase {
         let t = now.timeIntervalSince1970
         try #"{"state":"needs","cwd":"/x","updated_at":\#(t),"project":"web-app","detail":"Approve Edit auth.ts?","state_since":\#(t - 42),"pid":777}"#
             .write(to: dir.appendingPathComponent("n.json"), atomically: true, encoding: .utf8)
-        let s = try XCTUnwrap(SessionStore.load(from: dir, now: now, isAlive: { _ in true }).first)
+        let s = try XCTUnwrap(SessionStore.load(from: dir, now: now, isAlive: { _, _ in true }).first)
         XCTAssertEqual(s.project, "web-app")
         XCTAssertEqual(s.detail, "Approve Edit auth.ts?")
         XCTAssertEqual(s.stateSince, now.addingTimeInterval(-42))
@@ -96,7 +96,7 @@ final class SessionStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         let file = dir.appendingPathComponent("dead.json")
         try #"{"state":"working","updated_at":\#(now.timeIntervalSince1970),"pid":999}"#.write(to: file, atomically: true, encoding: .utf8)
-        XCTAssertEqual(SessionStore.load(from: dir, now: now, isAlive: { _ in false }), [])
+        XCTAssertEqual(SessionStore.load(from: dir, now: now, isAlive: { _, _ in false }), [])
         XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
     }
 
@@ -105,13 +105,26 @@ final class SessionStoreTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: dir) }
         try #"{"state":"idle","updated_at":\#(now.timeIntervalSince1970 - 25 * 3600),"pid":5}"#
             .write(to: dir.appendingPathComponent("idle.json"), atomically: true, encoding: .utf8)
-        XCTAssertEqual(SessionStore.load(from: dir, now: now, isAlive: { _ in true }).count, 1)
+        XCTAssertEqual(SessionStore.load(from: dir, now: now, isAlive: { _, _ in true }).count, 1)
     }
 
-    func testLivePidIsExemptFromStaleness() {
-        let s = Session(id: "a", state: .working, updatedAt: now.addingTimeInterval(-2 * 3600), pid: 5)
+    func testLivePidKeepsAStaleSessionListedButIdle() {
+        let stuck = Session(id: "a", state: .working, updatedAt: now.addingTimeInterval(-2 * 3600), detail: "Running tests", pid: 5)
+        let shown = SessionStore.live([stuck], now: now)
+        XCTAssertEqual(shown.map(\.id), ["a"])
+        XCTAssertEqual(shown.first?.state, .idle)
+        XCTAssertEqual(shown.first?.detail, "Idle")
+        XCTAssertEqual(SessionStore.aggregate([stuck], now: now), .idle)
+    }
+
+    func testLivePidFreshWorkStaysWorking() {
+        let s = Session(id: "a", state: .working, updatedAt: now.addingTimeInterval(-60), pid: 5)
         XCTAssertEqual(SessionStore.live([s], now: now), [s])
-        XCTAssertEqual(SessionStore.aggregate([s], now: now), .working)
+    }
+
+    func testLivePidNeedsGetsTheLongerWindow() {
+        let s = Session(id: "a", state: .needs, updatedAt: now.addingTimeInterval(-30 * 60), pid: 5)
+        XCTAssertEqual(SessionStore.live([s], now: now).first?.state, .needs)
     }
 
     func testSortedByUrgencyThenMostRecentChange() {
@@ -124,7 +137,12 @@ final class SessionStoreTests: XCTestCase {
     }
 
     func testProcessIsAliveForThisProcessOnly() {
-        XCTAssertTrue(SessionStore.processIsAlive(getpid()))
-        XCTAssertFalse(SessionStore.processIsAlive(99_999_999))
+        XCTAssertTrue(SessionStore.processIsAlive(getpid(), lastSeen: Date()))
+        XCTAssertFalse(SessionStore.processIsAlive(99_999_999, lastSeen: Date()))
+    }
+
+    func testReusedPidIsNotTheSessionsProcess() {
+        // This process started after 1970, so it can't have written an event back then.
+        XCTAssertFalse(SessionStore.processIsAlive(getpid(), lastSeen: Date(timeIntervalSince1970: 1000)))
     }
 }

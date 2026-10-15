@@ -27,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.onClick = { [weak self] in self?.focusTerminal() }
         listPanel = SessionListPanel(model: model, snapshots: Self.renderSnapshots()) { [weak self] in
             self?.focusTerminal()
+            self?.hover.dismiss()
             self?.listPanel.orderOut(nil)
         }
         startHoverTracking()

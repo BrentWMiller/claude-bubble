@@ -84,6 +84,30 @@ final class SessionPresentationTests: XCTestCase {
         XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: false, now: 0.5))
     }
 
+    func testDismissFromTheListDoesNotReopen() {
+        var h = HoverTracker()
+        _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)
+        _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0.35)
+        XCTAssertTrue(h.update(overOrb: false, overList: true, hasContent: true, now: 0.4))
+        h.dismiss()
+        // The hidden list no longer reports overList; the close delay must not resurrect it.
+        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: 0.45))
+        XCTAssertFalse(h.update(overOrb: false, overList: true, hasContent: true, now: 0.5))
+        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: 1.0))
+    }
+
+    func testDismissWhileOnTheOrbWaitsForThePointerToLeave() {
+        var h = HoverTracker()
+        _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)
+        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 0.4))
+        h.dismiss()
+        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: 0.5))
+        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: 1.5))
+        XCTAssertFalse(h.update(overOrb: false, overList: false, hasContent: true, now: 1.6))
+        _ = h.update(overOrb: true, overList: false, hasContent: true, now: 1.7)
+        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 2.05))
+    }
+
     // SessionListPlacement
     let visible = CGRect(x: 0, y: 70, width: 1440, height: 805)
     let size = CGSize(width: 290, height: 200)

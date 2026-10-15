@@ -50,13 +50,21 @@ public enum SessionStore {
         let pid: Int32?
     }
 
-    /// True unless the kernel says the process is gone; a permission error still means it exists.
-    public static func processIsAlive(_ pid: Int32) -> Bool {
-        if kill(pid, 0) == 0 { return true }
-        return errno != ESRCH
+    /// Whether `pid` is still the process that wrote this session. A pid the kernel has reused for a
+    /// process started after the session's last event is not. Unknown (lookup failed) counts as alive.
+    public static func processIsAlive(_ pid: Int32, lastSeen: Date) -> Bool {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0 else { return true }
+        guard size > 0 else { return false }
+        let start = info.kp_proc.p_un.__p_starttime
+        let started = Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
+        return started <= lastSeen.addingTimeInterval(1)
     }
 
-    public static func load(from dir: URL, now: Date = Date(), isAlive: (Int32) -> Bool = processIsAlive) -> [Session] {
+    public static func load(from dir: URL, now: Date = Date(),
+                            isAlive: (Int32, Date) -> Bool = processIsAlive(_:lastSeen:)) -> [Session] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return [] }
         var sessions: [Session] = []
@@ -68,7 +76,7 @@ public enum SessionStore {
             let updated = Date(timeIntervalSince1970: record.updated_at)
             // pid 0/1 would make kill() target a process group or launchd, so treat it as unknown.
             let pid = record.pid.flatMap { $0 > 1 ? $0 : nil }
-            if let pid, !isAlive(pid) {
+            if let pid, !isAlive(pid, updated) {
                 try? fm.removeItem(at: url)
                 continue
             }
@@ -83,10 +91,16 @@ public enum SessionStore {
         return sessions
     }
 
-    /// Sessions worth showing: a live process always counts; without a pid, fall back to staleness.
+    /// Sessions worth showing. A live process keeps its session listed, but a busy state that has gone
+    /// quiet past the staleness limit shows as idle (Esc interrupts never fire Stop). Without a pid,
+    /// stale sessions drop out entirely.
     public static func live(_ sessions: [Session], now: Date = Date()) -> [Session] {
-        sessions.filter { s in
-            s.pid != nil || now.timeIntervalSince(s.updatedAt) <= (s.state == .needs ? needsStaleAfter : staleAfter)
+        sessions.compactMap { s in
+            let limit = s.state == .needs ? needsStaleAfter : staleAfter
+            guard now.timeIntervalSince(s.updatedAt) > limit, s.state != .idle else { return s }
+            guard s.pid != nil else { return nil }
+            return Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt,
+                           project: s.project, detail: "Idle", stateSince: s.updatedAt, pid: s.pid)
         }
     }
 

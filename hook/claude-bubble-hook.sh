@@ -170,17 +170,21 @@ EOF
 )
 
 # Claude runs hooks through a shell; walk past shells to the Claude process that owns this session.
+# Only a confirmed non-shell owner is recorded: anything else would be a short-lived process the app
+# would see die and drop the session for. 0 means unknown, and the app falls back to staleness.
 if [ -z "${CLAUDE_BUBBLE_PID:-}" ]; then
+  owner=0
   pid=$PPID
   for _ in 1 2 3 4; do
-    comm=$(ps -o comm= -p "$pid" 2>/dev/null) || break
+    line=$(ps -o ppid=,comm= -p "$pid" 2>/dev/null) || break
+    read -r parent comm <<< "$line"
     case "${comm##*/}" in
-      sh|bash|zsh|dash|-sh|-bash|-zsh) pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ') ;;
-      *) break ;;
+      sh|bash|zsh|dash|-sh|-bash|-zsh) pid=$parent ;;
+      *) owner=$pid; break ;;
     esac
     [ -n "$pid" ] || break
   done
-  export CLAUDE_BUBBLE_PID="$pid"
+  export CLAUDE_BUBBLE_PID="$owner"
 fi
 
 /usr/bin/python3 -c "$PY" "$DIR" >/dev/null 2>&1

@@ -141,6 +141,18 @@ PY
 )
 check '[ "$got" = same ]' "pid skips the shell to reach the calling process"
 send '{"hook_event_name":"SessionEnd","session_id":"w"}'
+got=$(/usr/bin/python3 - "$HOOK" "$S" <<'PY'
+import json, os, shlex, subprocess, sys
+hook, s = sys.argv[1], sys.argv[2]
+cmd = shlex.quote(hook)
+for _ in range(6):  # deeper than the walk will go; `true;` stops sh from exec-ing away each level
+    cmd = '/bin/sh -c ' + shlex.quote('true; ' + cmd)
+subprocess.run(['/bin/sh', '-c', 'true; ' + cmd], input=b'{"hook_event_name":"SessionStart","session_id":"w2"}')
+print(json.load(open(os.path.join(s, 'w2.json')))['pid'])
+PY
+)
+check '[ "$got" = 0 ]' "unconfirmed owner writes pid 0, not a short-lived shell"
+send '{"hook_event_name":"SessionEnd","session_id":"w2"}'
 
 out=$(printf 'not json' | "$HOOK"; echo "exit=$?"); check '[ "$out" = "exit=0" ]' "garbage stdin exits 0 silently"
 out=$(printf '' | "$HOOK"; echo "exit=$?");         check '[ "$out" = "exit=0" ]' "empty stdin exits 0 silently"

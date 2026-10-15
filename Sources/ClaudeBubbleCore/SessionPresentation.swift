@@ -40,8 +40,18 @@ public struct HoverTracker {
     public private(set) var isOpen = false
     private var insideSince: Double?
     private var outsideSince: Double?
+    /// Set by dismiss(); the orb can't reopen the list until the pointer has left it.
+    private var suppressed = false
 
     public init() {}
+
+    /// Close now (e.g. after a row was clicked) without the close delay bringing it back.
+    public mutating func dismiss() {
+        isOpen = false
+        insideSince = nil
+        outsideSince = nil
+        suppressed = true
+    }
 
     public mutating func update(overOrb: Bool, overList: Bool, hasContent: Bool, now: Double) -> Bool {
         guard hasContent else {
@@ -49,6 +59,10 @@ public struct HoverTracker {
             insideSince = nil
             outsideSince = nil
             return false
+        }
+        if suppressed {
+            if overOrb { return false }
+            suppressed = false
         }
         let inside = overOrb || (isOpen && overList)
         if inside {
