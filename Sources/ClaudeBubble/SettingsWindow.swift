@@ -7,6 +7,7 @@ final class SettingsWindowController: NSWindowController {
         let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(settings: settings)))
         window.title = "Claude Bubble Settings"
         window.styleMask = [.titled, .closable]
+        window.setContentSize(NSSize(width: 440, height: 600))
         window.isReleasedWhenClosed = false
         window.center()
         self.init(window: window)
@@ -59,7 +60,8 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 420)
+        // A grouped Form scrolls, so it has no natural height; without this the window collapses to its title bar.
+        .frame(width: 440, height: 600)
     }
 
     private func color(for state: BubbleState) -> Binding<Color> {
