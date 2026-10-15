@@ -68,4 +68,16 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 10), 40 / 0.6, accuracy: 0.001)
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 500), 160 / 0.6, accuracy: 0.001)
     }
+
+    func testSoundsAreOnByDefaultAndToggle() throws {
+        XCTAssertTrue(BubblePreferences.defaults.sounds)
+        var p = BubblePreferences.defaults
+        p.sounds = false
+        p.save(to: defaults)
+        XCTAssertFalse(BubblePreferences.load(from: defaults).sounds)
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(BubblePreferences.defaults)) as? [String: Any])
+        json.removeValue(forKey: "sounds")
+        XCTAssertTrue(try JSONDecoder().decode(BubblePreferences.self, from: JSONSerialization.data(withJSONObject: json)).sounds,
+                      "settings saved before sounds existed default to on")
+    }
 }

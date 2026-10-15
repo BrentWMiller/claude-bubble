@@ -51,7 +51,8 @@ final class PipChoreographerTests: XCTestCase {
     func testFinishingAndSpawningInOneUpdateReportBoth() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
-        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .working), ("c", .working)]), now: 1), [.ringPop, .spawned("c")])
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .working), ("c", .working)]), now: 1),
+                       [.finished("a"), .ringPop, .spawned("c")])
     }
 
     func testNeedsHopsTwice() {
@@ -70,6 +71,17 @@ final class PipChoreographerTests: XCTestCase {
     }
 
     // Finishing
+    func testEveryTransitionIsReported() {
+        let c = PipChoreographer()
+        _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
+        XCTAssertEqual(c.update(ins([("a", .needs), ("b", .working)]), now: 1), [.needs("a")])
+        XCTAssertEqual(c.update(ins([("a", .error), ("b", .working)]), now: 2), [.error("a")])
+        XCTAssertEqual(c.update(ins([("a", .working), ("b", .working)]), now: 3), [.resumed("a")])
+        _ = c.update(ins([("a", .idle), ("b", .working)]), now: 4)
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .working)]), now: 4.7), [.retired("a")], "slides to the end after the flare")
+        XCTAssertEqual(c.update(ins([("b", .working)]), now: 5), [.removed("a")])
+    }
+
     func testFinishedPipFlaresThenRetiresToTheEnd() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .working), ("b", .working), ("c", .working)]), now: 0)
@@ -85,13 +97,13 @@ final class PipChoreographerTests: XCTestCase {
     func testFinishingWhileOthersWorkPopsTheRing() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .working), ("b", .working)]), now: 0)
-        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .working)]), now: 1), [.ringPop])
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .working)]), now: 1), [.finished("a"), .ringPop])
     }
 
     func testTheLastToFinishMergesInsteadOfPopping() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .idle), ("b", .working)]), now: 0)
-        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5), [], "no ring pop: the merge celebrates")
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5), [.finished("b")], "no ring pop: the merge celebrates")
         XCTAssertFalse(c.frame(now: 5.5).merged)
         let merged = c.frame(now: 5.95)
         XCTAssertTrue(merged.merged)
@@ -123,7 +135,7 @@ final class PipChoreographerTests: XCTestCase {
         _ = c.update(ins([("a", .idle), ("b", .working)]), now: 0)
         _ = c.update(ins([("a", .idle), ("b", .idle)]), now: 5)
         XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5.5), [], "not yet")
-        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5.95), [.allDone], "at the merge")
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 5.95), [.retired("b"), .allDone], "at the merge")
         XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 7), [], "once")
     }
 
@@ -131,7 +143,7 @@ final class PipChoreographerTests: XCTestCase {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .idle), ("b", .needs)]), now: 0)
         _ = c.update(ins([("a", .idle), ("b", .idle)]), now: 1)
-        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 2), [.allDone])
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 2), [.retired("b"), .allDone])
     }
 
     func testSessionsThatArriveFinishedMergeQuietly() {
@@ -152,7 +164,8 @@ final class PipChoreographerTests: XCTestCase {
     func testRemovingTheLastActiveDuringFinishMergesCleanly() {
         let c = PipChoreographer()
         _ = c.update(ins([("a", .idle), ("b", .working), ("c", .working)]), now: 0)
-        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 1), [], "c left and b finished: nothing else is active")
+        XCTAssertEqual(c.update(ins([("a", .idle), ("b", .idle)]), now: 1), [.removed("c"), .finished("b")],
+                       "c left and b finished: nothing else is active, so no ring pop")
         XCTAssertTrue(c.frame(now: 2).merged)
     }
 

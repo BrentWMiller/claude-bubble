@@ -26,14 +26,16 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     /// The orb centre as [fraction across, fraction up] a display's visible area; shared by all displays.
     public var relativeSpot: [Double]?
     public var interaction: PointerInteraction
+    /// Pip sounds on or off.
+    public var sounds: Bool
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
         diameter: OrbSize.defaultDiameter, opacity: 1, followPointer: false, relativeSpot: nil,
-        interaction: .attention)
+        interaction: .attention, sounds: true)
 
     public init(palette: OrbPalette, presetName: String, customized: Bool, diameter: Double, opacity: Double,
-                followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction) {
+                followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction, sounds: Bool) {
         self.palette = palette
         self.presetName = presetName
         self.customized = customized
@@ -42,6 +44,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         self.followPointer = followPointer
         self.relativeSpot = relativeSpot
         self.interaction = interaction
+        self.sounds = sounds
     }
 
     /// Missing keys (settings saved by an older version) take their defaults instead of resetting everything.
@@ -56,6 +59,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         followPointer = try c.decodeIfPresent(Bool.self, forKey: .followPointer) ?? d.followPointer
         relativeSpot = try c.decodeIfPresent([Double].self, forKey: .relativeSpot)
         interaction = (try? c.decodeIfPresent(PointerInteraction.self, forKey: .interaction)) ?? d.interaction
+        sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? d.sounds
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {

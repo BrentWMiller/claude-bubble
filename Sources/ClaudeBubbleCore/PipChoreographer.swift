@@ -17,6 +17,15 @@ public enum PipEvent: Equatable, Sendable {
     case spawned(String)
     /// Every session has finished (the pips merge): the orb's full celebration.
     case allDone
+    /// Per-session transitions (for sounds).
+    case needs(String)
+    case error(String)
+    case finished(String)
+    /// A finished pip slides to the end of the row (after its flare).
+    case retired(String)
+    /// A session went back to work.
+    case resumed(String)
+    case removed(String)
 }
 
 public struct PipFrame: Equatable, Sendable {
@@ -96,7 +105,9 @@ public final class PipChoreographer {
         var events = queued
         queued = []
         let ids = Set(inputs.map(\.id))
-        if records.keys.contains(where: { !ids.contains($0) }) {
+        let gone = records.keys.filter { !ids.contains($0) }.sorted()
+        if !gone.isEmpty {
+            events += gone.map { .removed($0) }
             records = records.filter { ids.contains($0.key) }
             mergeCheckAt = now + Self.mergeDelay
         }
@@ -117,6 +128,7 @@ public final class PipChoreographer {
                 rec.retireAt = now + Self.retireDelay
                 mergeCheckAt = now + Self.mergeDelay
                 finishPending = true
+                events.append(.finished(input.id))
                 let othersActive = inputs.contains { $0.id != input.id && $0.state != .idle }
                 if othersActive { events.append(.ringPop) }
             } else {
@@ -127,6 +139,12 @@ public final class PipChoreographer {
                 rec.shakeStart = input.state == .error ? now : nil
                 merged = false
                 finishPending = false
+                switch input.state {
+                case .needs: events.append(.needs(input.id))
+                case .error: events.append(.error(input.id))
+                case .working: events.append(.resumed(input.id))
+                case .idle: break
+                }
             }
             records[input.id] = rec
         }
@@ -162,10 +180,11 @@ public final class PipChoreographer {
     }
 
     private func advance(_ now: Double) {
-        for (id, rec) in records {
-            if let at = rec.retireAt, now >= at {
+        for id in records.keys.sorted() {
+            if let at = records[id]?.retireAt, now >= at {
                 records[id]?.rankState = .idle
                 records[id]?.retireAt = nil
+                queued.append(.retired(id))
             }
         }
         if let at = mergeCheckAt, now >= at {

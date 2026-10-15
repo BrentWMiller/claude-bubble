@@ -29,6 +29,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var simulatorSubscription: AnyCancellable?
     private let choreographer = PipChoreographer()
     private var pipCard: PipCardPanel!
+    private let sounds = SoundPlayer()
+    private var soundLimiter = SoundRateLimiter()
+    /// No sounds for the burst of pips that appear at launch.
+    private let launchedAt = CACurrentMediaTime()
     private var forcedState: BubbleState?
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggleBubble), keyEquivalent: "")
     private var debugItems: [NSMenuItem] = []
@@ -46,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.palette = applied.palette
         model.snapshots = Self.renderSnapshots(applied.palette)
         animator.interaction = applied.interaction
+        sounds.enabled = applied.sounds
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
         panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
@@ -202,6 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
         animator.interaction = prefs.interaction
+        sounds.enabled = prefs.sounds
         let paletteChanged = prefs.palette != applied.palette
         applied = prefs
         if paletteChanged { applyState() }   // menu-bar icon color
@@ -213,8 +219,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let events = choreographer.update(model.sessions.map { PipInput(id: $0.id, state: $0.state) }, now: now)
         if events.contains(.ringPop) { animator.ringPop() }
         if events.contains(.allDone), forcedState == nil { animator.celebrate(from: .idle) }
+        let previous = model.pips
         let frame = choreographer.frame(now: now)
         if frame != model.pips { model.pips = frame }
+        if now - launchedAt > 1.5, !bubbleHidden {
+            for request in PipSounds.requests(for: events, frame: frame, previous: previous)
+            where soundLimiter.allow(request.cue, now: now) {
+                // The spawn tone lands as the rim is mid-stretch, like the design.
+                sounds.play(request, after: request.cue == .spawn ? 0.13 : 0)
+            }
+        }
 
         let side = panel.frame.width
         let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y)   // y-down, like the view
@@ -233,6 +247,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if hit != model.hoveredPip {
             model.hoveredPip = hit
             applyState()
+            if let id = hit, let pip = frame.pips.first(where: { $0.id == id }), let slot = pip.slot,
+               soundLimiter.allow(.hover, now: now) {
+                sounds.play(SoundRequest(cue: .hover, note: PipSounds.note(slot: slot), pan: PipSounds.pan(slot: slot, slots: frame.slots)))
+            }
         }
         guard let id = hit, let pip = frame.pips.first(where: { $0.id == id }), let slot = pip.slot,
               let session = model.sessions.first(where: { $0.id == id }) else {
@@ -393,10 +411,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             it.state = prefs.interaction == mode ? .on : .off
             interactions.addItem(it)
         }
+        let soundItem = item("Sounds", #selector(toggleSounds))
+        soundItem.state = prefs.sounds ? .on : .off
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
         return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
-                submenu("Interaction", interactions), follow]
+                submenu("Interaction", interactions), soundItem, follow]
     }
 
     private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
@@ -452,6 +472,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let raw = sender.representedObject as? String, let mode = PointerInteraction(rawValue: raw) {
             settings.prefs.interaction = mode
         }
+    }
+
+    @objc private func toggleSounds() {
+        settings.prefs.sounds.toggle()
     }
 
     @objc private func toggleFollow() {

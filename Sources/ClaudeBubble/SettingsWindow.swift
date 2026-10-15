@@ -60,6 +60,9 @@ struct SettingsView: View {
                 }
                 .pickerStyle(.segmented)
             }
+            Section("Sound") {
+                Toggle("Play sounds", isOn: $settings.prefs.sounds)
+            }
             Section("Display") {
                 Toggle("Follow the pointer to other displays",
                        isOn: Binding(get: { settings.prefs.followPointer }, set: { settings.setFollowPointer($0) }))
