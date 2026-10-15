@@ -23,6 +23,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var forcedState: BubbleState?
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggleBubble), keyEquivalent: "")
     private var debugItems: [NSMenuItem] = []
+    /// The Colors/Size/Opacity/Follow items in the menu-bar menu; rebuilt each time it opens.
+    private var quickItems: [NSMenuItem] = []
     private let launchAtLoginItem = NSMenuItem(title: "Launch at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
 
     private var bubbleHidden: Bool {
@@ -38,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
         panel.onUserMoved = { [weak self] _ in self?.rememberSpot() }
+        panel.onRightClick = { [weak self] event, view in self?.showOrbMenu(with: event, in: view) }
         settings.currentSpot = { [weak self] in self?.currentSpot() }
         // @Published fires before storing; apply on the next run-loop turn so reads and writes see the new value.
         settingsSubscription = settings.$prefs.dropFirst().receive(on: RunLoop.main).sink { [weak self] prefs in self?.apply(prefs) }
@@ -65,6 +68,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         toggleItem.target = self
         menu.addItem(toggleItem)
+        quickItems = makeQuickSettingsItems()
+        quickItems.forEach(menu.addItem)
+        menu.addItem(.separator())
         let settingsItem = item("Settings…", #selector(openSettings))
         settingsItem.keyEquivalent = ","
         menu.addItem(settingsItem)
@@ -250,6 +256,81 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Login-item state can change in System Settings, so re-read it each time the menu opens.
     func menuWillOpen(_ menu: NSMenu) {
         launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        // Refresh the quick settings so their checkmarks match the current preferences.
+        guard menu === statusItem.menu, let first = quickItems.first else { return }
+        let index = menu.index(of: first)
+        quickItems.forEach(menu.removeItem)
+        quickItems = makeQuickSettingsItems()
+        for (offset, item) in quickItems.enumerated() { menu.insertItem(item, at: index + offset) }
+    }
+
+    // MARK: Quick settings (shared by the orb's context menu and the menu-bar menu)
+
+    private func makeQuickSettingsItems() -> [NSMenuItem] {
+        let prefs = settings.prefs
+        let colors = NSMenu()
+        for preset in OrbPalette.presets {
+            let it = item(QuickPicks.title(forPreset: preset.name, in: prefs), #selector(pickPreset(_:)))
+            it.representedObject = preset.name
+            it.state = QuickPicks.isChecked(preset: preset.name, in: prefs) ? .on : .off
+            colors.addItem(it)
+        }
+        let sizes = NSMenu()
+        let checkedSize = QuickPicks.checkedSize(prefs.diameter)
+        for size in QuickPicks.sizes {
+            let it = item("\(size.label) (\(Int(size.diameter)) pt)", #selector(pickSize(_:)))
+            it.representedObject = size.diameter
+            it.state = checkedSize == size.diameter ? .on : .off
+            sizes.addItem(it)
+        }
+        let opacities = NSMenu()
+        let checkedOpacity = QuickPicks.checkedOpacity(prefs.opacity)
+        for opacity in QuickPicks.opacities {
+            let it = item("\(Int((opacity * 100).rounded()))%", #selector(pickOpacity(_:)))
+            it.representedObject = opacity
+            it.state = checkedOpacity == opacity ? .on : .off
+            opacities.addItem(it)
+        }
+        let follow = item("Follow the Pointer", #selector(toggleFollow))
+        follow.state = prefs.followPointer ? .on : .off
+        return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities), follow]
+    }
+
+    private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        it.submenu = menu
+        return it
+    }
+
+    private func showOrbMenu(with event: NSEvent, in view: NSView) {
+        hover.dismiss()
+        listPanel.orderOut(nil)
+        let menu = NSMenu()
+        makeQuickSettingsItems().forEach(menu.addItem)
+        menu.addItem(.separator())
+        menu.addItem(item("Settings…", #selector(openSettings)))
+        menu.addItem(item(bubbleHidden ? "Show Bubble" : "Hide Bubble", #selector(toggleBubble)))
+        menu.addItem(item("Reset Position", #selector(resetPosition)))
+        menu.addItem(.separator())
+        menu.addItem(item("Restart", #selector(restart)))
+        menu.addItem(NSMenuItem(title: "Quit Claude Bubble", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))
+        NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    @objc private func pickPreset(_ sender: NSMenuItem) {
+        if let name = sender.representedObject as? String { settings.applyPreset(name) }
+    }
+
+    @objc private func pickSize(_ sender: NSMenuItem) {
+        if let diameter = sender.representedObject as? Double { settings.prefs.diameter = diameter }
+    }
+
+    @objc private func pickOpacity(_ sender: NSMenuItem) {
+        if let opacity = sender.representedObject as? Double { settings.prefs.opacity = opacity }
+    }
+
+    @objc private func toggleFollow() {
+        settings.setFollowPointer(!settings.prefs.followPointer)
     }
 
     @objc private func toggleLaunchAtLogin() {

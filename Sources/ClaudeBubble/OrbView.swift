@@ -4,6 +4,7 @@ import MetalKit
 
 final class OrbView: MTKView {
     var onClick: (() -> Void)?
+    var onRightClick: ((NSEvent, NSView) -> Void)?
     private var renderer: OrbRenderer?
     private var pendingClick: NSEvent?
 
@@ -26,7 +27,15 @@ final class OrbView: MTKView {
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     // A press becomes a drag once it moves a few points; otherwise it's a click.
-    override func mouseDown(with event: NSEvent) { pendingClick = event }
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {   // Control-click is a right-click on macOS
+            onRightClick?(event, self)
+            return
+        }
+        pendingClick = event
+    }
+
+    override func rightMouseDown(with event: NSEvent) { onRightClick?(event, self) }
 
     override func mouseDragged(with event: NSEvent) {
         guard let down = pendingClick else { return }

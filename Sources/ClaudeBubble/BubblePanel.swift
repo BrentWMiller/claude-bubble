@@ -64,6 +64,11 @@ final class BubblePanel: NSPanel {
         set { orbView.onClick = newValue }
     }
 
+    var onRightClick: ((NSEvent, NSView) -> Void)? {
+        get { orbView.onRightClick }
+        set { orbView.onRightClick = newValue }
+    }
+
     /// Reports moves the user made (dragging, Reset Position) — not the app's own follow/resize moves,
     /// so follow's shared spot never drifts.
     var onUserMoved: ((CGRect) -> Void)?
