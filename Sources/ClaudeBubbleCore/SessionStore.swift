@@ -10,9 +10,15 @@ public struct Session: Equatable, Sendable {
     public let stateSince: Date
     /// The Claude process that owns this session; nil for files written by an older hook.
     public let pid: Int32?
+    /// Claude Code's own title for the session, when it has one.
+    public let title: String?
+
+    /// What to call the session: Claude Code's title, else the project folder.
+    public var displayName: String { title ?? project }
 
     public init(id: String, state: BubbleState, cwd: String = "", updatedAt: Date,
-                project: String? = nil, detail: String = "", stateSince: Date? = nil, pid: Int32? = nil) {
+                project: String? = nil, detail: String = "", stateSince: Date? = nil, pid: Int32? = nil,
+                title: String? = nil) {
         self.id = id
         self.state = state
         self.cwd = cwd
@@ -21,6 +27,7 @@ public struct Session: Equatable, Sendable {
         self.detail = detail
         self.stateSince = stateSince ?? updatedAt
         self.pid = pid
+        self.title = title
     }
 
     static func projectName(for cwd: String) -> String {
@@ -100,7 +107,7 @@ public enum SessionStore {
             guard now.timeIntervalSince(s.updatedAt) > limit, s.state != .idle else { return s }
             guard s.pid != nil else { return nil }
             return Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt,
-                           project: s.project, detail: "Idle", stateSince: s.updatedAt, pid: s.pid)
+                           project: s.project, detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title)
         }
     }
 
@@ -112,6 +119,24 @@ public enum SessionStore {
     public static func sorted(_ sessions: [Session]) -> [Session] {
         sessions.sorted { a, b in
             a.state.priority != b.state.priority ? a.state.priority > b.state.priority : a.stateSince > b.stateSince
+        }
+    }
+
+    /// Adds Claude Code's session titles, and its own status line while a session is working and that
+    /// line was written during the current state. Needs/error keep the hook's more specific text.
+    public static func withJobs(_ sessions: [Session], from jobsDir: URL = JobStore.defaultDirectory) -> [Session] {
+        sessions.map { s in
+            guard let job = JobStore.load(sessionId: s.id, from: jobsDir) else { return s }
+            let name = job.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let title = (name?.isEmpty ?? true) ? nil : name
+            var detail = s.detail
+            if s.state == .working, job.state == "working",
+               let summary = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty,
+               let written = job.updatedAt, written >= s.stateSince.addingTimeInterval(-5) {
+                detail = summary
+            }
+            return Session(id: s.id, state: s.state, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
+                           detail: detail, stateSince: s.stateSince, pid: s.pid, title: title)
         }
     }
 }

@@ -37,3 +37,12 @@ public struct OrbParams: Equatable, Sendable {
                          glitch: m(glitch, t.glitch))
     }
 }
+
+extension BubbleState {
+    /// One flat color that reads like the orb at a glance (pips, menu icons). Working's first palette
+    /// entry is orange, but the orb reads violet, so it uses the violet entry instead.
+    public var swatch: SIMD3<Float> {
+        let p = OrbParams.target(for: self)
+        return self == .working ? p.c2 : p.c1
+    }
+}

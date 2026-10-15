@@ -3,9 +3,9 @@ import ClaudeBubbleCore
 import SwiftUI
 
 extension BubbleState {
-    /// The state's main orb color, for pips and fallbacks.
+    /// The color the orb reads as in this state, for pips and fallbacks.
     var accent: Color {
-        let c = OrbParams.target(for: self).c1
+        let c = swatch
         return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
     }
 
@@ -58,13 +58,16 @@ struct SessionRow: View {
             }
             .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 2) {
-                Text(session.project)
+                Text(session.displayName)
                     .font(.system(size: 13, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 Text(session.detail.isEmpty ? "Idle" : session.detail)
                     .font(.system(size: 12))
                     .foregroundStyle(session.state.detailColor)
                     .lineLimit(1)
+                    .truncationMode(.tail)
             }
             Spacer(minLength: 8)
             Text(ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
