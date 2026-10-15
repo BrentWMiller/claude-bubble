@@ -23,10 +23,12 @@ public final class OrbAnimator {
     private var time: Double = 0
     private let random: () -> Float
 
-    public init(state: BubbleState = .idle, random: @escaping () -> Float = { Float.random(in: 0..<1) }) {
+    public init(state: BubbleState = .idle, palette: OrbPalette = .agentsView,
+                random: @escaping () -> Float = { Float.random(in: 0..<1) }) {
         self.state = state
+        self.palette = palette
         self.random = random
-        current = .target(for: state)
+        current = .target(for: state, palette: palette)
         phase = random() * 20
         if state == .needs { bounce = -0.28 }
     }

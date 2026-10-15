@@ -3,17 +3,26 @@ import ClaudeBubbleCore
 import SwiftUI
 
 extension BubbleState {
-    /// The color the orb reads as in this state, for pips and fallbacks.
-    var accent: Color {
-        let c = swatch
+    /// The color the orb reads as in this state, for pips, wells and fallbacks.
+    func color(in palette: OrbPalette) -> Color {
+        let c = palette[self].swatch
         return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
     }
 
-    var detailColor: Color {
+    /// Needs and error rows take their state's color; the rest stay quiet.
+    func detailColor(in palette: OrbPalette) -> Color {
         switch self {
-        case .needs: Color(red: 0xf2 / 255, green: 0xd0 / 255, blue: 0x4a / 255)
-        case .error: Color(red: 0xe8 / 255, green: 0x55 / 255, blue: 0x4f / 255)
+        case .needs, .error: color(in: palette)
         case .idle, .working: Color.white.opacity(0.55)
+        }
+    }
+
+    var settingsLabel: String {
+        switch self {
+        case .idle: "Completed"
+        case .working: "Working"
+        case .needs: "Needs you"
+        case .error: "Error"
         }
     }
 }
@@ -26,9 +35,9 @@ struct PipsView: View {
         HStack(spacing: 5) {
             ForEach(Array(layout.states.enumerated()), id: \.offset) { _, state in
                 Circle()
-                    .fill(state.accent)
+                    .fill(state.color(in: model.palette))
                     .frame(width: 6, height: 6)
-                    .shadow(color: state.accent.opacity(0.8), radius: 3)
+                    .shadow(color: state.color(in: model.palette).opacity(0.8), radius: 3)
             }
             if layout.overflow > 0 {
                 Text("+\(layout.overflow)")
@@ -45,6 +54,7 @@ struct SessionRow: View {
     let session: Session
     let now: Date
     let snapshot: NSImage?
+    let palette: OrbPalette
     let highlighted: Bool
 
     var body: some View {
@@ -53,7 +63,7 @@ struct SessionRow: View {
                 if let snapshot {
                     Image(nsImage: snapshot).resizable().frame(width: 40, height: 40)
                 } else {
-                    Circle().fill(session.state.accent).frame(width: 18, height: 18)
+                    Circle().fill(session.state.color(in: palette)).frame(width: 18, height: 18)
                 }
             }
             .frame(width: 26, height: 26)
@@ -65,7 +75,7 @@ struct SessionRow: View {
                     .truncationMode(.tail)
                 Text(session.detail.isEmpty ? "Idle" : session.detail)
                     .font(.system(size: 12))
-                    .foregroundStyle(session.state.detailColor)
+                    .foregroundStyle(session.state.detailColor(in: palette))
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -83,14 +93,14 @@ struct SessionRow: View {
 
 struct SessionListView: View {
     @ObservedObject var model: SessionsModel
-    let snapshots: [BubbleState: NSImage]
     let onSelect: () -> Void
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             VStack(spacing: 2) {
                 ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
-                    SessionRow(session: session, now: context.date, snapshot: snapshots[session.state], highlighted: index == 0)
+                    SessionRow(session: session, now: context.date, snapshot: model.snapshots[session.state],
+                               palette: model.palette, highlighted: index == 0)
                         .onTapGesture(perform: onSelect)
                 }
             }

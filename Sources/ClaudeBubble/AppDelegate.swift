@@ -1,9 +1,14 @@
 import AppKit
+import Combine
 import ClaudeBubbleCore
 import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
-    private let animator = OrbAnimator()
+    private let settings = SettingsModel()
+    private lazy var animator = OrbAnimator(palette: settings.prefs.palette)
+    private var applied = BubblePreferences.defaults
+    private var settingsSubscription: AnyCancellable?
+    private var settingsWindow: SettingsWindowController?
     private var panel: BubblePanel!
     private var statusItem: NSStatusItem!
     private var watcher: SessionWatcher!
@@ -23,9 +28,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        panel = BubblePanel(animator: animator, model: model)
+        applied = settings.prefs
+        model.palette = applied.palette
+        model.snapshots = Self.renderSnapshots(applied.palette)
+        panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
+        panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
-        listPanel = SessionListPanel(model: model, snapshots: Self.renderSnapshots()) { [weak self] in
+        panel.onMoved = { [weak self] frame in self?.rememberSpot(of: frame) }
+        settingsSubscription = settings.$prefs.dropFirst().sink { [weak self] prefs in self?.apply(prefs) }
+        listPanel = SessionListPanel(model: model) { [weak self] in
             self?.focusTerminal()
             self?.hover.dismiss()
             self?.listPanel.orderOut(nil)
@@ -48,6 +59,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         toggleItem.target = self
         menu.addItem(toggleItem)
+        let settingsItem = item("Settings…", #selector(openSettings))
+        settingsItem.keyEquivalent = ","
+        menu.addItem(settingsItem)
         menu.addItem(item("Reset Position", #selector(resetPosition)))
         launchAtLoginItem.target = self
         menu.addItem(launchAtLoginItem)
@@ -81,7 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func applyState() {
         let state = forcedState ?? liveState
         animator.setState(state)
-        statusItem.button?.image = Self.statusImage(for: state)
+        statusItem.button?.image = Self.statusImage(for: state, palette: applied.palette)
         let selected = forcedState?.rawValue ?? "live"
         for it in debugItems { it.state = (it.representedObject as? String) == selected ? .on : .off }
     }
@@ -125,10 +139,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private static func renderSnapshots() -> [BubbleState: NSImage] {
+    @objc private func openSettings() {
+        if settingsWindow == nil { settingsWindow = SettingsWindowController(settings: settings) }
+        settingsWindow?.show()
+    }
+
+    /// Pushes changed preferences to the orb, pips, list and window.
+    private func apply(_ prefs: BubblePreferences) {
+        if prefs.palette != applied.palette {
+            animator.palette = prefs.palette
+            model.palette = prefs.palette
+            model.snapshots = Self.renderSnapshots(prefs.palette)
+        }
+        if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
+        if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
+        let startedFollowing = prefs.followPointer && !applied.followPointer
+        applied = prefs
+        applyState()
+        if startedFollowing { rememberSpot(of: panel.frame) }
+    }
+
+    /// While following the pointer, the orb's spot on its display is shared by every display.
+    private func rememberSpot(of frame: CGRect) {
+        guard settings.prefs.followPointer,
+              let visible = BubblePanel.screen(containing: CGPoint(x: frame.midX, y: frame.midY))?.visibleFrame else { return }
+        let spot = RelativePlacement.spot(of: frame, in: visible)
+        let stored = [Double(spot.x), Double(spot.y)]
+        if settings.prefs.relativeSpot != stored { settings.prefs.relativeSpot = stored }
+    }
+
+    /// Moves the orb to the pointer's display, at the shared spot.
+    private func followPointer(to mouse: CGPoint) {
+        guard applied.followPointer, !bubbleHidden,
+              let target = BubblePanel.screen(containing: mouse),
+              !target.frame.contains(CGPoint(x: panel.frame.midX, y: panel.frame.midY)) else { return }
+        let spot = settings.prefs.relativeSpot.map { CGPoint(x: $0[0], y: $0[1]) } ?? CGPoint(x: 0.5, y: 0.1)
+        panel.setFrameOrigin(RelativePlacement.origin(for: spot, side: panel.frame.width, in: target.visibleFrame))
+    }
+
+    private static func renderSnapshots(_ palette: OrbPalette) -> [BubbleState: NSImage] {
         var images: [BubbleState: NSImage] = [:]
         for state in BubbleState.allCases {
-            if let image = OrbSnapshot.render(state: state, size: 96) {
+            if let image = OrbSnapshot.render(state: state, size: 96, palette: palette) {
                 images[state] = NSImage(cgImage: image, size: NSSize(width: 48, height: 48))
             }
         }
@@ -144,6 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateHover() {
         let mouse = NSEvent.mouseLocation
+        followPointer(to: mouse)
         let open = hover.update(overOrb: !bubbleHidden && BubblePlacement.isOverOrb(mouse, panelFrame: panel.frame),
                                 overList: listPanel.isVisible && listPanel.frame.contains(mouse),
                                 hasContent: !bubbleHidden && !model.sessions.isEmpty,
@@ -214,14 +267,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.runModal()
     }
 
-    private static func statusImage(for state: BubbleState) -> NSImage? {
+    private static func statusImage(for state: BubbleState, palette: OrbPalette) -> NSImage? {
         let image = NSImage(systemSymbolName: "circle.circle", accessibilityDescription: "Claude Bubble: \(state.rawValue)")
-        let color: NSColor? = switch state {
-        case .idle: nil
-        case .working: .systemPurple
-        case .needs: .systemYellow
-        case .error: .systemRed
-        }
+        // Idle stays a plain template icon so the menu bar is quiet; busy states take the palette's color.
+        let c = palette[state].swatch
+        let color: NSColor? = state == .idle ? nil : NSColor(srgbRed: CGFloat(c.x), green: CGFloat(c.y), blue: CGFloat(c.z), alpha: 1)
         guard let color else {
             image?.isTemplate = true
             return image

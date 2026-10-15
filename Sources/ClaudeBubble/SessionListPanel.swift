@@ -9,8 +9,8 @@ final class SessionListPanel: NSPanel {
     private var bubbleFrame: CGRect = .zero
     private var subscription: AnyCancellable?
 
-    init(model: SessionsModel, snapshots: [BubbleState: NSImage], onSelect: @escaping () -> Void) {
-        host = FirstMouseHostingView(rootView: SessionListView(model: model, snapshots: snapshots, onSelect: onSelect))
+    init(model: SessionsModel, onSelect: @escaping () -> Void) {
+        host = FirstMouseHostingView(rootView: SessionListView(model: model, onSelect: onSelect))
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isFloatingPanel = true
         level = .floating

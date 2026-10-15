@@ -4,7 +4,7 @@ import Metal
 
 /// Still frame of the orb rendered offscreen with the live shaders; used for list mini orbs and the app icon.
 enum OrbSnapshot {
-    static func render(state: BubbleState, size: Int) -> CGImage? {
+    static func render(state: BubbleState, size: Int, palette: OrbPalette = .agentsView) -> CGImage? {
         guard let device = MTLCreateSystemDefaultDevice(),
               let queue = device.makeCommandQueue(),
               let library = try? device.makeLibrary(source: OrbShaders.source, options: nil) else { return nil }
@@ -27,7 +27,7 @@ enum OrbSnapshot {
               let points = device.makeBuffer(bytes: pts, length: pts.count * MemoryLayout<Float>.stride) else { return nil }
 
         // Let the wave settle into a pleasing frame.
-        let animator = OrbAnimator(state: state, random: { 0.35 })
+        let animator = OrbAnimator(state: state, palette: palette, random: { 0.35 })
         var f = animator.step(dt: 0.016)
         for _ in 0..<90 { f = animator.step(dt: 0.016) }
 

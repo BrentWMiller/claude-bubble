@@ -92,4 +92,8 @@ final class PaletteTests: XCTestCase {
         for _ in 0..<120 { _ = a.step(dt: 1.0 / 60) }
         XCTAssertEqual(a.current.c1.x, OrbPalette.blue.working.c1.x, accuracy: 0.01)
     }
+
+    func testAnimatorCanStartOnAPalette() {
+        XCTAssertEqual(OrbAnimator(state: .idle, palette: .blue).current.c1, OrbPalette.blue.idle.c1)
+    }
 }

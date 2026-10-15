@@ -3,15 +3,17 @@ import ClaudeBubbleCore
 
 /// Borderless floating panel hosting the orb; visible on every Space and drag-to-move.
 final class BubblePanel: NSPanel {
-    static let side: CGFloat = 120
     private static let originKey = "bubbleOrigin"
     private let orbView: OrbView
+    private var pips: NSView!
+    /// Called after every move (drag or programmatic) with the new frame.
+    var onMoved: ((CGRect) -> Void)?
     private var mouseMonitors: [Any] = []
 
-    init(animator: OrbAnimator, model: SessionsModel) {
-        let side = Self.side
+    init(animator: OrbAnimator, model: SessionsModel, diameter: Double) {
+        let side = OrbSize.panelSide(forDiameter: diameter)
         orbView = OrbView(frame: NSRect(x: 0, y: 0, width: side, height: side), animator: animator)
-        super.init(contentRect: NSRect(origin: Self.initialOrigin(), size: NSSize(width: side, height: side)),
+        super.init(contentRect: NSRect(origin: Self.initialOrigin(side: side), size: NSSize(width: side, height: side)),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = true
         level = .floating
@@ -21,14 +23,15 @@ final class BubblePanel: NSPanel {
         hasShadow = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
-        // Pips sit in the bottom margin below the orb (the orb's lowest edge is 24pt up); clicks pass through them.
+        // Pips sit in the bottom margin below the orb (the orb's lowest edge is 20% up); clicks pass through them.
         let container = NSView(frame: NSRect(x: 0, y: 0, width: side, height: side))
         orbView.autoresizingMask = [.width, .height]
         container.addSubview(orbView)
         let pips = PassthroughHostingView(rootView: PipsView(model: model))
-        pips.frame = NSRect(x: 0, y: 4, width: side, height: 14)
         container.addSubview(pips)
+        self.pips = pips
         contentView = container
+        layoutPips()
         NotificationCenter.default.addObserver(self, selector: #selector(didMove), name: NSWindow.didMoveNotification, object: self)
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
                                                name: NSApplication.didChangeScreenParametersNotification, object: nil)
@@ -67,24 +70,47 @@ final class BubblePanel: NSPanel {
 
     func resetPosition() {
         UserDefaults.standard.removeObject(forKey: Self.originKey)
-        setFrameOrigin(Self.initialOrigin())
+        setFrameOrigin(Self.initialOrigin(side: frame.width))
+    }
+
+    /// Resize around the orb's centre, then keep the whole panel on its display.
+    func setDiameter(_ diameter: Double) {
+        let side = OrbSize.panelSide(forDiameter: diameter)
+        guard abs(side - frame.width) > 0.5 else { return }
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        var target = CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side)
+        if let visible = Self.screen(containing: centre)?.visibleFrame {
+            target.origin = RelativePlacement.origin(for: RelativePlacement.spot(of: target, in: visible), side: side, in: visible)
+        }
+        setFrame(target, display: true)
+        layoutPips()
+    }
+
+    private func layoutPips() {
+        let side = frame.width
+        pips.frame = NSRect(x: 0, y: side * 0.033, width: side, height: min(14, side * 0.17))
+    }
+
+    static func screen(containing point: CGPoint) -> NSScreen? {
+        NSScreen.screens.first { $0.frame.contains(point) }
     }
 
     @objc private func didMove() {
         UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
+        onMoved?(frame)
     }
 
     /// A display was unplugged or rearranged: pull the bubble back on screen if it was stranded.
     @objc private func screensChanged() {
-        let origin = Self.placement(for: frame.origin)
+        let origin = Self.placement(for: frame.origin, side: frame.width)
         if origin != frame.origin { setFrameOrigin(origin) }
     }
 
-    private static func initialOrigin() -> CGPoint {
-        placement(for: UserDefaults.standard.string(forKey: originKey).map { NSPointFromString($0) })
+    private static func initialOrigin(side: CGFloat) -> CGPoint {
+        placement(for: UserDefaults.standard.string(forKey: originKey).map { NSPointFromString($0) }, side: side)
     }
 
-    private static func placement(for saved: CGPoint?) -> CGPoint {
+    private static func placement(for saved: CGPoint?, side: CGFloat) -> CGPoint {
         let main = NSScreen.screens.first?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
         return BubblePlacement.origin(saved: saved, size: side, screenFrames: NSScreen.screens.map(\.frame), mainVisibleFrame: main)
     }
