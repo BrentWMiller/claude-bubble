@@ -10,10 +10,8 @@ public struct OrbFrame: Sendable {
     public var shakeX: Float
     /// Angle (radians) from the orb's centre toward the pointer.
     public var pointerAngle: Float = 0
-    /// 0…1 strength of the attention effect (highlight, tilt, glow).
+    /// 0…1 strength of the attention effect (highlight, tilt, directional glow).
     public var attention: Float = 0
-    /// 0…1 strength of the magnetic bulge.
-    public var magnet: Float = 0
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
@@ -128,10 +126,9 @@ public final class OrbAnimator {
         // Directional effects scale with how far off-centre the pointer is, so they fade through the middle.
         let lean = closeness * min((pointerOffset * pointerOffset).sum().squareRoot(), 1)
         let attention = interaction == .attention ? lean : 0
-        let magnet = interaction == .magnetic ? lean : 0
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         return OrbFrame(params: current, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
-                        pointerAngle: atan2f(pointerOffset.y, pointerOffset.x), attention: attention, magnet: magnet)
+                        pointerAngle: atan2f(pointerOffset.y, pointerOffset.x), attention: attention)
     }
 }

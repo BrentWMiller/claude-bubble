@@ -9,7 +9,7 @@ struct Uniforms {
     float4 a;   // phase, scale, glow, ring
     float4 b;   // glitch, wave, bright, pointSize
     float4 c;   // resX, resY, shiftX, unused
-    float4 d;   // pointerAngle, attention, magnet, unused
+    float4 d;   // pointerAngle, attention, unused, unused
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -40,8 +40,11 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float hl = pow(.5 + .5 * cos(a - atan2(hv.y, hv.x)), 5.);
     float3 col = rc * (ring * (.55 + 1.6 * hl) + fuzz * (.4 + hl)) * ringv;
     col += float3(1.) * ring * hl * hl * .6 * ringv;
+    // Attention: the glow gathers on the side facing the pointer, brightening the ring and halo there.
+    float toward = pow(.5 + .5 * cos(a - u.d.x), 3.) * u.d.y;
+    col *= 1. + .9 * toward;
     float o = max(r - R, 0.);
-    col += H * glowv * (exp(-o * 7.) * .55 + exp(-o * 22.) * .5) * smoothstep(R * .7, R * 1.02, r);
+    col += H * glowv * (1. + 1.6 * toward) * (exp(-o * 7.) * .55 + exp(-o * 22.) * .5) * smoothstep(R * .7, R * 1.02, r);
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
     col *= 1. - smoothstep(.36, .5, r);
     col = 1. - exp(-col * 1.4);
@@ -75,14 +78,9 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     p *= 1. + glitch * (gh * .1 + band * .12);
     p.x += glitch * band * .08 * sign(gh - .5);
     p = rx(.35) * p;
-    // Attention: the sphere tilts to face the pointer. Magnetic: the near side bulges toward it.
+    // Attention: the sphere tilts to face the pointer.
     float2 pd = float2(cos(u.d.x), sin(u.d.x));
     p = ry(pd.x * .45 * u.d.y) * rx(-pd.y * .45 * u.d.y) * p;
-    float sl = length(p.xy);
-    if (sl > .0001) {
-        float facing = max(dot(p.xy / sl, pd), 0.);
-        p *= 1. + u.d.z * .22 * facing * facing * facing * (.6 + .4 * max(p.z, 0.));
-    }
     float R = .6 * sc;
     float persp = 1. / (1. - p.z * .18);
 

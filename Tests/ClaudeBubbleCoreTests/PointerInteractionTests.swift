@@ -34,18 +34,21 @@ final class PointerInteractionTests: XCTestCase {
         a.setPointer(offset: [0, 1], closeness: 1)
         let f = run(a, seconds: 2)
         XCTAssertEqual(f.attention, 1, accuracy: 0.01)
-        XCTAssertEqual(f.magnet, 0)
         XCTAssertEqual(f.glow, base * 1.2, accuracy: 0.02)
         XCTAssertEqual(f.pointerAngle, .pi / 2, accuracy: 0.01)
     }
 
-    func testMagneticModeDrivesTheMagnetOnly() {
-        let a = OrbAnimator(state: .working)
-        a.interaction = .magnetic
-        a.setPointer(offset: [1, 0], closeness: 1)
-        let f = run(a, seconds: 2)
-        XCTAssertEqual(f.magnet, 1, accuracy: 0.01)
-        XCTAssertEqual(f.attention, 0)
+    func testOnlyAttentionAndOff() {
+        XCTAssertEqual(PointerInteraction.allCases, [.attention, .off])
+    }
+
+    func testASavedMagneticSettingFallsBackToAttention() throws {
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(BubblePreferences.defaults)) as? [String: Any])
+        json["interaction"] = "magnetic"
+        json["diameter"] = 100
+        let p = try JSONDecoder().decode(BubblePreferences.self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(p.interaction, .attention)
+        XCTAssertEqual(p.diameter, 100, "other settings survive")
     }
 
     func testOffModeIgnoresThePointer() {
@@ -54,7 +57,6 @@ final class PointerInteractionTests: XCTestCase {
         a.setPointer(offset: [1, 0], closeness: 1)
         let f = run(a, seconds: 1)
         XCTAssertEqual(f.attention, 0)
-        XCTAssertEqual(f.magnet, 0)
     }
 
     func testLeavingSettlesBackToNormal() {
@@ -111,9 +113,9 @@ final class PointerInteractionTests: XCTestCase {
     func testInteractionDefaultsToAttentionAndRoundTrips() {
         XCTAssertEqual(BubblePreferences.defaults.interaction, .attention)
         var p = BubblePreferences.defaults
-        p.interaction = .magnetic
+        p.interaction = .off
         let back = try? JSONDecoder().decode(BubblePreferences.self, from: JSONEncoder().encode(p))
-        XCTAssertEqual(back?.interaction, .magnetic)
+        XCTAssertEqual(back?.interaction, .off)
     }
 
     func testOlderSavedSettingsKeepTheirValues() throws {

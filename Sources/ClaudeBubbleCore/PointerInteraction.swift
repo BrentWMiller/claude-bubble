@@ -2,16 +2,13 @@ import CoreGraphics
 
 /// How the orb reacts when the pointer comes near it.
 public enum PointerInteraction: String, Codable, CaseIterable, Sendable {
-    /// The highlight swings toward the cursor, the sphere tilts to look at it, the glow swells.
+    /// The highlight swings toward the cursor, the sphere tilts to look at it, and the glow gathers on that side.
     case attention
-    /// Particles on the near side bulge toward the cursor.
-    case magnetic
     case off
 
     public var label: String {
         switch self {
         case .attention: "Attention"
-        case .magnetic: "Magnetic"
         case .off: "Off"
         }
     }
