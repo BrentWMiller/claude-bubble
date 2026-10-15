@@ -90,7 +90,7 @@ struct DecodeFrame {
     }
 }
 
-private struct DecodingPill: View {
+struct DecodingPill: View {
     let toast: ToastPlacement
     let color: Color
     let frame: DecodeFrame
@@ -106,7 +106,7 @@ private struct DecodingPill: View {
             .overlay(Sweep(progress: frame.progress).clipShape(Capsule()))
             .frame(maxWidth: 280)
             .offset(x: jitter)
-            .mask(alignment: .top) { RevealMask(reveal: frame.reveal) }
+            .mask { RevealMask(reveal: frame.reveal) }
     }
 
     private var content: some View {
@@ -158,14 +158,21 @@ private struct Sweep: View {
     }
 }
 
-/// The reveal: an ellipse growing from the top centre.
+/// The reveal: an ellipse centred on the top edge, growing until it covers the whole pill (every corner),
+/// then out of the way entirely.
 private struct RevealMask: View {
     let reveal: CGFloat
 
     var body: some View {
-        Ellipse()
-            .scaleEffect(x: reveal * 3, y: reveal * 4, anchor: .top)
-            .frame(height: ToastStackView.pillHeight * 2)
+        GeometryReader { geo in
+            if reveal >= 1 {
+                Rectangle()
+            } else {
+                Ellipse()
+                    .frame(width: geo.size.width * 2.6 * reveal, height: geo.size.height * 3 * reveal)
+                    .position(x: geo.size.width / 2, y: 0)
+            }
+        }
     }
 }
 
