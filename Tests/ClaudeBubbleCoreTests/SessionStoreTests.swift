@@ -59,4 +59,72 @@ final class SessionStoreTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         XCTAssertEqual(SessionStore.load(from: dir, now: now), [])
     }
+
+    func makeDir() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    func testOlderFilesDecodeWithDefaults() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try #"{"state":"idle","cwd":"/code/api-server","updated_at":\#(now.timeIntervalSince1970)}"#
+            .write(to: dir.appendingPathComponent("old.json"), atomically: true, encoding: .utf8)
+        let s = try XCTUnwrap(SessionStore.load(from: dir, now: now).first)
+        XCTAssertEqual(s.project, "api-server")
+        XCTAssertEqual(s.detail, "")
+        XCTAssertEqual(s.stateSince, now)
+        XCTAssertNil(s.pid)
+    }
+
+    func testReadsNewFields() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let t = now.timeIntervalSince1970
+        try #"{"state":"needs","cwd":"/x","updated_at":\#(t),"project":"web-app","detail":"Approve Edit auth.ts?","state_since":\#(t - 42),"pid":777}"#
+            .write(to: dir.appendingPathComponent("n.json"), atomically: true, encoding: .utf8)
+        let s = try XCTUnwrap(SessionStore.load(from: dir, now: now, isAlive: { _ in true }).first)
+        XCTAssertEqual(s.project, "web-app")
+        XCTAssertEqual(s.detail, "Approve Edit auth.ts?")
+        XCTAssertEqual(s.stateSince, now.addingTimeInterval(-42))
+        XCTAssertEqual(s.pid, 777)
+    }
+
+    func testDeadPidIsDroppedAndDeleted() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("dead.json")
+        try #"{"state":"working","updated_at":\#(now.timeIntervalSince1970),"pid":999}"#.write(to: file, atomically: true, encoding: .utf8)
+        XCTAssertEqual(SessionStore.load(from: dir, now: now, isAlive: { _ in false }), [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+    }
+
+    func testLivePidSurvivesTheDayOldCleanup() throws {
+        let dir = try makeDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try #"{"state":"idle","updated_at":\#(now.timeIntervalSince1970 - 25 * 3600),"pid":5}"#
+            .write(to: dir.appendingPathComponent("idle.json"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(SessionStore.load(from: dir, now: now, isAlive: { _ in true }).count, 1)
+    }
+
+    func testLivePidIsExemptFromStaleness() {
+        let s = Session(id: "a", state: .working, updatedAt: now.addingTimeInterval(-2 * 3600), pid: 5)
+        XCTAssertEqual(SessionStore.live([s], now: now), [s])
+        XCTAssertEqual(SessionStore.aggregate([s], now: now), .working)
+    }
+
+    func testSortedByUrgencyThenMostRecentChange() {
+        let idle = Session(id: "i", state: .idle, updatedAt: now)
+        let oldWork = Session(id: "w1", state: .working, updatedAt: now, stateSince: now.addingTimeInterval(-300))
+        let newWork = Session(id: "w2", state: .working, updatedAt: now, stateSince: now.addingTimeInterval(-10))
+        let needs = Session(id: "n", state: .needs, updatedAt: now)
+        let error = Session(id: "e", state: .error, updatedAt: now)
+        XCTAssertEqual(SessionStore.sorted([idle, oldWork, needs, newWork, error]).map(\.id), ["e", "n", "w2", "w1", "i"])
+    }
+
+    func testProcessIsAliveForThisProcessOnly() {
+        XCTAssertTrue(SessionStore.processIsAlive(getpid()))
+        XCTAssertFalse(SessionStore.processIsAlive(99_999_999))
+    }
 }
