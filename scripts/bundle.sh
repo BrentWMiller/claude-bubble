@@ -11,6 +11,8 @@ cp Resources/Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 cp hook/claude-bubble-hook.sh "$APP/Contents/Resources/"
 chmod +x "$APP/Contents/Resources/claude-bubble-hook.sh"
+cp hook/claude-bubble-statusline.sh "$APP/Contents/Resources/"
+chmod +x "$APP/Contents/Resources/claude-bubble-statusline.sh"
 codesign --force --sign - "$APP"
 echo "Built $APP"
 

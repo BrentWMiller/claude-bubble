@@ -202,14 +202,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Keeps an already-installed hook in step with this build, so rebuilds don't need a reinstall.
     private func refreshInstalledHook() {
-        guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh") else { return }
-        let destination = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude-bubble/hook.sh")
-        do {
-            if try HookInstaller.refreshInstalledHook(source: source, destination: destination) {
-                NSLog("ClaudeBubble: refreshed installed hook")
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        for (resource, installed) in [("claude-bubble-hook", "hook.sh"), ("claude-bubble-statusline", "statusline.sh")] {
+            guard let source = Bundle.main.url(forResource: resource, withExtension: "sh") else { continue }
+            do {
+                if try HookInstaller.refreshInstalledHook(source: source, destination: home.appendingPathComponent(".claude-bubble/\(installed)")) {
+                    NSLog("ClaudeBubble: refreshed installed \(installed)")
+                }
+            } catch {
+                NSLog("ClaudeBubble: \(installed) refresh failed: \(error)")
             }
-        } catch {
-            NSLog("ClaudeBubble: hook refresh failed: \(error)")
         }
     }
 
@@ -608,15 +610,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         do {
-            guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh") else {
+            guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh"),
+                  let statusLine = Bundle.main.url(forResource: "claude-bubble-statusline", withExtension: "sh") else {
                 throw HookInstaller.InstallError.missingHookScript
             }
             let home = FileManager.default.homeDirectoryForCurrentUser
             try HookInstaller.install(settingsURL: home.appendingPathComponent(".claude/settings.json"),
                                       hookSource: source,
-                                      hookDestination: home.appendingPathComponent(".claude-bubble/hook.sh"))
+                                      hookDestination: home.appendingPathComponent(".claude-bubble/hook.sh"),
+                                      statusLineSource: statusLine,
+                                      statusLineDestination: home.appendingPathComponent(".claude-bubble/statusline.sh"))
             alert.messageText = "Hooks installed"
-            alert.informativeText = "New Claude Code sessions will report to the bubble; restart running sessions to pick it up. Your previous settings were saved to settings.json.claude-bubble.bak."
+            alert.informativeText = "New Claude Code sessions will report to the bubble; restart running sessions to pick it up. Your status line still runs as before, and now also passes usage to the bubble. Your previous settings were saved to settings.json.claude-bubble.bak."
         } catch {
             alert.alertStyle = .warning
             alert.messageText = "Couldn't install hooks"

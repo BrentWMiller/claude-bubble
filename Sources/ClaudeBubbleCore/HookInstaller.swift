@@ -38,6 +38,20 @@ public enum HookInstaller {
         return settings
     }
 
+    /// Points Claude Code's status line at the bubble's wrapper. Returns the command it replaced (the wrapper runs
+    /// it, so the status line looks the same), "" when there was none, or nil when it was already wrapped
+    /// (leave the saved command alone).
+    public static func wrapStatusLine(settings: [String: Any], wrapper: String) -> (settings: [String: Any], inner: String?) {
+        var settings = settings
+        var line = settings["statusLine"] as? [String: Any] ?? [:]
+        let existing = line["command"] as? String
+        if existing == wrapper { return (settings, nil) }
+        line["type"] = "command"
+        line["command"] = wrapper
+        settings["statusLine"] = line
+        return (settings, existing ?? "")
+    }
+
     /// After an app update, swaps in the bundled hook if one is already installed and differs.
     /// Never installs a hook the user hasn't installed. Returns whether it replaced the file.
     @discardableResult
@@ -55,7 +69,8 @@ public enum HookInstaller {
         return true
     }
 
-    public static func install(settingsURL link: URL, hookSource: URL, hookDestination: URL) throws {
+    public static func install(settingsURL link: URL, hookSource: URL, hookDestination: URL,
+                               statusLineSource: URL? = nil, statusLineDestination: URL? = nil) throws {
         let fm = FileManager.default
         // Dotfile setups symlink settings.json; edit the real file so the link survives.
         let settingsURL = link.resolvingSymlinksInPath()
@@ -79,7 +94,19 @@ public enum HookInstaller {
         try fm.copyItem(at: hookSource, to: hookDestination)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hookDestination.path)
 
-        let merged = merge(settings: settings, command: "\"\(hookDestination.path)\"")
+        var merged = merge(settings: settings, command: "\"\(hookDestination.path)\"")
+        if let source = statusLineSource, let destination = statusLineDestination {
+            try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.removeItem(at: destination)
+            try fm.copyItem(at: source, to: destination)
+            try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: destination.path)
+            let wrapped = wrapStatusLine(settings: merged, wrapper: "\"\(destination.path)\"")
+            merged = wrapped.settings
+            if let inner = wrapped.inner {
+                try inner.write(to: destination.deletingLastPathComponent().appendingPathComponent("statusline-inner"),
+                                atomically: true, encoding: .utf8)
+            }
+        }
         try fm.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         let out = try JSONSerialization.data(withJSONObject: merged, options: [.prettyPrinted, .withoutEscapingSlashes])
         try out.write(to: settingsURL, options: .atomic)

@@ -136,4 +136,50 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertThrowsError(try HookInstaller.install(settingsURL: settings, hookSource: try makeHook(), hookDestination: dir.appendingPathComponent("hook.sh")))
         XCTAssertEqual(try String(contentsOf: settings, encoding: .utf8), "{ broken")
     }
+
+    // Status line wrapper
+
+    let wrapper = "\"/Users/me/.claude-bubble/statusline.sh\""
+
+    func testWrapStatusLineSavesTheOriginalCommand() {
+        let existing: [String: Any] = ["model": "opus",
+                                       "statusLine": ["type": "command", "command": "bash ~/.claude/line.sh", "padding": 2]]
+        let out = HookInstaller.wrapStatusLine(settings: existing, wrapper: wrapper)
+        let line = out.settings["statusLine"] as? [String: Any]
+        XCTAssertEqual(line?["command"] as? String, wrapper)
+        XCTAssertEqual(line?["type"] as? String, "command")
+        XCTAssertEqual(line?["padding"] as? Int, 2)
+        XCTAssertEqual(out.settings["model"] as? String, "opus")
+        XCTAssertEqual(out.inner, "bash ~/.claude/line.sh")
+    }
+
+    func testWrapStatusLineWithNoStatusLine() {
+        let out = HookInstaller.wrapStatusLine(settings: [:], wrapper: wrapper)
+        XCTAssertEqual((out.settings["statusLine"] as? [String: Any])?["command"] as? String, wrapper)
+        XCTAssertEqual(out.inner, "")
+    }
+
+    func testWrapStatusLineNeverWrapsItself() {
+        let existing: [String: Any] = ["statusLine": ["type": "command", "command": wrapper]]
+        let out = HookInstaller.wrapStatusLine(settings: existing, wrapper: wrapper)
+        XCTAssertEqual((out.settings["statusLine"] as? [String: Any])?["command"] as? String, wrapper)
+        XCTAssertNil(out.inner, "leave the saved inner command alone")
+    }
+
+    func testInstallIsIdempotent() throws {
+        let settings = dir.appendingPathComponent("settings.json")
+        try #"{"statusLine":{"type":"command","command":"echo mine"}}"#.write(to: settings, atomically: true, encoding: .utf8)
+        let source = dir.appendingPathComponent("src-statusline.sh")
+        try "#!/bin/bash\n".write(to: source, atomically: true, encoding: .utf8)
+        let dest = dir.appendingPathComponent("bubble/statusline.sh")
+        for _ in 0..<2 {
+            try HookInstaller.install(settingsURL: settings, hookSource: try makeHook(), hookDestination: dir.appendingPathComponent("bubble/hook.sh"),
+                                      statusLineSource: source, statusLineDestination: dest)
+        }
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: settings)) as! [String: Any]
+        XCTAssertEqual((json["statusLine"] as? [String: Any])?["command"] as? String, "\"\(dest.path)\"")
+        let inner = try String(contentsOf: dir.appendingPathComponent("bubble/statusline-inner"), encoding: .utf8)
+        XCTAssertEqual(inner, "echo mine")
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: dest.path))
+    }
 }
