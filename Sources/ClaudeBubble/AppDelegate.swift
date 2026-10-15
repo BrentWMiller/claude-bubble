@@ -338,9 +338,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item(bubbleHidden ? "Show Bubble" : "Hide Bubble", #selector(toggleBubble)))
         menu.addItem(item("Reset Position", #selector(resetPosition)))
         menu.addItem(.separator())
+        menu.addItem(submenu("Debug", makeDebugMenu()))
         menu.addItem(item("Restart", #selector(restart)))
         menu.addItem(NSMenuItem(title: "Quit Claude Bubble", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))
         NSMenu.popUpContextMenu(menu, with: event, for: view)
+    }
+
+    /// Force a state to preview it (e.g. Working → Idle plays the completed moment); Live returns to real sessions.
+    private func makeDebugMenu() -> NSMenu {
+        let menu = NSMenu()
+        let selected = forcedState?.rawValue ?? "live"
+        for (title, key) in [("Live", "live"), ("Idle", "idle"), ("Working", "working"), ("Needs You", "needs"), ("Error", "error")] {
+            let it = item(title, #selector(setDebugState(_:)))
+            it.representedObject = key
+            it.state = key == selected ? .on : .off
+            menu.addItem(it)
+        }
+        return menu
     }
 
     @objc private func pickPreset(_ sender: NSMenuItem) {
