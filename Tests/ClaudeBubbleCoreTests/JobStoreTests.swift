@@ -135,4 +135,26 @@ final class JobStoreTests: XCTestCase {
         try writeJob(#"{"sessionId":"\#(sid)","name":"docs","state":"done"}"#)
         XCTAssertEqual(SessionStore.withJobs([session(.idle)], from: dir).first?.state, .idle)
     }
+
+    // Background agents: the main turn has stopped, but the agents view still says working.
+
+    func testStoppedTurnWithBackgroundAgentsIsWorking() throws {
+        try writeJob(##"{"sessionId":"\##(sid)","name":"pr-review","state":"working","detail":"#7254 reviewed, safe to merge"}"##)
+        let s = try XCTUnwrap(SessionStore.withJobs([session(.idle, detail: "Completed")], from: dir).first)
+        XCTAssertEqual(s.state, .working)
+        XCTAssertEqual(s.detail, "#7254 reviewed, safe to merge")
+        XCTAssertFalse(s.reviewReady)
+    }
+
+    func testStoppedTurnWithBackgroundAgentsAndNoSummary() throws {
+        try writeJob(#"{"sessionId":"\#(sid)","name":"pr-review","state":"working"}"#)
+        let s = try XCTUnwrap(SessionStore.withJobs([session(.idle, detail: "Completed")], from: dir).first)
+        XCTAssertEqual(s.state, .working)
+        XCTAssertEqual(s.detail, "Waiting on background agents")
+    }
+
+    func testDoneJobStaysIdle() throws {
+        try writeJob(#"{"sessionId":"\#(sid)","name":"pr-review","state":"done"}"#)
+        XCTAssertEqual(SessionStore.withJobs([session(.idle, detail: "Completed")], from: dir).first?.state, .idle)
+    }
 }

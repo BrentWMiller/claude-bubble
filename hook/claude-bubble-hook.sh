@@ -199,13 +199,19 @@ def counter(name):
 ticks = counter('ticks') + (event == 'PostToolUse')
 fails = counter('fails') + (event == 'PostToolUseFailure')
 skills = counter('skills') + (event == 'PreToolUse' and tool in ('Skill', 'EnterPlanMode', 'ExitPlanMode'))
-# Cleared when a turn ends too: an interrupt can leave a SubagentStop that never comes.
-subagents = [] if fresh_start or event in ('Stop', 'StopFailure') else [str(x) for x in prev.get('subagents', []) if isinstance(x, str)]
+# Running subagents ({id: started_at}). Background agents outlive the main turn's Stop, so they aren't cleared then;
+# instead one whose SubagentStop never comes (an interrupt) expires after a while.
+ttl = float(os.environ.get('CLAUDE_BUBBLE_SUBAGENT_TTL', '2700'))
+raw = {} if fresh_start else prev.get('subagents', {})
+if isinstance(raw, list):   # written by an older hook
+    raw = {str(x): now for x in raw if isinstance(x, str)}
+running = {str(k): float(v) for k, v in raw.items() if isinstance(v, (int, float)) and now - float(v) < ttl}
 agent = str(data.get('agent_id') or '')
-if event == 'SubagentStart' and agent and agent not in subagents:
-    subagents.append(agent)
-elif event == 'SubagentStop' and agent in subagents:
-    subagents.remove(agent)
+if event == 'SubagentStart' and agent and agent not in running:
+    running[agent] = now
+elif event == 'SubagentStop':
+    running.pop(agent, None)
+subagents = running
 
 cwd = data.get('cwd') or prev.get('cwd', '')
 project = base(cwd) or 'session'

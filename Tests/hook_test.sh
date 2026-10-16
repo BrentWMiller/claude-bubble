@@ -156,7 +156,7 @@ check '[ "$got" = 0 ]' "unconfirmed owner writes pid 0, not a short-lived shell"
 send '{"hook_event_name":"SessionEnd","session_id":"w2"}'
 
 # Activity, counters, subagents, compaction (orb motions)
-count_of() { /usr/bin/python3 -c 'import json,sys;v=json.load(open(sys.argv[1])).get(sys.argv[2]);print(len(v) if isinstance(v,list) else v)' "$S/$1.json" "$2" 2>/dev/null || echo "<none>"; }
+count_of() { /usr/bin/python3 -c 'import json,sys;v=json.load(open(sys.argv[1])).get(sys.argv[2]);print(len(v) if isinstance(v,(list,dict)) else v)' "$S/$1.json" "$2" 2>/dev/null || echo "<none>"; }
 send '{"hook_event_name":"SessionStart","session_id":"m","cwd":"/tmp"}'
 send '{"hook_event_name":"UserPromptSubmit","session_id":"m"}';                       expect_field m activity generating "prompt -> generating"
 send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"Read"}';          expect_field m activity read "Read -> read"
@@ -208,7 +208,9 @@ send '{"hook_event_name":"PreToolUse","session_id":"p","tool_name":"Bash","tool_
 send '{"hook_event_name":"PermissionDenied","session_id":"p","tool_name":"Bash","tool_use_id":"t3"}'; expect_field p activity generating "denied tool -> generating"
 send '{"hook_event_name":"SubagentStart","session_id":"p","agent_id":"s1"}'
 send '{"hook_event_name":"Stop","session_id":"p"}'
-check '[ "$(count_of p subagents)" = 0 ]' "end of turn clears subagents"
+check '[ "$(count_of p subagents)" = 1 ]' "background subagents outlive the end of the turn"
+CLAUDE_BUBBLE_SUBAGENT_TTL=0 send '{"hook_event_name":"Notification","session_id":"p","notification_type":"idle_prompt"}'
+check '[ "$(count_of p subagents)" = 0 ]' "a subagent whose stop never came expires"
 send '{"hook_event_name":"UserPromptSubmit","session_id":"p"}'
 send '{"hook_event_name":"PreToolUse","session_id":"p","tool_name":"Bash","tool_use_id":"t4"}'
 send '{"hook_event_name":"UserPromptSubmit","session_id":"p"}'; expect_field p activity generating "a new prompt forgets tools left in flight"
