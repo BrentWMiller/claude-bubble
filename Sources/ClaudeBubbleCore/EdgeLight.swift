@@ -15,12 +15,29 @@ public struct EdgeStrip: Equatable, Sendable {
 /// A light along the screen's edge when the orb is near it: brightest where the orb meets the edge, fading
 /// out over a third of the edge each way.
 public enum EdgeLight {
-    public static func strips(orbCentre c: CGPoint, orbRadius r: CGFloat, screen s: CGRect) -> [EdgeStrip] {
+    /// Edges of `frame` that another display touches (with some overlap along them).
+    public static func sharedEdges(of f: CGRect, among others: [CGRect]) -> Set<EdgeStrip.Edge> {
+        var shared: Set<EdgeStrip.Edge> = []
+        for o in others {
+            let overlapY = min(f.maxY, o.maxY) - max(f.minY, o.minY)
+            let overlapX = min(f.maxX, o.maxX) - max(f.minX, o.minX)
+            if overlapY > 0, abs(o.minX - f.maxX) < 1 { shared.insert(.right) }
+            if overlapY > 0, abs(o.maxX - f.minX) < 1 { shared.insert(.left) }
+            if overlapX > 0, abs(o.minY - f.maxY) < 1 { shared.insert(.top) }
+            if overlapX > 0, abs(o.maxY - f.minY) < 1 { shared.insert(.bottom) }
+        }
+        return shared
+    }
+
+    /// `screen` is the area the light runs along: pass the visible frame, so it sits inside the menu bar and Dock.
+    public static func strips(orbCentre c: CGPoint, orbRadius r: CGFloat, screen s: CGRect,
+                              skipping skip: Set<EdgeStrip.Edge> = []) -> [EdgeStrip] {
         let candidates: [(EdgeStrip.Edge, CGFloat, CGFloat, CGFloat)] = [
             (.left, c.x - s.minX, c.y, s.height), (.right, s.maxX - c.x, c.y, s.height),
             (.bottom, c.y - s.minY, c.x, s.width), (.top, s.maxY - c.y, c.x, s.width)
         ]
         return candidates.compactMap { edge, distance, along, length in
+            guard !skip.contains(edge) else { return nil }
             let t = min(max((max(distance, 0) - r) / (2 * r), 0), 1)
             let strength = 1 - Double(t * t * (3 - 2 * t))
             guard strength > 0.01 else { return nil }

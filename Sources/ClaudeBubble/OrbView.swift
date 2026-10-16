@@ -37,18 +37,31 @@ final class OrbView: MTKView {
 
     override func rightMouseDown(with event: NSEvent) { onRightClick?(event, self) }
 
+    /// Where the pointer and the window started a drag (screen space). Our own drag, not the system's, so the
+    /// orb can hang partly off the screen's edges.
+    private var dragStart: (mouse: CGPoint, origin: CGPoint)?
+
     override func mouseDragged(with event: NSEvent) {
-        guard let down = pendingClick else { return }
-        let dx = event.locationInWindow.x - down.locationInWindow.x
-        let dy = event.locationInWindow.y - down.locationInWindow.y
-        guard dx * dx + dy * dy > 9 else { return }
-        pendingClick = nil
-        window?.performDrag(with: down)
+        guard let window else { return }
+        if let down = pendingClick {
+            let dx = event.locationInWindow.x - down.locationInWindow.x
+            let dy = event.locationInWindow.y - down.locationInWindow.y
+            guard dx * dx + dy * dy > 9 else { return }
+            pendingClick = nil
+            dragStart = (window.convertPoint(toScreen: down.locationInWindow), window.frame.origin)
+        }
+        guard let start = dragStart else { return }
+        let mouse = NSEvent.mouseLocation
+        let wanted = CGPoint(x: start.origin.x + mouse.x - start.mouse.x, y: start.origin.y + mouse.y - start.mouse.y)
+        guard let screen = BubblePanel.screen(nearest: mouse) else { return }
+        window.setFrameOrigin(BubblePlacement.clampedOrigin(wanted, side: window.frame.width, screen: screen.frame,
+                                                            visible: screen.visibleFrame))
     }
 
     override func mouseUp(with event: NSEvent) {
         if pendingClick != nil { onClick?() }
         pendingClick = nil
+        dragStart = nil
     }
 }
 

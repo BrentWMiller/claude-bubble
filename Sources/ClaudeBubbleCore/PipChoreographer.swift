@@ -250,7 +250,7 @@ public enum PipArc {
     /// `centre` and `visible` are in screen space (y-up); the result is view degrees like `position`'s `around`.
     public static func around(centre: CGPoint, radius: CGFloat, slots: Int, visible: CGRect) -> Double {
         guard slots > 0 else { return 90 }
-        let inner = visible.insetBy(dx: 6, dy: 6)
+        let inner = visible.insetBy(dx: 16, dy: 16)
         func inside(_ a: Double) -> Int {
             (0..<slots).filter { i in
                 let p = position(slot: i, slots: slots, centre: .zero, radius: radius, around: a)
@@ -260,10 +260,14 @@ public enum PipArc {
         func offDown(_ a: Double) -> Double { let d = abs((a - 90).truncatingRemainder(dividingBy: 360)); return min(d, 360 - d) }
         let candidates = stride(from: 90.0, to: 450, by: 5).map { $0.truncatingRemainder(dividingBy: 360) }
         let scored = candidates.map { (angle: $0, inside: inside($0)) }
-        let best = scored.max { a, b in
+        guard let best = scored.max(by: { a, b in
             a.inside != b.inside ? a.inside < b.inside : offDown(a.angle) > offDown(b.angle)
-        }
-        return best?.angle ?? 90
+        }) else { return 90 }
+        guard best.angle != 90 else { return 90 }
+        // Turned: go a little further than the bare minimum, so the pips sit comfortably on screen.
+        let away = (best.angle - 90 + 540).truncatingRemainder(dividingBy: 360) - 180
+        let further = (best.angle + (away > 0 ? 12 : -12) + 360).truncatingRemainder(dividingBy: 360)
+        return inside(further) >= best.inside ? further : best.angle
     }
 
     /// The session whose visible pip is nearest `point`, within half the pip spacing (at most 7pt), if any.

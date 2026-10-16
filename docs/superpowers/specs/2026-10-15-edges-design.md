@@ -16,9 +16,10 @@ The pip arc keeps its radius, its 11° step and its order. The whole arc rotates
   - the visible frame of the screen the orb is on. When the centre is off every screen, this is the screen nearest to it.
 - **Candidates:** every 5° around the circle.
 - **Pick:**
-  - a candidate is "clear" when every slot's centre is at least 6pt inside the visible frame;
+  - a candidate is "clear" when every slot's centre is at least 16pt inside the visible frame;
   - pick the clear candidate nearest to straight down;
-  - if none is clear, pick the one with the most slots inside, nearest to down on ties.
+  - if none is clear, pick the one with the most slots inside, nearest to down on ties;
+  - once the arc has to turn, it turns 12° further (if that stays clear), so the pips sit comfortably on screen.
 - **Default:** away from edges this is always 90 (unchanged behaviour).
 
 ### Applying it
@@ -34,6 +35,13 @@ The pip arc keeps its radius, its 11° step and its order. The whole arc rotates
   - so do the arc view, the pip card anchor and the spawn pull.
 - **What doesn't:** sound panning stays on the slot order, as before.
 
+## 1b. Dragging partly off screen
+
+- **Our own drag** (not the system's) moves the orb.
+  - **Left, right and bottom:** its centre may go half an orb radius past the screen's edges, which leaves about a third of the orb showing.
+  - **Top:** the whole orb stays below the menu bar.
+- **Saved position:** kept on relaunch while the orb's centre is within an orb radius of a screen.
+
 ## 2. Screen edge light
 
 When the orb is near a screen edge, a thin light runs along that edge. It is brightest where the orb meets the edge and fades out along it. In a corner, both edges light.
@@ -41,7 +49,8 @@ When the orb is near a screen edge, a thin light runs along that edge. It is bri
 ### Geometry (`EdgeLight`, core)
 
 - **Proximity:**
-  - per edge of the orb's screen frame (the full frame, so the light runs along the bezel), take the distance from the orb's centre to the edge;
+  - per edge of the orb's screen *visible* frame (so the light sits inside the menu bar and Dock), take the distance from the orb's centre to the edge;
+  - an edge that meets another display is skipped (it isn't the edge of the desktop);
   - `strength = 1 − smoothstep(R, R + D, distance)`, where R is the orb radius and D its diameter;
   - a centre past the edge counts as distance 0.
 - **Shape:**
@@ -73,7 +82,7 @@ When the orb is near a screen edge, a thin light runs along that edge. It is bri
   - when its strip has no strength;
   - when the orb is hidden or popping out;
   - when Edge light is turned off.
-- **Easing:** strength eases (0.25s) so the light fades in and out while dragging.
+- **Easing:** strength eases (0.25s) so the light fades in and out while dragging. A fading light stays where it was (even if the orb changed displays). When the orb hides, the light hides at once.
 
 ### Setting
 

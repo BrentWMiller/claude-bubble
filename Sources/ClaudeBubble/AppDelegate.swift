@@ -186,7 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let diff = (target - current + 540).truncatingRemainder(dividingBy: 360) - 180
         guard abs(diff) > 0.05 else { return }
         let next = abs(diff) < 0.5 ? target : current + diff * (1 - exp(-0.05 / 0.12))
-        model.pipAround = (next + 360).truncatingRemainder(dividingBy: 360)
+        // The easing here is the animation: the pips' own springs would lag behind (and the hit test with them).
+        var quiet = Transaction()
+        quiet.disablesAnimations = true
+        withTransaction(quiet) { model.pipAround = (next + 360).truncatingRemainder(dividingBy: 360) }
     }
 
     /// The orb's motion follows the most recently changed working session; layers fire when its counters go up.
@@ -355,7 +358,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius, around: model.pipAround)
-        pipCard.show(session, under: CGPoint(x: panel.frame.minX + p.x, y: panel.frame.maxY - p.y))
+        pipCard.show(session, under: CGPoint(x: panel.frame.minX + p.x, y: panel.frame.maxY - p.y),
+                     away: CGVector(dx: p.x - centre.x, dy: centre.y - p.y))   // view is y-down
     }
 
     // MARK: Usage
@@ -520,7 +524,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let orbScreen = BubblePanel.screen(nearest: CGPoint(x: panel.frame.midX, y: panel.frame.midY))
         let shown = animator.state
         let c = applied.palette[shown].swatch
-        edgeLight.update(orb: applied.edgeLight && !bubbleHidden && model.present ? panel : nil, screen: orbScreen?.frame,
+        // Edges shared with another display aren't the edge of the desktop: no light there.
+        let shared = orbScreen.map { s in EdgeLight.sharedEdges(of: s.frame, among: NSScreen.screens.filter { $0 != s }.map(\.frame)) } ?? []
+        edgeLight.update(orb: applied.edgeLight && !bubbleHidden && model.present ? panel : nil, screen: orbScreen?.visibleFrame,
+                         shared: shared,
                          color: Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)), state: shown,
                          opacity: applied.opacity, dt: 0.05)
         updatePips(mouse: mouse)

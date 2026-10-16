@@ -107,4 +107,44 @@ final class EdgesTests: XCTestCase {
         let prefs = try JSONDecoder().decode(BubblePreferences.self, from: Data(#"{"toasts": false}"#.utf8))
         XCTAssertTrue(prefs.edgeLight)
     }
+
+    // Further off screen, and pips further on
+
+    func testDragClampLetsTheCentrePassTheEdgeByHalfARadius() {
+        let side: CGFloat = 120, radius = side * 0.3   // 36
+        let visible = CGRect(x: 0, y: 80, width: 1000, height: 690)
+        // Far off the bottom-right: the centre stops 18pt past the right and bottom edges.
+        let o = BubblePlacement.clampedOrigin(CGPoint(x: 2000, y: -500), side: side, screen: screen, visible: visible)
+        XCTAssertEqual(o.x + side / 2, screen.maxX + radius / 2)
+        XCTAssertEqual(o.y + side / 2, screen.minY - radius / 2)
+        // The top keeps the whole orb below the menu bar.
+        let top = BubblePlacement.clampedOrigin(CGPoint(x: 400, y: 2000), side: side, screen: screen, visible: visible)
+        XCTAssertEqual(top.y + side / 2, visible.maxY - radius)
+        // Inside: untouched.
+        XCTAssertEqual(BubblePlacement.clampedOrigin(CGPoint(x: 300, y: 300), side: side, screen: screen, visible: visible),
+                       CGPoint(x: 300, y: 300))
+    }
+
+    func testSavedSpotPartlyOffScreenIsKept() {
+        let side: CGFloat = 120
+        let saved = CGPoint(x: 1000 + 18 - 60, y: -18 - 60)   // centre 18pt past the bottom-right corner
+        XCTAssertEqual(BubblePlacement.origin(saved: saved, size: side, screenFrames: [screen], mainVisibleFrame: screen), saved)
+    }
+
+    func testPipsTurnALittleFurtherOntoTheScreen() {
+        let c = CGPoint(x: 500, y: 0)
+        let a = PipArc.around(centre: c, radius: r, slots: 4, visible: screen)
+        // Every pip at least 16pt inside.
+        XCTAssertTrue(slots(c, 4, around: a).allSatisfy { screen.insetBy(dx: 16, dy: 16).contains($0) })
+        // And past the bare minimum: the lowest pip sits well above the edge.
+        XCTAssertGreaterThan(slots(c, 4, around: a).map(\.y).min()!, 22)
+    }
+
+    func testEdgesBetweenDisplaysAreShared() {
+        let a = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let b = CGRect(x: 1000, y: 100, width: 800, height: 600)
+        XCTAssertEqual(EdgeLight.sharedEdges(of: a, among: [b]), [.right])
+        XCTAssertEqual(EdgeLight.sharedEdges(of: b, among: [a]), [.left])
+        XCTAssertEqual(EdgeLight.strips(orbCentre: CGPoint(x: 995, y: 300), orbRadius: 30, screen: a, skipping: [.right]), [])
+    }
 }

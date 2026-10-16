@@ -45,28 +45,33 @@ final class EdgeLightController {
     /// Strength shown per edge, eased so the light fades in and out while dragging.
     private var shown: [EdgeStrip.Edge: Double] = [:]
 
-    /// `orb` is the orb panel; nil hides everything.
-    func update(orb: NSWindow?, screen: CGRect?, color: Color, state: BubbleState, opacity: Double, dt: Double) {
-        let strips: [EdgeStrip]
-        if let orb, let screen {
-            let centre = CGPoint(x: orb.frame.midX, y: orb.frame.midY)
-            strips = EdgeLight.strips(orbCentre: centre, orbRadius: orb.frame.width * 0.3, screen: screen)
-        } else {
-            strips = []
+    /// `orb` is the orb panel; nil (orb hidden, popping out, or the light turned off) hides everything at once.
+    /// `screen` is the visible frame the light runs along; `shared` are its edges that meet another display.
+    func update(orb: NSWindow?, screen: CGRect?, shared: Set<EdgeStrip.Edge>, color: Color, state: BubbleState,
+                opacity: Double, dt: Double) {
+        guard let orb, let screen else {
+            for (edge, panel) in panels where panel.isVisible { panel.orderOut(nil); shown[edge] = 0 }
+            return
         }
+        let centre = CGPoint(x: orb.frame.midX, y: orb.frame.midY)
+        let strips = EdgeLight.strips(orbCentre: centre, orbRadius: orb.frame.width * 0.3, screen: screen, skipping: shared)
         let k = 1 - exp(-dt / 0.25)
         for edge in [EdgeStrip.Edge.left, .right, .bottom, .top] {
             let strip = strips.first { $0.edge == edge }
             let value = (shown[edge] ?? 0) + ((strip?.strength ?? 0) - (shown[edge] ?? 0)) * k
             shown[edge] = value
-            guard value > 0.01, let screen else {
+            guard value > 0.01 else {
                 panels[edge]?.orderOut(nil)
                 continue
             }
             let panel = panels[edge] ?? EdgeLightPanel(edge: edge)
             panels[edge] = panel
-            // Keep the last strip's position while fading out after the orb has left.
-            let centre = strip?.centre ?? (panel.model.centre + (edge == .left || edge == .right ? panel.frame.minY : panel.frame.minX))
+            guard let strip else {
+                // Fading out after the orb moved away: stay where it was (even if the orb changed displays).
+                if panel.isVisible { panel.model.strength = value * opacity } else { panel.orderOut(nil) }
+                continue
+            }
+            let centre = strip.centre
             let length = edge == .left || edge == .right ? screen.height : screen.width
             let reach = length / 3 * 2
             let t = EdgeLightPanel.thickness
@@ -91,7 +96,7 @@ final class EdgeLightController {
             if m.color != color { m.color = color }
             if !panel.isVisible {
                 panel.orderFrontRegardless()
-                if let orb { panel.order(.below, relativeTo: orb.windowNumber) }
+                panel.order(.below, relativeTo: orb.windowNumber)
             }
         }
     }
@@ -150,7 +155,8 @@ struct EdgeGlowView: View {
     }
 
     private func alongGradient(span: CGFloat, t: Double) -> LinearGradient {
-        let n = 24
+        // Enough stops to draw the shimmer's ~240pt waves smoothly across a whole edge.
+        let n = max(24, Int(span / 16))
         let stops = (0...n).map { i -> Gradient.Stop in
             let pos = CGFloat(i) / CGFloat(n)
             let x = pos * span - model.centre
@@ -159,7 +165,7 @@ struct EdgeGlowView: View {
             if model.state == .working { a *= 0.8 + 0.2 * sin(Double(abs(x)) / 38 - t * 3) }
             return Gradient.Stop(color: model.color.opacity(a), location: pos)
         }
-        // View space is y-down: along a vertical edge, the gradient's start is the panel's top (screen maxY).
+        // Along a vertical edge `centre` is measured up from the panel's bottom, so the gradient runs bottom → top.
         return horizontal
             ? LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
             : LinearGradient(stops: stops, startPoint: .bottom, endPoint: .top)
