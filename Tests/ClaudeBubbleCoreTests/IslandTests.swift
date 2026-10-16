@@ -192,8 +192,9 @@ final class IslandTests: XCTestCase {
 
     func testWindowLeavesRoomForTheShadow() {
         XCTAssertGreaterThanOrEqual(IslandLayout.windowSize.width - 360, 2 * 30, "the widest pill plus shadow room")
-        XCTAssertGreaterThanOrEqual(IslandLayout.windowSize.height,
-                                    IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 9, rows: 9).height + 30)
+        // The tallest panel: every shown row with link chips, "+N more" and the footer.
+        let tallest = IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 9, rows: 9, linked: IslandLayout.maxRows)
+        XCTAssertGreaterThanOrEqual(IslandLayout.windowSize.height, tallest.height + 30)
     }
 
     func testANeighbouringDisplaysMenuBarDoesntCount() {

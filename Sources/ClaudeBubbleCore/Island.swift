@@ -43,9 +43,12 @@ public enum IslandMode: Equatable, Sendable {
 }
 
 public enum IslandLayout {
-    /// The island's window: large enough for the biggest pill plus room for its drop shadow to fade out, so it never
-    /// moves or resizes.
-    public static let windowSize = CGSize(width: 440, height: 480)
+    /// The island's window: large enough for the biggest pill (the open panel at its tallest: every row with link
+    /// chips, "+N more" and the footer) plus room for its drop shadow to fade out, so it never moves or resizes.
+    public static var windowSize: CGSize {
+        let tallest = size(mode: .hover, dock: .top, rest: .live, pips: 0, rows: maxRows + 1, linked: maxRows)
+        return CGSize(width: 440, height: (tallest.height + 50).rounded(.up))
+    }
     public static let orbSize: CGFloat = 28
     public static let pipSize: CGFloat = 5
     public static let maxPips = 5
