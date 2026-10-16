@@ -51,6 +51,24 @@ public enum HookInstaller {
         return merge(settings: settings, command: command)
     }
 
+    /// At launch, brings an existing install up to date: any hook events it lacks, and the status line wrapper
+    /// (which passes usage to the bubble). Returns nil when nothing needs writing or the hook was never installed
+    /// (this never installs on its own). `inner` is the status line command to save for the wrapper, if it changed.
+    public static func upgrade(settings: [String: Any], hookCommand: String, wrapper: String)
+        -> (settings: [String: Any], inner: String?)? {
+        let hooks = settings["hooks"] as? [String: Any] ?? [:]
+        let installed = hooks.values.contains { groups in
+            (groups as? [Any] ?? []).contains { group in
+                ((group as? [String: Any])?["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == hookCommand }
+            }
+        }
+        guard installed else { return nil }
+        let events = refreshSubscriptions(settings: settings, command: hookCommand)
+        let wrapped = wrapStatusLine(settings: events ?? settings, wrapper: wrapper)
+        guard events != nil || wrapped.inner != nil else { return nil }
+        return (wrapped.settings, wrapped.inner)
+    }
+
     /// Points Claude Code's status line at the bubble's wrapper. Returns the command it replaced (the wrapper runs
     /// it, so the status line looks the same), "" when there was none, or nil when it was already wrapped
     /// (leave the saved command alone).

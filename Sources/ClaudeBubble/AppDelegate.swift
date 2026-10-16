@@ -377,18 +377,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 NSLog("ClaudeBubble: \(installed) refresh failed: \(error)")
             }
         }
-        // A newer hook may listen to more events: add them to settings that already run the bubble's hook.
+        // Bring an existing install up to date: newer hook events, and the status line wrapper (usage).
         let settingsURL = home.appendingPathComponent(".claude/settings.json").resolvingSymlinksInPath()
-        let command = "\"\(home.appendingPathComponent(".claude-bubble/hook.sh").path)\""
+        let bubbleDir = home.appendingPathComponent(".claude-bubble")
+        let wrapperURL = bubbleDir.appendingPathComponent("statusline.sh")
+        let command = "\"\(bubbleDir.appendingPathComponent("hook.sh").path)\""
         guard let data = try? Data(contentsOf: settingsURL),
               let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let refreshed = HookInstaller.refreshSubscriptions(settings: settings, command: command),
-              let out = try? JSONSerialization.data(withJSONObject: refreshed, options: [.prettyPrinted, .withoutEscapingSlashes]) else { return }
+              let upgrade = HookInstaller.upgrade(settings: settings, hookCommand: command, wrapper: "\"\(wrapperURL.path)\"") else { return }
         do {
+            let fm = FileManager.default
+            if upgrade.inner != nil, !fm.fileExists(atPath: wrapperURL.path) {
+                guard let source = Bundle.main.url(forResource: "claude-bubble-statusline", withExtension: "sh") else { return }
+                try fm.copyItem(at: source, to: wrapperURL)
+                try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: wrapperURL.path)
+            }
+            if let inner = upgrade.inner {
+                try inner.write(to: bubbleDir.appendingPathComponent("statusline-inner"), atomically: true, encoding: .utf8)
+            }
+            let out = try JSONSerialization.data(withJSONObject: upgrade.settings, options: [.prettyPrinted, .withoutEscapingSlashes])
             try out.write(to: settingsURL, options: .atomic)
-            NSLog("ClaudeBubble: subscribed the hook to new events")
+            NSLog("ClaudeBubble: brought the Claude Code hooks and status line up to date")
         } catch {
-            NSLog("ClaudeBubble: hook subscription refresh failed: \(error)")
+            NSLog("ClaudeBubble: hook upgrade failed: \(error)")
         }
     }
 
