@@ -170,7 +170,7 @@ struct SessionRow: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if !session.links.isEmpty {
-                    LinkChips(links: session.links).padding(.top, 4)
+                    LinkChips(links: session.links).padding(.top, 6)
                 }
             }
             Spacer(minLength: 8)
@@ -313,9 +313,12 @@ struct LinkChips: View {
     let links: [SessionLink]
 
     var body: some View {
-        HStack(spacing: 5) {
-            ForEach(links, id: \.self) { LinkChip(link: $0) }
+        // Status words when they fit on one line; otherwise just their icons.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 5) { ForEach(links, id: \.self) { LinkChip(link: $0, compact: false) } }
+            HStack(spacing: 5) { ForEach(links, id: \.self) { LinkChip(link: $0, compact: true) } }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -326,6 +329,7 @@ enum ChipClick {
 
 private struct LinkChip: View {
     let link: SessionLink
+    let compact: Bool
     @State private var hover = false
 
     private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
@@ -337,7 +341,7 @@ private struct LinkChip: View {
     private var icon: String {
         switch link.kind {
         case .issue: "smallcircle.filled.circle"
-        case .artifact: "doc.richtext"
+        case .artifact: "doc.text"
         case .pr:
             switch link.status?.state {
             case .merged: "arrow.triangle.merge"
@@ -361,21 +365,32 @@ private struct LinkChip: View {
         }
     }
 
-    /// An open pull request's checks and review, after its number.
-    @ViewBuilder private var status: some View {
-        if let s = link.status, s.state == .open || s.state == .draft {
-            switch s.checks {
-            case .passing: Image(systemName: "checkmark").foregroundStyle(Self.green)
-            case .failing: Image(systemName: "xmark").foregroundStyle(Self.red)
-            case .pending: Circle().fill(Self.amber).frame(width: 5, height: 5)
-            case .none: EmptyView()
-            }
-            switch s.review {
-            case .approved: Image(systemName: "checkmark.seal.fill").foregroundStyle(Self.green)
-            case .changesRequested: Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(Self.amber)
-            case .none: EmptyView()
-            }
+    /// A pull request's status in a word or two, after its number: whatever needs attention first.
+    private var statusText: (String, Color)? {
+        guard let s = link.status else { return nil }
+        switch s.state {
+        case .merged: return ("Merged", Self.violet)
+        case .closed: return ("Closed", Self.grey)
+        case .draft, .open: break
         }
+        if s.checks == .failing { return ("Checks fail", Self.red) }
+        if s.review == .changesRequested { return ("Changes requested", Self.amber) }
+        if s.checks == .pending { return ("Checks running", Self.amber) }
+        if s.state == .draft { return ("Draft", Self.grey) }
+        if s.review == .approved { return ("Approved", Self.green) }
+        if s.checks == .passing { return ("Checks pass", Self.green) }
+        return ("Open", Self.grey)
+    }
+
+    /// The same status as a glyph, for when the words don't fit (merged, closed and draft show in the chip's icon).
+    private var statusIcon: (String, Color)? {
+        guard let s = link.status, s.state == .open || s.state == .draft else { return nil }
+        if s.checks == .failing { return ("xmark", Self.red) }
+        if s.review == .changesRequested { return ("exclamationmark.bubble.fill", Self.amber) }
+        if s.checks == .pending { return ("circle.dotted", Self.amber) }
+        if s.review == .approved { return ("checkmark.seal.fill", Self.green) }
+        if s.checks == .passing { return ("checkmark", Self.green) }
+        return nil
     }
 
     private var summary: String {
@@ -393,20 +408,26 @@ private struct LinkChip: View {
             ChipClick.handled = true
             NSWorkspace.shared.open(link.url)
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 9, weight: .semibold)).foregroundStyle(tint)
-                Text(link.label).font(.system(size: 10.5, weight: .medium, design: .monospaced)).lineLimit(1)
-                    .frame(maxWidth: 110, alignment: .leading)
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
+                Text(link.label).font(.system(size: 11, weight: .medium, design: .monospaced)).lineLimit(1)
+                    .foregroundStyle(Color.white.opacity(hover ? 1 : 0.85))
+                    .frame(maxWidth: compact ? 90 : 130, alignment: .leading)
                     .fixedSize(horizontal: true, vertical: false)
-                status.font(.system(size: 8.5, weight: .bold))
+                if compact {
+                    if let (name, color) = statusIcon {
+                        Image(systemName: name).font(.system(size: 9.5, weight: .bold)).foregroundStyle(color)
+                    }
+                } else if let (text, color) = statusText {
+                    Text(text).font(.system(size: 11, weight: .medium)).foregroundStyle(color).lineLimit(1).fixedSize()
+                }
             }
-            .foregroundStyle(Color.white.opacity(hover ? 0.95 : 0.7))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(Color.black.opacity(0.55)))
-            .background(Capsule().fill(Color.white.opacity(hover ? 0.14 : 0.07)))
-            .overlay(Capsule().stroke(tint.opacity(hover ? 0.5 : 0.2), lineWidth: 1))
-            .contentShape(Capsule())
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.55)))
+            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(hover ? 0.12 : 0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.white.opacity(hover ? 0.22 : 0.12), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }

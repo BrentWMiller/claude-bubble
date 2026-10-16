@@ -55,7 +55,7 @@ public enum IslandLayout {
     public static let maxRows = 6
     public static let moreHeight: CGFloat = 20
     /// A session row's link chips (issue, pull request, artifact) add this much.
-    public static let linkRowHeight: CGFloat = 24
+    public static let linkRowHeight: CGFloat = 28
 
     /// How many of the hover panel's shown rows carry link chips.
     public static func linkedRows(_ sessions: [Session]) -> Int {
