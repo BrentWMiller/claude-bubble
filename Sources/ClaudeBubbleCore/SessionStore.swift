@@ -40,6 +40,10 @@ public struct Session: Equatable, Sendable {
     public let reviewReady: Bool
     /// The orb's motion and layer counters.
     public var activity = SessionActivity()
+    /// Its issue, pull request and artifact chips (pull requests and artifacts from the job file; the app adds issues).
+    public var links: [SessionLink] = []
+    /// The conversation's transcript file, for finding the issues it mentions.
+    public var transcriptPath: String?
 
     /// What to call the session: Claude Code's title, else the project folder.
     public var displayName: String { title ?? project }
@@ -94,6 +98,7 @@ public enum SessionStore {
         let skills: Int?
         /// Running subagents: {id: started_at} (or a list, from an older hook).
         let subagents: SubagentList?
+        let transcript: String?
     }
 
     private struct SubagentList: Decodable {
@@ -147,6 +152,7 @@ public enum SessionStore {
                                                since: record.activity_since.map(Date.init(timeIntervalSince1970:)),
                                                subagents: record.subagents?.count ?? 0, ticks: record.ticks ?? 0,
                                                fails: record.fails ?? 0, skills: record.skills ?? 0)
+            session.transcriptPath = record.transcript.flatMap { $0.isEmpty ? nil : $0 }
             sessions.append(session)
         }
         return sessions
@@ -167,6 +173,8 @@ public enum SessionStore {
                                 detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title, prompted: s.prompted,
                                 tokens: s.tokens, reviewReady: s.reviewReady)
             quiet.activity = s.activity
+            quiet.links = s.links
+            quiet.transcriptPath = s.transcriptPath
             return quiet
         }
     }
@@ -221,6 +229,8 @@ public enum SessionStore {
                                  prompted: s.prompted, tokens: job.tokens,
                                  reviewReady: s.state == .idle && !awaitingAnswer && !backgroundWork && job.hasPullRequest)
             joined.activity = s.activity
+            joined.links = job.links
+            joined.transcriptPath = s.transcriptPath
             return joined
         }
     }

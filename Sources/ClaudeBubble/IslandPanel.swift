@@ -173,6 +173,7 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
         // Control-click is a right-click on macOS, as on the orb.
         if event.modifierFlags.contains(.control) { onRightClick?(event, self); return }
         downAt = NSEvent.mouseLocation
+        downEvent = event
         dragging = false
     }
 
@@ -183,9 +184,22 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
         if dragging { onDragMoved?(p) }
     }
 
+    private var downEvent: NSEvent?
+
     override func mouseUp(with event: NSEvent) {
-        if downAt != nil { dragging ? onDragEnded?() : onClick?() }
+        if downAt != nil {
+            if dragging {
+                onDragEnded?()
+            } else {
+                // A plain click: let the content see it first (a link chip opens its link); otherwise focus the terminal.
+                ChipClick.handled = false
+                if let down = downEvent { super.mouseDown(with: down) }
+                super.mouseUp(with: event)
+                if !ChipClick.handled { onClick?() }
+            }
+        }
         downAt = nil
+        downEvent = nil
         dragging = false
     }
 }
@@ -207,7 +221,7 @@ struct IslandView: View {
     private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {
         IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
-                          footer: hasFooter)
+                          footer: hasFooter, linked: IslandLayout.linkedRows(live))
     }
     private let spring = Animation.spring(response: 0.5, dampingFraction: 0.72)
 

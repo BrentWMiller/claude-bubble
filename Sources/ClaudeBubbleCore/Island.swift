@@ -54,6 +54,14 @@ public enum IslandLayout {
     /// The most rows the hover panel shows (the rest fold into "+N more"), so it always fits the window.
     public static let maxRows = 6
     public static let moreHeight: CGFloat = 20
+    /// A session row's link chips (issue, pull request, artifact) add this much.
+    public static let linkRowHeight: CGFloat = 24
+
+    /// How many of the hover panel's shown rows carry link chips.
+    public static func linkedRows(_ sessions: [Session]) -> Int {
+        SessionStore.sorted(sessions).prefix(maxRows).filter { !$0.links.isEmpty }.count
+    }
+
     /// Breathing room at the panel's open end (under the footer, or above the first row on a bottom dock).
     public static let openPadding: CGFloat = 10
 
@@ -69,13 +77,14 @@ public enum IslandLayout {
 
     /// `footer`: the hover panel's Today/usage line is showing.
     public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int,
-                            footer: Bool = true) -> CGSize {
+                            footer: Bool = true, linked: Int = 0) -> CGSize {
         switch mode {
         case .quiet: return CGSize(width: quietDot, height: quietDot)
         case .hover:
             let shown = CGFloat(max(shownRows(rows), 1))
             let more = rows > maxRows ? moreHeight : 0
-            return CGSize(width: 350, height: barHeight + 2 + rowHeight * shown + more + (footer ? 34 : 6) + openPadding)
+            return CGSize(width: 350, height: barHeight + 2 + rowHeight * shown + linkRowHeight * CGFloat(linked) + more
+                                            + (footer ? 34 : 6) + openPadding)
         case .needs, .error: return CGSize(width: 360, height: barHeight + 54)
         case .done: return CGSize(width: 300, height: barHeight)
         case .rest:
