@@ -34,6 +34,10 @@ public struct OrbFrame: Sendable {
     /// Up to three tool-complete ticks: their ages (-1 = none) and amplitudes.
     public var tickAges = SIMD3<Float>(-1, -1, -1)
     public var tickAmps = SIMD3<Float>(0, 0, 0)
+    /// Colour fan: 0…1 while new colours sweep out from the top of the orb (-1 when settled), and the colours it
+    /// sweeps away from. `params` holds the colours it sweeps to.
+    public var fan: Float = -1
+    public var fanFrom = OrbParams.target(for: .idle)
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
@@ -59,6 +63,13 @@ public final class OrbAnimator {
     private var lowUsage: Float = 0
     /// 1 while the orb wears working/idle colours, eased like the colours so state changes hand off smoothly.
     private var tintGate: Float = 1
+    /// Colour changes (state or palette) fan out over this long instead of crossfading.
+    public static let fanDuration: Float = 1.4
+    private var fanTime: Float?
+    private var fanFrom = OrbParams.target(for: .idle)
+    private var colorKey: (state: BubbleState, palette: OrbPalette)
+    /// What the orb looked like last frame (mid-fan, the blend so far), for a fan that starts mid-fan.
+    private var lastShown: OrbParams?
     /// What Claude is doing (used while working); the director paces the changes.
     public var motion: Motion = .generating
     /// Quiet mode: the orb eases down to a small dot with a calmer glow.
@@ -104,6 +115,7 @@ public final class OrbAnimator {
         self.palette = palette
         self.random = random
         current = .target(for: state, palette: palette)
+        colorKey = (state, palette)
         tintGate = state == .working || state == .idle ? 1 : 0
         phase = random() * 20
         if state == .needs { bounce = -0.28 }
@@ -191,12 +203,20 @@ public final class OrbAnimator {
         if let t = completionTime { completionTime = t + dt * Self.completionSpeed }
         // The orb keeps the look it celebrates from through the gather, and turns to rest on the release (0.42s).
         let shown: BubbleState = (completionTime.map { $0 < 0.42 } ?? false) ? heldState : state
-        current = current.approached(.target(for: shown, palette: palette), k: k)
+        let target = OrbParams.target(for: shown, palette: palette)
+        if shown != colorKey.state || palette != colorKey.palette {
+            // New colours: fan them out from what's showing, rather than crossfading the whole orb.
+            colorKey = (shown, palette)
+            fanFrom = lastShown ?? current
+            fanTime = 0
+            current.c1 = target.c1; current.c2 = target.c2; current.c3 = target.c3; current.halo = target.halo
+        }
+        current = current.approached(target, k: k)
         tintGate += ((shown == .working || shown == .idle ? 1 : 0) - tintGate) * k
         director.update(want: shown == .working ? motion : .generating, now: time)
-        let target = Float(1 - exp(-max(motionElapsed, 0) / 6))
+        let settleTarget = Float(1 - exp(-max(motionElapsed, 0) / 6))
         // A new command drops straight back to a boil; otherwise ease.
-        settle = target < settle - 0.3 ? target : settle + (target - settle) * (1 - powf(0.2, dt))
+        settle = settleTarget < settle - 0.3 ? settleTarget : settle + (settleTarget - settle) * (1 - powf(0.2, dt))
         // Layers belong to the working look (not a forced state or a pip preview).
         sub += (shown == .working ? Float(min(max(subagents, 0), 6)) - sub : -sub) * (1 - powf(0.06, dt))
         if let s = skillAt {
@@ -296,10 +316,29 @@ public final class OrbAnimator {
             output.c3 += (g.c3 - output.c3) * w
             output.halo += (g.halo - output.halo) * w
         }
+        var fanProgress: Float = -1
+        if let t = fanTime {
+            let next = t + dt
+            if next < Self.fanDuration { fanTime = next; fanProgress = next / Self.fanDuration } else { fanTime = nil }
+        }
+        // Mid-fan the orb shows roughly the blend so far (the sweep covers about that share of it).
+        if fanProgress >= 0 {
+            var shownNow = output
+            let p = fanProgress
+            shownNow.c1 = fanFrom.c1 + (output.c1 - fanFrom.c1) * p
+            shownNow.c2 = fanFrom.c2 + (output.c2 - fanFrom.c2) * p
+            shownNow.c3 = fanFrom.c3 + (output.c3 - fanFrom.c3) * p
+            shownNow.halo = fanFrom.halo + (output.halo - fanFrom.halo) * p
+            lastShown = shownNow
+        } else {
+            lastShown = output
+        }
         var frame = OrbFrame(params: output, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
                              pointer: pointerOffset, attention: attention, completion: completion, pop: pop,
                              pull: pull, pullAngle: pullAngle)
         let work = director.frame(now: time)
+        frame.fan = fanProgress
+        frame.fanFrom = fanFrom
         frame.workA = work.from.shaderMode
         frame.workB = work.to.shaderMode
         frame.workMix = work.mix
