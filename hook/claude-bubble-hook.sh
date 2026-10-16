@@ -40,7 +40,9 @@ else:
         'Stop': 'idle',
         'StopFailure': 'error',
     }.get(event)
-if state is None:
+# Subagent and compaction events only feed the orb's motion; they keep whatever state the session is in.
+keeps_state = event in ('SubagentStart', 'SubagentStop', 'PreCompact', 'PostCompact')
+if state is None and not keeps_state:
     sys.exit(0)
 
 now = time.time()
@@ -49,6 +51,8 @@ try:
         prev = json.load(f)
 except Exception:
     prev = {}
+if keeps_state:
+    state = prev.get('state') or 'working'
 
 # Auto-compact and resume fire SessionStart mid-session: keep the current state and replay window.
 fresh_start = event == 'SessionStart' and data.get('source', 'startup') in ('startup', 'clear')
@@ -144,6 +148,49 @@ elif state == 'working':
 else:
     detail = 'Completed' if prompted else 'Idle'
 
+# What the orb's surface shows while working (mirrors Motion.forTool in the app).
+def motion_for(name):
+    if name.startswith('mcp__'):
+        return 'mcp'
+    for kind, names in (('read', ('Read', 'NotebookRead')), ('search', ('Grep', 'Glob', 'LSP', 'ToolSearch')),
+                        ('edit', ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')), ('bash', ('Bash', 'PowerShell')),
+                        ('web', ('WebFetch', 'WebSearch')), ('waiting', ('Task', 'Agent'))):
+        if name in names:
+            return kind
+    return 'generating'
+
+
+# Tool events from inside a subagent don't move the main orb's motion (the main agent is waiting on them).
+from_subagent = bool(data.get('agent_id')) and not keeps_state
+activity = str(prev.get('activity') or 'generating')
+if fresh_start:
+    activity = 'generating'
+elif not from_subagent:
+    if event in ('UserPromptSubmit', 'PostToolUse', 'PostToolUseFailure', 'PostCompact'):
+        activity = 'generating'
+    elif event == 'PreToolUse':
+        activity = motion_for(tool)
+    elif event == 'PreCompact':
+        activity = 'compacting'
+    elif event == 'SessionStart' and data.get('source') == 'compact':
+        activity = 'generating'
+activity_since = float(prev.get('activity_since', now)) if prev.get('activity') == activity else now
+
+def counter(name):
+    try:
+        return int(prev.get(name, 0)) if not fresh_start else 0
+    except (TypeError, ValueError):
+        return 0
+ticks = counter('ticks') + (event == 'PostToolUse')
+fails = counter('fails') + (event == 'PostToolUseFailure')
+skills = counter('skills') + (event == 'PreToolUse' and tool in ('Skill', 'EnterPlanMode', 'ExitPlanMode'))
+subagents = [] if fresh_start else [str(x) for x in prev.get('subagents', []) if isinstance(x, str)]
+agent = str(data.get('agent_id') or '')
+if event == 'SubagentStart' and agent and agent not in subagents:
+    subagents.append(agent)
+elif event == 'SubagentStop' and agent in subagents:
+    subagents.remove(agent)
+
 cwd = data.get('cwd') or prev.get('cwd', '')
 project = base(cwd) or 'session'
 state_since = float(prev.get('state_since', now)) if prev.get('state') == state else now
@@ -155,7 +202,8 @@ except ValueError:
 os.makedirs(d, exist_ok=True)
 record = {'state': state, 'event': event, 'cwd': cwd, 'updated_at': now, 'started_at': started,
           'pending': sorted(pending), 'prompted': prompted, 'project': project, 'detail': detail,
-          'state_since': state_since, 'pid': pid, 'tool_ids': tool_ids}
+          'state_since': state_since, 'pid': pid, 'tool_ids': tool_ids, 'activity': activity,
+          'activity_since': activity_since, 'ticks': ticks, 'fails': fails, 'skills': skills, 'subagents': subagents}
 fd, tmp = tempfile.mkstemp(dir=d, prefix='.tmp-')
 try:
     with os.fdopen(fd, 'w') as f:

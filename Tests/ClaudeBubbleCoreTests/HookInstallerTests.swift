@@ -25,7 +25,7 @@ final class HookInstallerTests: XCTestCase {
     func testSubscribesToEveryEventTheHookMaps() {
         let mapped: Set = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
                            "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Elicitation", "ElicitationResult",
-                           "Notification", "Stop", "StopFailure"]
+                           "Notification", "Stop", "StopFailure", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"]
         XCTAssertEqual(Set(HookInstaller.events), mapped)
     }
 

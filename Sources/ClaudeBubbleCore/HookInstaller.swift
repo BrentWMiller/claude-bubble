@@ -5,7 +5,7 @@ public enum HookInstaller {
     public static let events = [
         "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
         "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Elicitation", "ElicitationResult",
-        "Notification", "Stop", "StopFailure"
+        "Notification", "Stop", "StopFailure", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"
     ]
 
     public enum InstallError: LocalizedError {

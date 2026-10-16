@@ -155,6 +155,48 @@ PY
 check '[ "$got" = 0 ]' "unconfirmed owner writes pid 0, not a short-lived shell"
 send '{"hook_event_name":"SessionEnd","session_id":"w2"}'
 
+# Activity, counters, subagents, compaction (orb motions)
+count_of() { /usr/bin/python3 -c 'import json,sys;v=json.load(open(sys.argv[1])).get(sys.argv[2]);print(len(v) if isinstance(v,list) else v)' "$S/$1.json" "$2" 2>/dev/null || echo "<none>"; }
+send '{"hook_event_name":"SessionStart","session_id":"m","cwd":"/tmp"}'
+send '{"hook_event_name":"UserPromptSubmit","session_id":"m"}';                       expect_field m activity generating "prompt -> generating"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"Read"}';          expect_field m activity read "Read -> read"
+send '{"hook_event_name":"PostToolUse","session_id":"m","tool_name":"Read"}';         expect_field m activity generating "tool end -> generating"
+check '[ "$(count_of m ticks)" = 1 ]' "tool end ticks"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"Grep"}';          expect_field m activity search "Grep -> search"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"MultiEdit"}';     expect_field m activity edit "MultiEdit -> edit"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"WebSearch"}';     expect_field m activity web "WebSearch -> web"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"mcp__notion__search"}'; expect_field m activity mcp "mcp tool -> mcp"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"TodoWrite"}';     expect_field m activity generating "other tool -> generating"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"Bash","tool_input":{"command":"npm test"}}'; expect_field m activity bash "Bash -> bash"
+since=$(field_of m activity_since)
+send '{"hook_event_name":"PostToolUseFailure","session_id":"m","tool_name":"Bash"}'
+check '[ "$(count_of m fails)" = 1 ] && [ "$(count_of m ticks)" = 1 ]' "failure counts a fail, not a tick"
+check '[ "$(field_of m activity_since)" != "$since" ]' "activity_since moves with the activity"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"Skill"}'
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"ExitPlanMode"}'
+check '[ "$(count_of m skills)" = 2 ]' "skill and plan tools count skills"
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"Agent"}';         expect_field m activity waiting "Agent -> waiting"
+send '{"hook_event_name":"SubagentStart","session_id":"m","agent_id":"s1"}'
+send '{"hook_event_name":"SubagentStart","session_id":"m","agent_id":"s2"}'
+send '{"hook_event_name":"SubagentStart","session_id":"m","agent_id":"s2"}'
+check '[ "$(count_of m subagents)" = 2 ]' "subagents counted once each"
+send '{"hook_event_name":"PreToolUse","session_id":"m","agent_id":"s1","tool_name":"Read"}'; expect_field m activity waiting "subagent tool events keep the activity"
+send '{"hook_event_name":"PostToolUse","session_id":"m","agent_id":"s1","tool_name":"Read"}'; expect_field m activity waiting "subagent tool end keeps the activity"
+check '[ "$(count_of m ticks)" = 2 ]' "subagent tool ends still tick"
+send '{"hook_event_name":"SubagentStop","session_id":"m","agent_id":"s1"}'
+send '{"hook_event_name":"SubagentStop","session_id":"m","agent_id":"nope"}'
+check '[ "$(count_of m subagents)" = 1 ]' "subagent stop, unknown id ignored"
+expect m working "subagent events keep the state"
+send '{"hook_event_name":"PreCompact","session_id":"m"}';                             expect_field m activity compacting "PreCompact -> compacting"
+expect m working "compaction keeps the state"
+send '{"hook_event_name":"PostCompact","session_id":"m"}';                            expect_field m activity generating "PostCompact -> generating"
+send '{"hook_event_name":"Stop","session_id":"m"}'; expect m idle "Stop still idles"
+send '{"hook_event_name":"PreCompact","session_id":"m"}'; expect m idle "compaction while idle stays idle"
+send '{"hook_event_name":"SessionStart","session_id":"m","source":"clear"}'
+check '[ "$(count_of m subagents)" = 0 ]' "fresh start clears subagents"
+send '{"hook_event_name":"SubagentStart","session_id":"n","agent_id":"x"}'; expect n working "subagent event on a new session -> working"
+send '{"hook_event_name":"SessionEnd","session_id":"m"}'; send '{"hook_event_name":"SessionEnd","session_id":"n"}'
+
 out=$(printf 'not json' | "$HOOK"; echo "exit=$?"); check '[ "$out" = "exit=0" ]' "garbage stdin exits 0 silently"
 out=$(printf '' | "$HOOK"; echo "exit=$?");         check '[ "$out" = "exit=0" ]' "empty stdin exits 0 silently"
 send '{"hook_event_name":"Stop","session_id":"../evil"}'; check '[ ! -e "$CLAUDE_BUBBLE_DIR/evil.json" ]' "path-like session id rejected"

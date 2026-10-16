@@ -167,4 +167,41 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(byId["a"], false)
         XCTAssertEqual(byId["b"], true)
     }
+
+    // Orb motions
+
+    func testLoadReadsActivity() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let t = now.timeIntervalSince1970
+        try #"{"state":"working","updated_at":\#(t),"activity":"bash","activity_since":\#(t - 30),"ticks":7,"fails":2,"skills":1,"subagents":["a","b"]}"#
+            .write(to: dir.appendingPathComponent("s.json"), atomically: true, encoding: .utf8)
+        try #"{"state":"working","updated_at":\#(t),"activity":"juggling"}"#
+            .write(to: dir.appendingPathComponent("old.json"), atomically: true, encoding: .utf8)
+        let byId = Dictionary(uniqueKeysWithValues: SessionStore.load(from: dir, now: now, isAlive: { _, _ in true }).map { ($0.id, $0) })
+        let a = try XCTUnwrap(byId["s"]?.activity)
+        XCTAssertEqual(a.motion, .bash)
+        XCTAssertEqual(a.since, now.addingTimeInterval(-30))
+        XCTAssertEqual(a.ticks, 7)
+        XCTAssertEqual(a.fails, 2)
+        XCTAssertEqual(a.skills, 1)
+        XCTAssertEqual(a.subagents, 2)
+        XCTAssertEqual(byId["old"]?.activity, SessionActivity(), "unknown or missing fields take defaults")
+    }
+
+    func testActivitySurvivesLiveAndJobs() {
+        var s = Session(id: "x", state: .working, updatedAt: now.addingTimeInterval(-20 * 60), pid: 42)
+        s.activity = SessionActivity(motion: .edit, ticks: 3)
+        XCTAssertEqual(SessionStore.live([s], now: now).first?.activity.ticks, 3)
+        XCTAssertEqual(SessionStore.withJobs([s], from: URL(fileURLWithPath: "/nonexistent")).first?.activity.motion, .edit)
+    }
+
+    func testMotionFocusIsTheMostRecentWorkingSession() {
+        let a = Session(id: "a", state: .working, updatedAt: now.addingTimeInterval(-10))
+        let b = Session(id: "b", state: .working, updatedAt: now.addingTimeInterval(-2))
+        let c = Session(id: "c", state: .needs, updatedAt: now)
+        XCTAssertEqual(SessionStore.motionFocus([a, b, c])?.id, "b")
+        XCTAssertNil(SessionStore.motionFocus([c]))
+    }
 }

@@ -1,5 +1,25 @@
 import Foundation
 
+/// What a session is doing for the orb's motion and layers (written by the hook).
+public struct SessionActivity: Equatable, Sendable {
+    public var motion: Motion
+    /// When the current motion began (bash settles with it).
+    public var since: Date?
+    public var subagents: Int
+    /// Running counters; the app fires a layer when one goes up.
+    public var ticks, fails, skills: Int
+
+    public init(motion: Motion = .generating, since: Date? = nil, subagents: Int = 0,
+                ticks: Int = 0, fails: Int = 0, skills: Int = 0) {
+        self.motion = motion
+        self.since = since
+        self.subagents = subagents
+        self.ticks = ticks
+        self.fails = fails
+        self.skills = skills
+    }
+}
+
 public struct Session: Equatable, Sendable {
     public let id: String
     public let state: BubbleState
@@ -18,6 +38,8 @@ public struct Session: Equatable, Sendable {
     public let tokens: Int?
     /// Finished with an open pull request: "Ready for review" (orange), like Claude Code's agents view.
     public let reviewReady: Bool
+    /// The orb's motion and layer counters.
+    public var activity = SessionActivity()
 
     /// What to call the session: Claude Code's title, else the project folder.
     public var displayName: String { title ?? project }
@@ -65,6 +87,12 @@ public enum SessionStore {
         let state_since: Double?
         let pid: Int32?
         let prompted: Bool?
+        let activity: String?
+        let activity_since: Double?
+        let ticks: Int?
+        let fails: Int?
+        let skills: Int?
+        let subagents: [String]?
     }
 
     /// Whether `pid` is still the process that wrote this session. A pid the kernel has reused for a
@@ -101,10 +129,15 @@ public enum SessionStore {
                 try? fm.removeItem(at: url)
                 continue
             }
-            sessions.append(Session(id: String(name.dropLast(5)), state: state, cwd: record.cwd ?? "", updatedAt: updated,
-                                    project: record.project, detail: record.detail ?? "",
-                                    stateSince: record.state_since.map(Date.init(timeIntervalSince1970:)), pid: pid,
-                                    prompted: record.prompted ?? true))
+            var session = Session(id: String(name.dropLast(5)), state: state, cwd: record.cwd ?? "", updatedAt: updated,
+                                  project: record.project, detail: record.detail ?? "",
+                                  stateSince: record.state_since.map(Date.init(timeIntervalSince1970:)), pid: pid,
+                                  prompted: record.prompted ?? true)
+            session.activity = SessionActivity(motion: record.activity.flatMap(Motion.init(rawValue:)) ?? .generating,
+                                               since: record.activity_since.map(Date.init(timeIntervalSince1970:)),
+                                               subagents: record.subagents?.count ?? 0, ticks: record.ticks ?? 0,
+                                               fails: record.fails ?? 0, skills: record.skills ?? 0)
+            sessions.append(session)
         }
         return sessions
     }
@@ -120,10 +153,17 @@ public enum SessionStore {
             guard now.timeIntervalSince(s.updatedAt) > limit else { return s }
             guard s.pid != nil else { return nil }
             guard s.state != .idle else { return s }
-            return Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
-                           detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title, prompted: s.prompted,
-                           tokens: s.tokens, reviewReady: s.reviewReady)
+            var quiet = Session(id: s.id, state: .idle, cwd: s.cwd, updatedAt: s.updatedAt, project: s.project,
+                                detail: "Idle", stateSince: s.updatedAt, pid: s.pid, title: s.title, prompted: s.prompted,
+                                tokens: s.tokens, reviewReady: s.reviewReady)
+            quiet.activity = s.activity
+            return quiet
         }
+    }
+
+    /// The session whose motion the orb shows: the working one that changed most recently.
+    public static func motionFocus(_ sessions: [Session]) -> Session? {
+        sessions.filter { $0.state == .working }.max { $0.updatedAt < $1.updatedAt }
     }
 
     public static func aggregate(_ sessions: [Session], now: Date = Date()) -> BubbleState {
@@ -158,10 +198,12 @@ public enum SessionStore {
                let written = job.updatedAt, written >= s.stateSince.addingTimeInterval(-5) {
                 detail = summary
             }
-            return Session(id: s.id, state: awaitingAnswer ? .needs : s.state, cwd: s.cwd, updatedAt: s.updatedAt,
-                           project: s.project, detail: detail, stateSince: s.stateSince, pid: s.pid, title: title,
-                           prompted: s.prompted, tokens: job.tokens,
-                           reviewReady: s.state == .idle && !awaitingAnswer && job.hasPullRequest)
+            var joined = Session(id: s.id, state: awaitingAnswer ? .needs : s.state, cwd: s.cwd, updatedAt: s.updatedAt,
+                                 project: s.project, detail: detail, stateSince: s.stateSince, pid: s.pid, title: title,
+                                 prompted: s.prompted, tokens: job.tokens,
+                                 reviewReady: s.state == .idle && !awaitingAnswer && job.hasPullRequest)
+            joined.activity = s.activity
+            return joined
         }
     }
 }
