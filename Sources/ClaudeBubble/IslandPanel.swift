@@ -18,7 +18,7 @@ final class IslandModel: ObservableObject {
     @Published var fanFrom: IslandColorKey?
     @Published var fanStart: Double = 0
 
-    static let fanDuration = 0.9
+    static let fanDuration = 1.4
 
     /// The colour now, the one it's fanning from, and how far the fan has got (1 = done).
     func colors(palette: OrbPalette, at now: Double) -> (to: SIMD3<Double>, from: SIMD3<Double>, progress: Double) {

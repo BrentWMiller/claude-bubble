@@ -64,7 +64,7 @@ public final class OrbAnimator {
     /// 1 while the orb wears working/idle colours, eased like the colours so state changes hand off smoothly.
     private var tintGate: Float = 1
     /// Colour changes (state or palette) fan out over this long instead of crossfading.
-    public static let fanDuration: Float = 0.9
+    public static let fanDuration: Float = 1.4
     private var fanTime: Float?
     private var fanFrom = OrbParams.target(for: .idle)
     private var colorKey: (state: BubbleState, palette: OrbPalette)

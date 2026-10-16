@@ -25,7 +25,7 @@ final class ColorFanTests: XCTestCase {
         XCTAssertLessThan(simd_distance(start.fanFrom.c1, before.params.c1), 0.02)
         XCTAssertLessThan(simd_distance(start.params.c1, OrbPalette.agentsView.needs.c1), 0.02)
         XCTAssertEqual(run(a, seconds: 0.4).fan, Float(0.44 / OrbAnimator.fanDuration), accuracy: 0.05)
-        XCTAssertEqual(run(a, seconds: 1).fan, -1, "done after ~0.9s")
+        XCTAssertEqual(run(a, seconds: 1).fan, -1, "done after ~1.4s")
     }
 
     func testPaletteChangeFansToo() {
@@ -39,7 +39,7 @@ final class ColorFanTests: XCTestCase {
         let a = OrbAnimator(state: .working, random: { 0.5 })
         _ = run(a, seconds: 2)
         a.setState(.needs)
-        _ = run(a, seconds: 0.6)   // mostly needs by now
+        _ = run(a, seconds: 1.0)   // mostly needs by now (~70% through)
         a.setState(.error)
         let f = a.step(dt: 0.02)
         XCTAssertLessThan(f.fan, 0.1, "a fresh fan")
