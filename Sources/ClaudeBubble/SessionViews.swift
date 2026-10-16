@@ -340,7 +340,7 @@ private struct LinkChip: View {
 
     private var icon: String {
         switch link.kind {
-        case .issue: "smallcircle.filled.circle"
+        case .issue: link.status?.state == .closed ? "checkmark.circle" : "smallcircle.filled.circle"
         case .artifact: "doc.text"
         case .pr:
             switch link.status?.state {
@@ -354,7 +354,7 @@ private struct LinkChip: View {
 
     private var tint: Color {
         switch link.kind {
-        case .issue: Self.green
+        case .issue: link.status?.state == .closed ? Self.violet : Self.green
         case .artifact: Color(red: 0.95, green: 0.7, blue: 0.45)
         case .pr:
             switch link.status?.state {
@@ -365,9 +365,10 @@ private struct LinkChip: View {
         }
     }
 
-    /// A pull request's status in a word or two, after its number: whatever needs attention first.
+    /// A pull request's status in a word or two, after its number: whatever needs attention first. An issue's: open or closed.
     private var statusText: (String, Color)? {
         guard let s = link.status else { return nil }
+        if link.kind == .issue { return s.state == .closed ? ("Closed", Self.violet) : ("Open", Self.grey) }
         switch s.state {
         case .merged: return ("Merged", Self.violet)
         case .closed: return ("Closed", Self.grey)
@@ -384,7 +385,7 @@ private struct LinkChip: View {
 
     /// The same status as a glyph, for when the words don't fit (merged, closed and draft show in the chip's icon).
     private var statusIcon: (String, Color)? {
-        guard let s = link.status, s.state == .open || s.state == .draft else { return nil }
+        guard link.kind == .pr, let s = link.status, s.state == .open || s.state == .draft else { return nil }
         if s.checks == .failing { return ("xmark", Self.red) }
         if s.review == .changesRequested { return ("exclamationmark.bubble.fill", Self.amber) }
         if s.checks == .pending { return ("circle.dotted", Self.amber) }

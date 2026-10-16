@@ -64,6 +64,23 @@ final class PRStatusTests: XCTestCase {
         XCTAssertNil(out.first?.links.first?.status)
     }
 
+    func testIssueState() throws {
+        // `gh issue view --json state`: just a state.
+        XCTAssertEqual(parse(#"{"state":"OPEN"}"#), PRStatus(state: .open, checks: .none, review: .none))
+        XCTAssertEqual(parse(#"{"state":"CLOSED"}"#)?.state, .closed)
+    }
+
+    func testIssueStatusLandsOnItsChipWithoutTouchingReview() {
+        let issueURL = URL(string: "https://github.com/o/r/issues/7190")!
+        var s = Session(id: "s", state: .idle, updatedAt: Date(), detail: "Completed", reviewReady: true)
+        s.links = [SessionLink(kind: .issue, label: "#7190", url: issueURL)]
+        let closed = PRStatus(state: .closed, checks: .none, review: .none)
+        let out = PRStatus.apply([issueURL: closed], to: [s])
+        XCTAssertEqual(out.first?.links.first?.status, closed)
+        XCTAssertEqual(out.first?.reviewReady, true, "a closed issue isn't a closed pull request")
+        XCTAssertEqual(out.first?.detail, "Completed")
+    }
+
     // Polling schedule
 
     let open = PRStatus(state: .open, checks: .passing, review: .none)

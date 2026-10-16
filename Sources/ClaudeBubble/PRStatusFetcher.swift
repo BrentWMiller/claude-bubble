@@ -1,7 +1,7 @@
 import ClaudeBubbleCore
 import Foundation
 
-/// Fetches each pull request's live status with the GitHub CLI (`gh`), off the main thread, on `PRPolling`'s schedule:
+/// Fetches each pull request's (and issue's) live status with the GitHub CLI (`gh`), off the main thread, on `PRPolling`'s schedule:
 /// slowly in the background, fresh whenever the session list is opened. Without `gh`, it does nothing.
 final class PRStatusFetcher {
     private struct Entry { let status: PRStatus?; let fetchedAt: Date }
@@ -23,9 +23,13 @@ final class PRStatusFetcher {
         guard let gh = Self.gh else { return }
         // Each PR, with how long its most recently active session has been quiet.
         var idle: [URL: TimeInterval] = [:]
+        var issues = Set<URL>()
         for s in sessions {
             let quiet = Date().timeIntervalSince(s.updatedAt)
-            for l in s.links where l.kind == .pr { idle[l.url] = min(idle[l.url] ?? .infinity, quiet) }
+            for l in s.links where l.kind != .artifact {
+                idle[l.url] = min(idle[l.url] ?? .infinity, quiet)
+                if l.kind == .issue { issues.insert(l.url) }
+            }
         }
         guard !idle.isEmpty else { return }
         queue.async { [weak self] in
@@ -38,7 +42,7 @@ final class PRStatusFetcher {
                 let e = self.entries[url]
                 guard let every = PRPolling.interval(status: e?.status, fetched: e != nil, looking: looking, sessionIdle: quiet),
                       now.timeIntervalSince(e?.fetchedAt ?? .distantPast) >= every else { continue }
-                let status = Self.fetch(url, gh: gh)
+                let status = Self.fetch(url, issue: issues.contains(url), gh: gh)
                 self.entries[url] = Entry(status: status ?? e?.status, fetchedAt: now)
                 if status != nil, status != e?.status { changed = true }
             }
@@ -46,10 +50,11 @@ final class PRStatusFetcher {
         }
     }
 
-    private static func fetch(_ url: URL, gh: String) -> PRStatus? {
+    private static func fetch(_ url: URL, issue: Bool, gh: String) -> PRStatus? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: gh)
-        p.arguments = ["pr", "view", url.absoluteString, "--json", "state,isDraft,reviewDecision,statusCheckRollup"]
+        p.arguments = issue ? ["issue", "view", url.absoluteString, "--json", "state"]
+                            : ["pr", "view", url.absoluteString, "--json", "state,isDraft,reviewDecision,statusCheckRollup"]
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
