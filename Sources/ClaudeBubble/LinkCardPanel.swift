@@ -24,8 +24,8 @@ final class LinkCardController {
             if let link = model.link {
                 LinkPreviewCard(link: link, preview: previews.preview(for: link.url), icon: model.icon,
                                 tint: model.tint, status: model.status)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.white.opacity(0.1), lineWidth: 1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.white.opacity(0.12), lineWidth: 1))
             }
         }
     }

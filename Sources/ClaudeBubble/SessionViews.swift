@@ -371,7 +371,7 @@ private struct LinkChip: View {
     /// A pull request's status in a word or two, after its number: whatever needs attention first. An issue's: open or closed.
     private var statusText: (String, Color)? {
         guard let s = link.status else { return nil }
-        if link.kind == .issue { return s.state == .closed ? ("Closed", Self.violet) : ("Open", Self.grey) }
+        if link.kind == .issue { return s.state == .closed ? ("Closed", Self.violet) : ("Open", Self.green) }
         switch s.state {
         case .merged: return ("Merged", Self.violet)
         case .closed: return ("Closed", Self.grey)
@@ -456,7 +456,8 @@ private struct LinkChip: View {
     }
 }
 
-/// A pull request's or issue's hover card: title, then size, checks and review (or labels, assignees, comments).
+/// A pull request's or issue's hover card: what it is and its status, its title, then labels, who and how big, and its
+/// checks and review.
 struct LinkPreviewCard: View {
     let link: SessionLink
     let preview: LinkPreview?
@@ -467,82 +468,97 @@ struct LinkPreviewCard: View {
     private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
     private static let red = Color(red: 1, green: 0.42, blue: 0.42)
     private static let amber = Color(red: 1, green: 0.78, blue: 0.35)
-    private static let dim = Color.white.opacity(0.5)
+    private static let dim = Color.white.opacity(0.45)
+    private static let soft = Color.white.opacity(0.75)
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
-                Text(link.label).font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(.white)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: icon).font(.system(size: 12, weight: .semibold)).foregroundStyle(tint)
+                Text("\(link.kind == .issue ? "Issue" : "PR") \(link.label)")
+                    .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(Self.dim)
+                Spacer(minLength: 8)
                 if let (text, color) = status {
-                    Text("·").foregroundStyle(Self.dim)
-                    Text(text).font(.system(size: 11, weight: .medium)).foregroundStyle(color)
+                    Text(text).font(.system(size: 11.5, weight: .medium)).foregroundStyle(color)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(color.opacity(0.14)))
                 }
             }
             if let p = preview {
-                Text(p.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                details(p)
+                Text(p.title).font(.system(size: 13.5, weight: .bold)).foregroundStyle(.white)
+                    .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true)
+                labels(p)
+                VStack(alignment: .leading, spacing: 5) {
+                    meta(p)
+                    checks(p)
+                }
             } else {
                 // Loading: the title's place, shimmering.
                 TimelineView(.animation) { t in
                     let a = 0.08 + 0.06 * sin(t.date.timeIntervalSinceReferenceDate * 4)
-                    VStack(alignment: .leading, spacing: 5) {
-                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(a)).frame(width: 220, height: 12)
-                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(a)).frame(width: 140, height: 10)
+                    VStack(alignment: .leading, spacing: 6) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(a)).frame(width: 230, height: 13)
+                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(a)).frame(width: 150, height: 13)
                     }
                 }
             }
         }
-        .padding(12)
-        .frame(width: 280, alignment: .leading)
-        .background(Color(white: 0.09))
+        .padding(.horizontal, 15)
+        .padding(.vertical, 13)
+        .frame(width: 300, alignment: .leading)
+        .background(Color(red: 0.105, green: 0.105, blue: 0.115))
         .environment(\.colorScheme, .dark)
     }
 
-    @ViewBuilder private func details(_ p: LinkPreview) -> some View {
-        let meta = [
-            p.additions.map { "+\($0)" }, p.deletions.map { "−\($0)" },
-            p.changedFiles.map { "\($0) file\($0 == 1 ? "" : "s")" }, p.additions == nil ? nil : p.author.map { "by \($0)" },
-        ].compactMap { $0 }
-        if !meta.isEmpty {
-            Text(meta.joined(separator: " · ")).font(.system(size: 11, design: .monospaced)).foregroundStyle(Self.dim)
+    @ViewBuilder private func labels(_ p: LinkPreview) -> some View {
+        if !p.labels.isEmpty {
+            HStack(spacing: 5) {
+                ForEach(p.labels.prefix(3), id: \.name) { l in
+                    HStack(spacing: 5) {
+                        Circle().fill(Color(hex: l.color)).frame(width: 6, height: 6)
+                        Text(l.name).font(.system(size: 11)).foregroundStyle(Self.soft).lineLimit(1)
+                    }
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .overlay(Capsule().stroke(Color.white.opacity(0.14), lineWidth: 1))
+                }
+            }
         }
+    }
+
+    /// "author · +90 −19 · 3 files", or an issue's "author · 1 comment".
+    @ViewBuilder private func meta(_ p: LinkPreview) -> some View {
+        let dot = Text("  ·  ").foregroundStyle(Self.dim)
+        var line = p.author.map { Text($0).foregroundStyle(Self.soft) }
+        let add = { (t: Text) in line = line.map { $0 + dot + t } ?? t }
+        if let a = p.additions, let d = p.deletions {
+            let _ = add(Text("+\(a)").font(.system(size: 12, design: .monospaced)).foregroundStyle(Self.green)
+                        + Text(" ") + Text("-\(d)").font(.system(size: 12, design: .monospaced)).foregroundStyle(Self.red))
+        }
+        if let f = p.changedFiles { let _ = add(Text("\(f) file\(f == 1 ? "" : "s")").foregroundStyle(Self.dim)) }
+        if let c = p.comments { let _ = add(Text("\(c) comment\(c == 1 ? "" : "s")").foregroundStyle(Self.dim)) }
+        if let line { line.font(.system(size: 12)).lineLimit(1) }
+    }
+
+    /// Failed checks by name (they matter most), then "✓ 16 · ◌ 2 · Approved by …".
+    @ViewBuilder private func checks(_ p: LinkPreview) -> some View {
         if !p.failed.isEmpty {
             let shown = p.failed.prefix(3)
             VStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(shown.enumerated()), id: \.offset) { _, name in
-                    Label(name, systemImage: "xmark").foregroundStyle(Self.red)
+                    Text("✕ \(name)").foregroundStyle(Self.red)
                 }
                 if p.failed.count > shown.count { Text("+\(p.failed.count - shown.count) more failed").foregroundStyle(Self.red) }
             }
-            .font(.system(size: 11, weight: .medium)).lineLimit(1)
+            .font(.system(size: 12, weight: .medium)).lineLimit(1)
         }
-        if p.passed + p.running > 0 {
-            HStack(spacing: 10) {
-                if p.passed > 0 { Label("\(p.passed) passed", systemImage: "checkmark").foregroundStyle(Self.green) }
-                if p.running > 0 { Label("\(p.running) running", systemImage: "circle.dotted").foregroundStyle(Self.amber) }
-            }
-            .font(.system(size: 11, weight: .medium))
-        }
-        if let review = p.review {
-            Text(review).font(.system(size: 11, weight: .medium))
-                .foregroundStyle(review.hasPrefix("Approved") ? Self.green : review.hasPrefix("Changes") ? Self.amber : Self.dim)
-        }
-        if !p.labels.isEmpty {
-            HStack(spacing: 8) {
-                ForEach(p.labels.prefix(4), id: \.name) { l in
-                    HStack(spacing: 4) {
-                        Circle().fill(Color(hex: l.color)).frame(width: 7, height: 7)
-                        Text(l.name).font(.system(size: 11)).foregroundStyle(Color.white.opacity(0.75)).lineLimit(1)
-                    }
-                }
-            }
-        }
-        let people = [p.author.map { "by \($0)" }, p.assignees.isEmpty ? nil : "→ " + p.assignees.joined(separator: ", "),
-                      p.comments.map { "\($0) comment\($0 == 1 ? "" : "s")" }].compactMap { $0 }
-        if p.additions == nil, !people.isEmpty {
-            Text(people.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(Self.dim)
+        let dot = Text("  ·  ").foregroundStyle(Self.dim)
+        let parts = [
+            p.passed > 0 ? Text("✓ \(p.passed)").font(.system(size: 12, design: .monospaced)).foregroundStyle(Self.green) : nil,
+            p.running > 0 ? Text("◌ \(p.running)").font(.system(size: 12, design: .monospaced)).foregroundStyle(Self.amber) : nil,
+            p.review.map { Text($0).foregroundStyle(Self.dim) },
+        ].compactMap { $0 }
+        if let first = parts.first {
+            parts.dropFirst().reduce(first) { $0 + dot + $1 }.font(.system(size: 12)).lineLimit(1)
         }
     }
 }
