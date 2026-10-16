@@ -78,6 +78,7 @@ final class SimulatorModel: ObservableObject {
     /// passing test run, a web fetch, an MCP call, subagents, compaction, and the finish.
     func playSession() {
         reset()
+        usageActive = true
         let id = add("auth-refactor", state: .working)
         var t = 0.0
         for step in SimulatorStory.session {
@@ -87,12 +88,10 @@ final class SimulatorModel: ObservableObject {
                 if let prior = step.endsPrevious { self.fire(id, prior == .failed ? .fail : .tick) }
                 if step.skill { self.fire(id, .skill) }
                 self.setSubagents(id, step.subagents)
-                if let motion = step.motion {
-                    self.set(id, .working)
-                    self.setMotion(id, motion)
-                } else {
-                    self.set(id, .idle)
-                }
+                self.set(id, step.state)
+                self.setMotion(id, step.motion)
+                if step.resetsUsage { self.resetWindow() }
+                if let left = step.usageLeft { self.usageLeft = left }
             }
             storyWork.append(work)
             DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: work)

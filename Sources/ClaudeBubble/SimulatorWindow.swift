@@ -58,7 +58,7 @@ struct SimulatorView: View {
             usage
             HStack {
                 Button("Play story") { sim.playStory() }.keyboardShortcut(.defaultAction)
-                Button("Play session") { sim.playSession() }.help("The Orb States design's 40-second session: every motion and layer")
+                Button("Play session") { sim.playSession() }.help("A scripted session: every motion and layer, a permission wait, an error, and usage running down then resetting")
                 Button("Reset") { sim.reset() }
                 Spacer()
                 Text("The orb shows these while open").font(.caption).foregroundStyle(.secondary)
