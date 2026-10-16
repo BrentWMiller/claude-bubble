@@ -203,4 +203,32 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertNil(HookInstaller.refreshSubscriptions(settings: refreshed!, command: cmd), "nothing missing: no write")
         XCTAssertNil(HookInstaller.refreshSubscriptions(settings: ["model": "opus"], command: cmd), "never installs on its own")
     }
+
+    // Launch-time upgrade of an existing install
+
+    func testUpgradeWrapsTheStatusLineOfAnExistingInstall() throws {
+        let old: [String: Any] = ["hooks": ["Stop": [["matcher": "", "hooks": [["type": "command", "command": cmd]]]]],
+                                  "statusLine": ["type": "command", "command": "bash ~/.claude/line.sh"]]
+        let up = try XCTUnwrap(HookInstaller.upgrade(settings: old, hookCommand: cmd, wrapper: wrapper))
+        XCTAssertEqual((up.settings["statusLine"] as? [String: Any])?["command"] as? String, wrapper)
+        XCTAssertEqual(up.inner, "bash ~/.claude/line.sh")
+        XCTAssertEqual(commands(up.settings, "SubagentStart"), [cmd], "missing events too")
+    }
+
+    func testUpgradeLeavesAnUpToDateInstallAlone() {
+        var settings = HookInstaller.merge(settings: [:], command: cmd)
+        settings["statusLine"] = ["type": "command", "command": wrapper]
+        XCTAssertNil(HookInstaller.upgrade(settings: settings, hookCommand: cmd, wrapper: wrapper))
+    }
+
+    func testUpgradeNeverInstallsOnItsOwn() {
+        XCTAssertNil(HookInstaller.upgrade(settings: ["statusLine": ["type": "command", "command": "x"]], hookCommand: cmd, wrapper: wrapper))
+    }
+
+    func testUpgradeOnlyEventsKeepsTheStatusLine() throws {
+        let old: [String: Any] = ["hooks": ["Stop": [["matcher": "", "hooks": [["type": "command", "command": cmd]]]]],
+                                  "statusLine": ["type": "command", "command": wrapper]]
+        let up = try XCTUnwrap(HookInstaller.upgrade(settings: old, hookCommand: cmd, wrapper: wrapper))
+        XCTAssertNil(up.inner, "already wrapped: leave the saved inner command alone")
+    }
 }
