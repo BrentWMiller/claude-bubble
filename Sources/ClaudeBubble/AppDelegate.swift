@@ -383,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleBubble() {
+        hideTimer?.cancel()
         bubbleHidden.toggle()
         updateVisibility()
         if !bubbleHidden { appearOrb() }
@@ -886,16 +887,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private lazy var quickPanel = QuickPanel(settings: settings, actions: QuickPanelActions(
         openSettings: { [weak self] in self?.openSettings() },
-        toggleHidden: { [weak self] in self?.toggleBubble() },
-        resetPosition: { [weak self] in self?.resetPosition() },
+        hideForAnHour: { [weak self] in self?.hide(for: 3600) },
         restart: { [weak self] in self?.restart() },
         quit: { NSApp.terminate(nil) },
-        debugMenu: { [weak self] point in
-            guard let self else { return }
-            self.makeDebugMenu().popUp(positioning: nil, at: point, in: nil)
-        },
         previewSound: { [weak self] option in self?.sounds.previewCompletion(option) }
     ))
+
+    private var hideTimer: DispatchWorkItem?
+
+    /// Hides the bubble and brings it back after `seconds` (unless it's been shown again by hand).
+    private func hide(for seconds: TimeInterval) {
+        guard !bubbleHidden else { return }
+        bubbleHidden = true
+        updateVisibility()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.bubbleHidden else { return }
+            self.bubbleHidden = false
+            self.updateVisibility()
+            self.appearOrb()
+        }
+        hideTimer?.cancel()
+        hideTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
 
     /// Force a state to preview it (e.g. Working → Idle plays the completed moment); Live returns to real sessions.
     private func makeDebugMenu() -> NSMenu {

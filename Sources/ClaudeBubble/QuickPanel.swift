@@ -5,24 +5,23 @@ import SwiftUI
 /// What the quick panel's buttons do (supplied by the app).
 struct QuickPanelActions {
     var openSettings: () -> Void
-    var toggleHidden: () -> Void
-    var resetPosition: () -> Void
+    /// Hides the bubble; it comes back on its own after an hour.
+    var hideForAnHour: () -> Void
     var restart: () -> Void
     var quit: () -> Void
-    /// Pops the Debug menu at the given screen point.
-    var debugMenu: (CGPoint) -> Void
     var previewSound: (CompletionSound) -> Void
 }
 
 /// The right-click panel: the bubble's own dark card with one-click controls, instead of a system menu.
 final class QuickPanel: NSPanel {
-    static let width: CGFloat = 316
+    static let width: CGFloat = 300
     private var monitors: [Any] = []
     private let host: NSHostingView<QuickPanelView>
+    private let actions: QuickPanelActions
 
     init(settings: SettingsModel, actions: QuickPanelActions) {
-        let view = QuickPanelView(settings: settings, actions: actions, close: {})
-        host = NSHostingView(rootView: view)
+        self.actions = actions
+        host = NSHostingView(rootView: QuickPanelView(settings: settings, actions: actions, close: {}))
         super.init(contentRect: CGRect(x: 0, y: 0, width: Self.width, height: 400),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isFloatingPanel = true
@@ -30,7 +29,7 @@ final class QuickPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         backgroundColor = .clear
         isOpaque = false
-        hasShadow = false
+        hasShadow = true
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         appearance = NSAppearance(named: .darkAqua)
@@ -38,13 +37,24 @@ final class QuickPanel: NSPanel {
         contentView = host
     }
 
-    // Key, so Esc closes it and the controls take the keyboard; never main.
+    // Key, so Esc and the shortcuts work and the controls take the keyboard; never main.
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
     override func cancelOperation(_ sender: Any?) { dismiss() }
     override func resignKey() {
         super.resignKey()
         dismiss()
+    }
+
+    /// ⌘H hide for an hour, ⌘, Settings, ⌘Q quit (the hints shown on the rows).
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else { return super.performKeyEquivalent(with: event) }
+        switch event.charactersIgnoringModifiers {
+        case "h": dismiss(); actions.hideForAnHour(); return true
+        case ",": dismiss(); actions.openSettings(); return true
+        case "q": actions.quit(); return true
+        default: return super.performKeyEquivalent(with: event)
+        }
     }
 
     /// Opens with its top-left at `point` (screen space), kept on that screen.
@@ -90,60 +100,65 @@ struct QuickPanelView: View {
     @State private var hoveredTheme: String?
 
     private var prefs: BubblePreferences { settings.prefs }
+    private let dim = Color.white.opacity(0.5)
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            styleSection
+            top
             divider
-            themeSection
-            divider
+            theme
             sliders
             divider
-            switches
+            toggles
             divider
-            footer
+            Row(title: "Hide for an hour", shortcut: "⌘H") { close(); actions.hideForAnHour() }
+            Row(title: "Settings…", shortcut: "⌘,") { close(); actions.openSettings() }
+            divider
+            Row(title: "Restart") { actions.restart() }
+            Row(title: "Quit Claude Bubble", shortcut: "⌘Q") { actions.quit() }
         }
-        .padding(.vertical, 6)
+        .padding(10)
         .frame(width: QuickPanel.width)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(red: 0x17 / 255, green: 0x16 / 255, blue: 0x1c / 255).opacity(0.97)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.white.opacity(0.1), lineWidth: 1))
-        .padding(1)
-        .scaleEffect(appeared.shown ? 1 : 0.94, anchor: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x1c / 255, green: 0x1c / 255, blue: 0x20 / 255)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.1), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .scaleEffect(appeared.shown ? 1 : 0.95, anchor: .topLeading)
         .opacity(appeared.shown ? 1 : 0)
         .environment(\.colorScheme, .dark)
     }
 
     private var divider: some View {
-        Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 12).padding(.vertical, 4)
+        Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.vertical, 8)
     }
 
-    private func label(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Color.white.opacity(0.4))
-    }
+    // MARK: Orb / Island / Quiet, and the dock
 
-    // MARK: Style
+    private enum Mode: Hashable { case orb, island, quiet }
 
-    private var styleSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Segmented(options: [(BubbleStyle.orb, "circle.circle", "Orb"), (.island, "capsule", "Island")],
-                          selection: Binding(get: { prefs.style }, set: { settings.prefs.style = $0 }))
-                Spacer(minLength: 4)
-                Pill(icon: prefs.quiet ? "moon.fill" : "moon", text: "Quiet", on: prefs.quiet) { settings.prefs.quiet.toggle() }
-            }
+    private var top: some View {
+        VStack(spacing: 10) {
+            Segmented(options: [(Mode.orb, nil, "Orb"), (.island, nil, "Island"), (.quiet, nil, "Quiet")],
+                      selection: Binding(get: { prefs.quiet ? .quiet : prefs.style == .island ? .island : .orb },
+                                         set: { mode in
+                                             var p = settings.prefs
+                                             switch mode {
+                                             case .orb: p.style = .orb; p.quiet = false
+                                             case .island: p.style = .island; p.quiet = false
+                                             case .quiet: p.quiet = true
+                                             }
+                                             settings.prefs = p
+                                         }),
+                      fill: true, large: true)
             if prefs.style == .island {
-                HStack(spacing: 8) {
-                    Text("Dock").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.55))
+                HStack {
+                    Text("Dock").foregroundStyle(dim)
+                    Spacer()
                     Segmented(options: IslandDock.allCases.map { ($0, icon(for: $0), $0.rawValue.capitalized) },
-                              selection: Binding(get: { prefs.islandDock }, set: { settings.prefs.islandDock = $0 }),
-                              compact: true)
+                              selection: Binding(get: { prefs.islandDock }, set: { settings.prefs.islandDock = $0 }))
                 }
+                .font(.system(size: 13))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     private func icon(for dock: IslandDock) -> String {
@@ -155,18 +170,17 @@ struct QuickPanelView: View {
         }
     }
 
-    // MARK: Themes
+    // MARK: Theme
 
-    private var themeSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private var theme: some View {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
-                label("Theme")
+                Text("Theme").foregroundStyle(dim)
                 Spacer()
-                Text(hoveredTheme ?? (prefs.customized ? "Custom" : prefs.presetName))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.75))
+                Text(hoveredTheme ?? (prefs.customized ? "Custom" : prefs.presetName)).foregroundStyle(Color.white)
             }
-            LazyVGrid(columns: Array(repeating: GridItem(.fixed(26), spacing: 8), count: 8), alignment: .leading, spacing: 8) {
+            .font(.system(size: 13))
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 8), alignment: .leading, spacing: 10) {
                 ForEach(OrbPalette.presets, id: \.name) { preset in
                     ThemeSwatch(palette: preset.palette, selected: !prefs.customized && prefs.presetName == preset.name)
                         .onHover { hoveredTheme = $0 ? preset.name : (hoveredTheme == preset.name ? nil : hoveredTheme) }
@@ -175,53 +189,58 @@ struct QuickPanelView: View {
                 }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
-    // MARK: Sliders
+    // MARK: Size, opacity, pointer
 
     private var sliders: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
                       range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
             sliderRow("Opacity", value: Binding(get: { prefs.opacity }, set: { settings.prefs.opacity = $0 }),
                       range: 0.3...1, text: "\(Int((prefs.opacity * 100).rounded()))%")
-            HStack(spacing: 8) {
-                Text("Pointer").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.55)).frame(width: 58, alignment: .leading)
-                Segmented(options: PointerInteraction.allCases.map { ($0, $0 == .off ? "hand.raised.slash" : "sparkles", $0.label) },
-                          selection: Binding(get: { prefs.interaction }, set: { settings.prefs.interaction = $0 }), compact: false)
-                Spacer(minLength: 0)
+            HStack {
+                Text("Pointer").foregroundStyle(dim)
+                Spacer()
+                Segmented(options: [(PointerMode.off, nil, "Off"), (.watch, nil, "Watch"), (.follow, nil, "Follow")],
+                          selection: Binding(get: { pointerMode }, set: setPointer))
             }
+            .font(.system(size: 13))
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.top, 14)
+    }
+
+    /// Off: the orb ignores the pointer. Watch: it turns its attention to it. Follow: and it hops to the pointer's display.
+    private enum PointerMode: Hashable { case off, watch, follow }
+
+    private var pointerMode: PointerMode {
+        prefs.followPointer ? .follow : prefs.interaction == .off ? .off : .watch
+    }
+
+    private func setPointer(_ mode: PointerMode) {
+        settings.prefs.interaction = mode == .off ? .off : .attention
+        settings.setFollowPointer(mode == .follow)
     }
 
     private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, text: String) -> some View {
-        HStack(spacing: 8) {
-            Text(title).font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.55)).frame(width: 58, alignment: .leading)
-            Slider(value: value, in: range).controlSize(.small).tint(Color.white.opacity(0.8))
-            Text(text).font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.white.opacity(0.6))
-                .frame(width: 40, alignment: .trailing)
+        HStack(spacing: 10) {
+            Text(title).foregroundStyle(dim).frame(width: 64, alignment: .leading)
+            Slider(value: value, in: range).controlSize(.small).tint(.white)
+            Text(text).font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.75)).frame(width: 44, alignment: .trailing)
         }
+        .font(.system(size: 13))
     }
 
-    // MARK: Switches
+    // MARK: Toggles
 
-    private var switches: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
-                Pill(icon: "text.bubble", text: "Toasts", on: prefs.toasts) { settings.prefs.toasts.toggle() }
-                Pill(icon: "gauge.with.dots.needle.33percent", text: "Usage", on: prefs.usage) { settings.prefs.usage.toggle() }
-                Pill(icon: "rectangle.dashed", text: "Edge light", on: prefs.edgeLight) { settings.prefs.edgeLight.toggle() }
-                Pill(icon: prefs.sounds ? "speaker.wave.2" : "speaker.slash", text: "Sounds", on: prefs.sounds) { settings.prefs.sounds.toggle() }
-                Pill(icon: "cursorarrow.motionlines", text: "Follow pointer", on: prefs.followPointer) {
-                    settings.setFollowPointer(!prefs.followPointer)
-                }
-            }
+    private var toggles: some View {
+        VStack(spacing: 6) {
+            toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
+            toggleRow("Usage meter", Binding(get: { prefs.usage }, set: { settings.prefs.usage = $0 }))
+            toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
+            toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))
             HStack(spacing: 8) {
-                Text("Finish sound").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.55))
+                Text("Finish sound").foregroundStyle(dim)
                 Spacer()
                 Menu {
                     ForEach(CompletionSound.allCases, id: \.self) { option in
@@ -231,38 +250,27 @@ struct QuickPanelView: View {
                         }
                     }
                 } label: {
-                    Text(prefs.completionSound.label).font(.system(size: 12, weight: .medium))
+                    Text(prefs.completionSound.label).foregroundStyle(Color.white)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                Button { actions.previewSound(prefs.completionSound) } label: { Image(systemName: "play.fill").font(.system(size: 10)) }
+                Button { actions.previewSound(prefs.completionSound) } label: { Image(systemName: "play.fill").font(.system(size: 11)) }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Color.white.opacity(0.7))
+                    .foregroundStyle(Color.white.opacity(0.85))
                     .help("Preview")
             }
+            .font(.system(size: 13))
             .padding(.top, 2)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
-    // MARK: Footer
-
-    private var footer: some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 2) {
-                FooterButton(icon: "gearshape", text: "Settings") { close(); actions.openSettings() }
-                FooterButton(icon: "arrow.counterclockwise", text: "Reset") { close(); actions.resetPosition() }
-                FooterButton(icon: "ladybug", text: "Debug") { actions.debugMenu(NSEvent.mouseLocation) }
-            }
-            HStack(spacing: 2) {
-                FooterButton(icon: "eye.slash", text: "Hide") { close(); actions.toggleHidden() }
-                FooterButton(icon: "arrow.clockwise.circle", text: "Restart") { actions.restart() }
-                FooterButton(icon: "power", text: "Quit", danger: true) { actions.quit() }
-            }
+    private func toggleRow(_ title: String, _ on: Binding<Bool>) -> some View {
+        HStack {
+            Text(title).foregroundStyle(Color.white.opacity(0.9))
+            Spacer()
+            Toggle("", isOn: on).toggleStyle(.switch).controlSize(.small).tint(Color(red: 0.2, green: 0.78, blue: 0.35)).labelsHidden()
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .font(.system(size: 13))
     }
 }
 
@@ -278,97 +286,71 @@ private struct ThemeSwatch: View {
         let w = palette.working
         Circle()
             .fill(AngularGradient(colors: [color(w.c1), color(w.c2), color(w.c3), color(w.c1)], center: .center))
-            .overlay(Circle().fill(RadialGradient(colors: [.clear, .black.opacity(0.35)], center: .center, startRadius: 2, endRadius: 13)))
-            .overlay(Circle().stroke(Color.white.opacity(selected ? 0.95 : hover ? 0.5 : 0.12), lineWidth: selected ? 2 : 1).padding(-2.5))
-            .shadow(color: color(w.halo).opacity(0.9), radius: hover || selected ? 6 : 3)
+            .overlay(Circle().stroke(Color.white.opacity(selected ? 1 : hover ? 0.45 : 0), lineWidth: 2).padding(-3.5))
             .frame(width: 22, height: 22)
-            .frame(width: 26, height: 26)
-            .scaleEffect(hover ? 1.12 : 1)
+            .frame(width: 30, height: 30)
+            .scaleEffect(hover && !selected ? 1.1 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hover)
             .onHover { hover = $0 }
             .contentShape(Circle())
     }
 }
 
-/// A two-to-four way choice with icons.
+/// A segmented choice: text or icons, the selected one a white chip.
 private struct Segmented<T: Hashable>: View {
-    let options: [(T, String, String)]
+    let options: [(T, String?, String)]
     @Binding var selection: T
-    var compact = false
+    var fill = false
+    var large = false
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.0) { value, icon, text in
                 let on = selection == value
                 Button { selection = value } label: {
-                    HStack(spacing: 5) {
-                        Image(systemName: icon).font(.system(size: 11))
-                        if !compact { Text(text).font(.system(size: 12, weight: .medium)).fixedSize() }
+                    Group {
+                        if let icon { Image(systemName: icon).font(.system(size: 12, weight: .semibold)) }
+                        else { Text(text).font(.system(size: large ? 14 : 13, weight: .medium)).fixedSize() }
                     }
-                    .padding(.horizontal, compact ? 9 : 10)
-                    .padding(.vertical, 5)
-                    .foregroundStyle(on ? Color.black : Color.white.opacity(0.7))
-                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? Color.white : Color.clear))
+                    .frame(maxWidth: fill ? .infinity : nil)
+                    .padding(.horizontal, icon == nil ? 12 : 10)
+                    .padding(.vertical, large ? 7 : 5)
+                    .foregroundStyle(on ? Color.black : Color.white.opacity(0.8))
+                    .background(RoundedRectangle(cornerRadius: large ? 8 : 6).fill(on ? Color.white : Color.clear))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .help(text)
             }
         }
-        .padding(2)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Color.white.opacity(0.07)))
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: large ? 10 : 8).fill(Color.white.opacity(0.08)))
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: selection)
     }
 }
 
-/// An on/off chip: icon and label, lit when on.
-private struct Pill: View {
-    let icon: String
-    let text: String
-    let on: Bool
+/// A plain menu row with an optional shortcut hint, highlighted on hover.
+private struct Row: View {
+    let title: String
+    var shortcut: String?
     let action: () -> Void
     @State private var hover = false
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 11)).frame(width: 14)
-                Text(text).font(.system(size: 12, weight: .medium)).lineLimit(1)
-                Spacer(minLength: 0)
-                Circle().fill(on ? Color(red: 0.42, green: 0.88, blue: 0.56) : Color.white.opacity(0.18)).frame(width: 6, height: 6)
+            HStack {
+                Text(title).foregroundStyle(Color.white.opacity(0.92))
+                Spacer()
+                if let shortcut { Text(shortcut).foregroundStyle(Color.white.opacity(0.4)) }
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 6)
-            .foregroundStyle(Color.white.opacity(on ? 0.92 : 0.55))
-            .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(on ? 0.1 : hover ? 0.06 : 0.035)))
+            .font(.system(size: 13))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(hover ? 0.08 : 0)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .animation(.easeOut(duration: 0.15), value: on)
-    }
-}
-
-private struct FooterButton: View {
-    let icon: String
-    let text: String
-    var danger = false
-    let action: () -> Void
-    @State private var hover = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 11))
-                Text(text).font(.system(size: 12))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
-            .foregroundStyle(danger && hover ? Color(red: 1, green: 0.45, blue: 0.45) : Color.white.opacity(hover ? 0.95 : 0.65))
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(hover ? 0.08 : 0)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
+        .padding(.horizontal, -6)
         .onHover { hover = $0 }
     }
 }
