@@ -92,7 +92,17 @@ public enum SessionStore {
         let ticks: Int?
         let fails: Int?
         let skills: Int?
-        let subagents: [String]?
+        /// Running subagents: {id: started_at} (or a list, from an older hook).
+        let subagents: SubagentList?
+    }
+
+    private struct SubagentList: Decodable {
+        let count: Int
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if let map = try? c.decode([String: Double].self) { count = map.count }
+            else { count = (try? c.decode([String].self))?.count ?? 0 }
+        }
     }
 
     /// Whether `pid` is still the process that wrote this session. A pid the kernel has reused for a
@@ -193,15 +203,23 @@ public enum SessionStore {
                 let question = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 detail = question.isEmpty ? "Needs input" : question
             }
+            // The main turn stopped (the hook saw Stop) but background agents are still running: the agents view
+            // says working, and so does the bubble.
+            let backgroundWork = s.state == .idle && job.state == "working"
+            if backgroundWork {
+                let summary = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                detail = summary.isEmpty ? "Waiting on background agents" : summary
+            }
             if s.state == .working, job.state == "working",
                let summary = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty,
                let written = job.updatedAt, written >= s.stateSince.addingTimeInterval(-5) {
                 detail = summary
             }
-            var joined = Session(id: s.id, state: awaitingAnswer ? .needs : s.state, cwd: s.cwd, updatedAt: s.updatedAt,
+            var joined = Session(id: s.id, state: awaitingAnswer ? .needs : backgroundWork ? .working : s.state,
+                                 cwd: s.cwd, updatedAt: s.updatedAt,
                                  project: s.project, detail: detail, stateSince: s.stateSince, pid: s.pid, title: title,
                                  prompted: s.prompted, tokens: job.tokens,
-                                 reviewReady: s.state == .idle && !awaitingAnswer && job.hasPullRequest)
+                                 reviewReady: s.state == .idle && !awaitingAnswer && !backgroundWork && job.hasPullRequest)
             joined.activity = s.activity
             return joined
         }
