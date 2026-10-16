@@ -45,7 +45,7 @@ When quiet mode ends, with H held toasts (oldest first):
 - **CatchUp:**
   - nothing held plays nothing;
   - up to five play in order and spaced;
-  - over five gives the summary plus the most recent five;
+  - over five gives the summary plus the most recent four, and the summary stays on the stack;
   - the summary text counts and wording.
 - **IslandMode:**
   - quiet wins over needs, error, done and rest;
