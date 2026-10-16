@@ -3,11 +3,13 @@ import XCTest
 
 final class PreferencesTests: XCTestCase {
     var defaults: UserDefaults!
-    var suite: String!
+    /// One fixed name, emptied around each test. (A fresh name per test left an empty plist behind in
+    /// ~/Library/Preferences every time: removing a domain empties it, but the file stays.)
+    let suite = "claude-bubble-tests"
 
     override func setUp() {
-        suite = "claude-bubble-tests-\(UUID().uuidString)"
         defaults = UserDefaults(suiteName: suite)
+        defaults.removePersistentDomain(forName: suite)
     }
 
     override func tearDown() { defaults.removePersistentDomain(forName: suite) }
