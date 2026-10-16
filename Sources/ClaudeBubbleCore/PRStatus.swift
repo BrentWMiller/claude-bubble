@@ -76,3 +76,19 @@ public struct PRStatus: Equatable, Hashable, Sendable {
         }
     }
 }
+
+/// How often to re-check a pull request. In the background: every 2 minutes while its checks run, every 10 at rest,
+/// never once merged or closed, and not at all for sessions quiet for two hours. While someone's looking (the hover list
+/// or island panel is open): anything older than 30 seconds.
+public enum PRPolling {
+    public static let quietAfter: TimeInterval = 2 * 3600
+
+    /// Seconds between checks, or nil to leave it alone. `fetched`: it has been asked about before.
+    public static func interval(status: PRStatus?, fetched: Bool, looking: Bool, sessionIdle: TimeInterval) -> TimeInterval? {
+        if let s = status, s.state == .merged || s.state == .closed { return nil }
+        if !fetched { return 0 }
+        if looking { return 30 }
+        guard sessionIdle < quietAfter else { return nil }
+        return status?.checks == .pending ? 120 : 600
+    }
+}
