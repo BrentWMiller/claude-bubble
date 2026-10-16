@@ -139,7 +139,9 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             f: [f.workA, f.workB, f.workMix, f.settle],
             g: [f.sub, f.failAge, f.skillAge, 0],
             h: SIMD4(f.tickAges, 0),
-            i: SIMD4(f.tickAmps, 0)
+            i: SIMD4(f.tickAmps, 0),
+            j: SIMD4(f.fanFrom.c1, 0), k: SIMD4(f.fanFrom.c2, 0), l: SIMD4(f.fanFrom.c3, 0), m: SIMD4(f.fanFrom.halo, 0),
+            n: [f.fan, 0, 0, 0]
         )
         let len = MemoryLayout<OrbUniforms>.stride
 

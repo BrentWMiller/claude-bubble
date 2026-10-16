@@ -13,6 +13,37 @@ final class IslandModel: ObservableObject {
     @Published var state: BubbleState = .idle
     /// Recent tool-complete ticks (seconds, CACurrentMediaTime) that brighten the wave.
     @Published var ticks: [Double] = []
+    /// The glow colour's source, and the one it's fanning away from (with when the fan began).
+    @Published var colorKey = IslandColorKey(state: .idle, done: false)
+    @Published var fanFrom: IslandColorKey?
+    @Published var fanStart: Double = 0
+
+    static let fanDuration = 0.9
+
+    /// The colour now, the one it's fanning from, and how far the fan has got (1 = done).
+    func colors(palette: OrbPalette, at now: Double) -> (to: SIMD3<Double>, from: SIMD3<Double>, progress: Double) {
+        let to = colorKey.rgb(palette)
+        guard let from = fanFrom else { return (to, to, 1) }
+        let p = min(1, max(0, (now - fanStart) / Self.fanDuration))
+        return (to, from.rgb(palette), p)
+    }
+}
+
+/// What the island's glow colour comes from.
+struct IslandColorKey: Equatable {
+    let state: BubbleState
+    let done: Bool
+
+    func rgb(_ palette: OrbPalette) -> SIMD3<Double> {
+        if done { return [0.47, 0.9, 0.67] }
+        let c = palette[state].swatch
+        return [Double(c.x), Double(c.y), Double(c.z)]
+    }
+}
+
+private extension SIMD3 where Scalar == Double {
+    var color: Color { Color(red: x, green: y, blue: z) }
+    func mixed(to other: SIMD3<Double>, _ t: Double) -> SIMD3<Double> { self + (other - self) * t }
 }
 
 /// The docked pill (design: Top Island). A fixed, mostly click-through window; the pill inside animates.
@@ -216,7 +247,7 @@ struct IslandView: View {
                 .opacity(quiet ? 0 : 1)
         }
         .clipShape(shape)
-        .overlay(model.glow == .waves ? IslandRim(shape: shape, color: glowColor, state: model.state) : nil)
+        .overlay(model.glow == .waves ? IslandRim(shape: shape, model: model, palette: sessions.palette) : nil)
         // A faint outline so the island stands out against dark windows; none on the docked edge, which meets the screen's.
         .overlay(shape.strokeBorder(Color.white.opacity(0.13), lineWidth: 1)
             .mask(Rectangle().padding(dockedEdge, 1))
@@ -383,7 +414,10 @@ struct IslandGlowView: View {
             let breath = 0.5 + 0.5 * sin(now * (fast ? 4.2 : 1.7))
             let kick = min(1, model.ticks.reduce(0) { $0 + exp(-(media - $1) * 7) })
             let pace = (model.state == .idle && model.mode != .done ? 0.45 : fast ? 1.35 : 1) * (1 + 0.5 * kick)
-            let color = Self.color(state: model.state, done: model.mode == .done, palette: palette)
+            // Colour changes fan out from the orb: the glows blend over the fan, the dot-wave switches along its front.
+            let fan = model.colors(palette: palette, at: media)
+            let eased = 1 - pow(1 - fan.progress, 3)
+            let color = fan.from.mixed(to: fan.to, eased).color
             ZStack(alignment: .topLeading) {
                 // Behind the orb (design: innerS + inner): a soft glow, then a stronger one seen through a dot grid
                 // so it reads as lit pixels.
@@ -426,7 +460,8 @@ struct IslandGlowView: View {
                 }
                 if waves {
                     Canvas { ctx, size in
-                        drawWaves(ctx, size: size, time: now, kick: kick, breath: breath, color: color)
+                        drawWaves(ctx, size: size, time: now, kick: kick, breath: breath, to: fan.to.color,
+                                  from: fan.from.color, fan: fan.progress)
                     }
                 }
             }
@@ -435,7 +470,8 @@ struct IslandGlowView: View {
     }
 
     /// Ported from the design's canvas: a 4pt dot grid, each dot pushed outward and lit by two travelling waves.
-    private func drawWaves(_ ctx: GraphicsContext, size: CGSize, time: Double, kick: Double, breath: Double, color: Color) {
+    private func drawWaves(_ ctx: GraphicsContext, size: CGSize, time: Double, kick: Double, breath: Double,
+                           to color: Color, from oldColor: Color, fan: Double) {
         let idle = model.state == .idle && model.mode != .done
         let fast = model.state == .needs || model.state == .error
         // Brighter than the design's numbers: on a real desktop the wave read too faint next to the prototype.
@@ -444,9 +480,12 @@ struct IslandGlowView: View {
         let oz = Double(IslandLayout.orbSize)
         let ox = Double(orbCentre.x), oy = Double(orbCentre.y)
         let r0 = max(Double(size.width) * 0.9, 160)
-        // Dots are grouped by brightness into a few paths, so a frame is 8 fills, not thousands.
+        // Dots are grouped by brightness into a few paths, so a frame is 8 fills (16 mid-fan), not thousands.
         let buckets = 8
         var paths = Array(repeating: Path(), count: buckets)
+        var oldPaths = Array(repeating: Path(), count: buckets)
+        // The fan's front: a radius growing out from the orb past the far end of the pill.
+        let front = fan < 1 ? fan * (r0 * 1.15 + 20) : .infinity
         var gx = 2.0
         while gx < Double(size.width) {
             var gy = 2.0
@@ -465,15 +504,22 @@ struct IslandGlowView: View {
                 let px = gx + cos(an) * push, py = gy + sin(an) * push, dist = d0 + push
                 let fall = max(0, 1 - dist / r0)
                 if fall <= 0 { continue }
-                let a = min(1, fall * fall * (0.16 + crest * amp) * (0.7 + 0.3 * breath))
+                var a = min(1, fall * fall * (0.16 + crest * amp) * (0.7 + 0.3 * breath))
+                // Dots just inside the fan's front light up a little.
+                let edge = front.isFinite ? exp(-pow((d0 - front + 8) / 10, 2)) * (1 - fan) : 0
+                a = min(1, a + edge * 0.5)
                 if a < 0.02 { continue }
-                let rad = 0.6 + crest * 0.6
-                paths[min(buckets - 1, Int(a * Double(buckets)))].addEllipse(in: CGRect(x: px - rad, y: py - rad, width: rad * 2, height: rad * 2))
+                let rad = 0.6 + crest * 0.6 + edge * 0.5
+                let dot = CGRect(x: px - rad, y: py - rad, width: rad * 2, height: rad * 2)
+                let bucket = min(buckets - 1, Int(a * Double(buckets)))
+                if d0 < front { paths[bucket].addEllipse(in: dot) } else { oldPaths[bucket].addEllipse(in: dot) }
             }
             gx += 4
         }
-        for (i, path) in paths.enumerated() where !path.isEmpty {
-            ctx.fill(path, with: .color(color.opacity((Double(i) + 0.75) / Double(buckets))))
+        for i in 0..<buckets {
+            let alpha = (Double(i) + 0.75) / Double(buckets)
+            if !paths[i].isEmpty { ctx.fill(paths[i], with: .color(color.opacity(alpha))) }
+            if !oldPaths[i].isEmpty { ctx.fill(oldPaths[i], with: .color(oldColor.opacity(alpha))) }
         }
     }
 }
@@ -481,13 +527,15 @@ struct IslandGlowView: View {
 /// The pill's 1pt inner rim in the state colour, breathing with the glow (design: inset box-shadow).
 private struct IslandRim: View {
     let shape: UnevenRoundedRectangle
-    let color: Color
-    let state: BubbleState
+    @ObservedObject var model: IslandModel
+    let palette: OrbPalette
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 15)) { context in
-            let fast = state == .needs || state == .error
+            let fast = model.state == .needs || model.state == .error
             let breath = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * (fast ? 4.2 : 1.7))
+            let fan = model.colors(palette: palette, at: CACurrentMediaTime())
+            let color = fan.from.mixed(to: fan.to, 1 - pow(1 - fan.progress, 3)).color
             shape.strokeBorder(color.opacity(0.06 + 0.04 * breath), lineWidth: 1)
         }
         .allowsHitTesting(false)

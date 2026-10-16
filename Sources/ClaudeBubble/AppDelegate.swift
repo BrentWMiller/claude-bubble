@@ -331,6 +331,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Peeking at the session panel while quiet shows the orb at its normal size.
         animator.quiet = quiet && mode != .hover
         if m.state != animator.state { m.state = animator.state }
+        // A colour change fans out across the island (from the old colour as it currently shows).
+        let key = IslandColorKey(state: animator.state, done: mode == .done)
+        if key != m.colorKey {
+            let now = CACurrentMediaTime()
+            let midFan = m.fanFrom != nil && now - m.fanStart < IslandModel.fanDuration
+            m.fanFrom = midFan && now - m.fanStart < IslandModel.fanDuration / 2 ? m.fanFrom : m.colorKey
+            m.fanStart = now
+            m.colorKey = key
+        }
         // Only publish when something actually expires (the whole island re-renders on every change).
         if m.ticks.contains(where: { CACurrentMediaTime() - $0 > 0.6 }) { m.ticks.removeAll { CACurrentMediaTime() - $0 > 0.6 } }
         island.pill = pill(mode)

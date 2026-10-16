@@ -15,7 +15,19 @@ struct Uniforms {
     float4 g;   // subagents (eased), fail age (s; < 0 = off), skill age (s; < 0 = off), unused
     float4 h;   // three tool-complete tick ages (s; < 0 = none), unused
     float4 i;   // three tick amplitudes, unused
+    float4 j, k, l, m;   // colour fan: the c1, c2, c3 and halo it sweeps away from
+    float4 n;   // colour fan progress 0…1 (< 0 = settled), unused
 };
+
+// Colour fan: new colours sweep out from the top of the orb down both sides. `along` is 0 at the top, 1 at the
+// bottom (from the point's angle around the orb); returns how much of the new colour shows, and a crest at the front.
+float2 fanMix(float along, float p) {
+    if (p < 0.) return float2(1., 0.);
+    float front = p * 1.3;
+    float m = 1. - smoothstep(front - .18, front, along);
+    float crest = exp(-pow((along - front + .09) / .07, 2.)) * (1. - p);
+    return float2(m, crest);
+}
 
 struct QuadOut { float4 position [[position]]; };
 
@@ -31,6 +43,8 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float2 uv = (frag - .5 * res) / res.y - float2(u.c.z, 0) - u.d.xy * (.3 * .07) * u.d.z;
     float ph = u.a.x, sc = u.a.y, glowv = u.a.z, ringv = u.a.w, glitch = u.b.x;
     float3 C1 = u.c1.xyz, C2 = u.c2.xyz, C3 = u.c3.xyz, H = u.halo.xyz;
+    float2 fm = fanMix(abs(atan2(uv.x, uv.y)) / 3.14159, u.n.x);
+    C1 = mix(u.j.xyz, C1, fm.x); C2 = mix(u.k.xyz, C2, fm.x); C3 = mix(u.l.xyz, C3, fm.x); H = mix(u.m.xyz, H, fm.x);
 
     float R = .3 * sc; float r = length(uv); float a = atan2(uv.y, uv.x);
     float k = .5 + .5 * sin(a * 1. + ph * .9); float k2 = .5 + .5 * sin(a * 2. - ph * .6 + 1.3);
@@ -53,6 +67,7 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float3 col = rc * (ring * (.55 + 1.6 * hl) + fuzz * (.4 + hl)) * ringv;
     col += float3(1.) * ring * hl * hl * .6 * ringv;
     col += rc * ring * abs(bul) * 5. * ringv;
+    col += mix(rc, float3(1.), .4) * (ring * 1.4 + fuzz) * fm.y * ringv;   // the fan's bright front along the rim
     // The rim and halo brighten on the side the light is on.
     float toward = pow(.5 + .5 * cos(a - pa), 2.) * att * plen;
     col *= 1. + .9 * toward;
@@ -233,6 +248,8 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     o.position = float4(sp.x + u.c.z * 2. + drift.x, sp.y + drift.y, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
+    float2 fmp = fanMix(abs(atan2(p.x, p.y)) / 3.14159, u.n.x);
+    C1 = mix(u.j.xyz, C1, fmp.x); C2 = mix(u.k.xyz, C2, fmp.x); C3 = mix(u.l.xyz, C3, fmp.x);
     float3 c = mix(C2, C1, .5 + .5 * p.y);
     c = mix(c, C3, clamp(wv * wave, 0., 1.) * front);
     float b = (.12 + pow(limb, 4.) * 1.1 + max(wv, 0.) * wave * .9 * front) * mix(.35, 1., front);
@@ -254,6 +271,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     c = mix(c, float3(1.), psheen * .6);
     b += psheen * .8;
     b += pk * abs(pullAmt) * 1.3;
+    b += fmp.y * .9 * front;   // the fan's bright front
     c = mix(c, float3(1.), pk * max(pullAmt, 0.) * .3);
     o.color = c * b * bright;
     o.size = pt * (1. + p.z * .5) * (1. + flash * .6);
@@ -285,4 +303,10 @@ struct OrbUniforms {
     var g: SIMD4<Float> = [0, -1, -1, 0]
     var h: SIMD4<Float> = [-1, -1, -1, 0]
     var i: SIMD4<Float> = .zero
+    var j: SIMD4<Float> = .zero
+    var k: SIMD4<Float> = .zero
+    var l: SIMD4<Float> = .zero
+    var m: SIMD4<Float> = .zero
+    /// No colour fan by default.
+    var n: SIMD4<Float> = [-1, 0, 0, 0]
 }
