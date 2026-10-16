@@ -202,4 +202,15 @@ final class IslandTests: XCTestCase {
         let rightBar = CGRect(x: 891, y: 2167, width: 1920, height: 30)
         XCTAssertEqual(IslandLayout.top(of: left, menuBars: [rightBar]), left.maxY)
     }
+
+    func testRowsWithLinksAreTaller() {
+        let plain = IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 3, rows: 3)
+        XCTAssertEqual(IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 3, rows: 3, linked: 2).height,
+                       plain.height + 2 * IslandLayout.linkRowHeight)
+        let pr = SessionLink(kind: .pr, label: "#1", url: URL(string: "https://github.com/o/r/pull/1")!)
+        var a = s("a", .working), b = s("b", .idle)
+        a.links = [pr]
+        b.links = []
+        XCTAssertEqual(IslandLayout.linkedRows([a, b]), 1)
+    }
 }

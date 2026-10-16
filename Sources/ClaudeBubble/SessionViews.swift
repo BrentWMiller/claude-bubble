@@ -168,6 +168,9 @@ struct SessionRow: View {
                     .foregroundStyle(session.tone.color(in: palette))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                if !session.links.isEmpty {
+                    LinkChips(links: session.links).padding(.top, 4)
+                }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
@@ -302,4 +305,65 @@ final class PassthroughHostingView<Content: View>: NSHostingView<Content> {
 /// Hosting view that takes the first click even though its panel never becomes key.
 final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// A session's issue, pull request and artifact chips; clicking one opens it.
+struct LinkChips: View {
+    let links: [SessionLink]
+
+    var body: some View {
+        HStack(spacing: 5) {
+            ForEach(links, id: \.self) { LinkChip(link: $0) }
+        }
+    }
+}
+
+/// Set when a chip opened its link, so a click the island replays to its content doesn't also focus the terminal.
+enum ChipClick {
+    static var handled = false
+}
+
+private struct LinkChip: View {
+    let link: SessionLink
+    @State private var hover = false
+
+    private var icon: String {
+        switch link.kind {
+        case .issue: "smallcircle.filled.circle"
+        case .pr: "arrow.triangle.pull"
+        case .artifact: "doc.richtext"
+        }
+    }
+
+    private var tint: Color {
+        switch link.kind {
+        case .issue: Color(red: 0.42, green: 0.85, blue: 0.55)
+        case .pr: Color(red: 0.66, green: 0.55, blue: 1)
+        case .artifact: Color(red: 0.95, green: 0.7, blue: 0.45)
+        }
+    }
+
+    var body: some View {
+        Button {
+            ChipClick.handled = true
+            NSWorkspace.shared.open(link.url)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 9, weight: .semibold)).foregroundStyle(tint)
+                Text(link.label).font(.system(size: 10.5, weight: .medium, design: .monospaced)).lineLimit(1)
+                    .frame(maxWidth: 110, alignment: .leading)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .foregroundStyle(Color.white.opacity(hover ? 0.95 : 0.7))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.black.opacity(0.55)))
+            .background(Capsule().fill(Color.white.opacity(hover ? 0.14 : 0.07)))
+            .overlay(Capsule().stroke(tint.opacity(hover ? 0.5 : 0.2), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(link.url.absoluteString)
+    }
 }

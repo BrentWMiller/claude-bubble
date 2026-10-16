@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var soundLimiter = SoundRateLimiter()
     private let layerTracker = LayerTracker()
     private let edgeLight = EdgeLightController()
+    private let linkScanner = LinkScanner()
     private var island: IslandPanel!
     /// The all-done moment, for the island's "All sessions complete".
     private var islandDoneAt: Date?
@@ -100,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         island.onDragMoved = { [weak self] point in self?.dragIsland(to: point) }
         island.onDragEnded = { [weak self] in self?.endIslandDrag() }
         applyIslandOptions(applied)
+        linkScanner.onChange = { [weak self] in self?.syncSessions() }
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
         // re-anchor it (it may need to flip above/below or come back on screen).
@@ -191,7 +193,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             model.sessions = sims
             liveState = SessionStore.aggregate(sims)
         } else {
-            model.sessions = watchedSessions
+            // Issue chips come from the branch name and the conversation (found in the background).
+            model.sessions = linkScanner.apply(to: watchedSessions)
+            linkScanner.refresh(watchedSessions)
             liveState = watchedState
         }
         applyState()
@@ -364,7 +368,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         func pill(_ mode: IslandMode) -> CGRect {
             IslandLayout.pillRect(size: IslandLayout.size(mode: mode, dock: m.dock, rest: m.rest, pips: model.sessions.count,
                                                           rows: model.sessions.count,
-                                                          footer: model.today != nil || model.usage != nil),
+                                                          footer: model.today != nil || model.usage != nil,
+                                                          linked: IslandLayout.linkedRows(model.sessions)),
                                   dock: m.dock, window: window)
         }
         let over = pill(m.mode).contains(mouse)
@@ -564,6 +569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             self.realUsage = UsageReading.load()
             self.refreshUsage()
+            self.linkScanner.refresh(self.watchedSessions)   // new issue mentions turn up between session events too
         }
         RunLoop.main.add(timer, forMode: .common)
         usageTimer = timer
@@ -657,7 +663,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let m = island.model
             let pill = IslandLayout.pillRect(size: IslandLayout.size(mode: m.mode, dock: m.dock, rest: m.rest,
                                                                      pips: model.sessions.count, rows: model.sessions.count,
-                                                                     footer: model.today != nil || model.usage != nil),
+                                                                     footer: model.today != nil || model.usage != nil,
+                                                                     linked: IslandLayout.linkedRows(model.sessions)),
                                              dock: m.dock, window: island.frame)
             let visible = NSScreen.screens.first { $0.frame.intersects(island.frame) }.map(islandArea) ?? island.frame
             placement = ToastLayout.placeIsland(pill: pill, dock: m.dock, size: ToastPanel.size, visible: visible)

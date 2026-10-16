@@ -226,7 +226,7 @@ record = {'state': state, 'event': event, 'cwd': cwd, 'updated_at': now, 'starte
           'pending': sorted(pending), 'prompted': prompted, 'project': project, 'detail': detail,
           'state_since': state_since, 'pid': pid, 'tool_ids': tool_ids, 'activity': activity,
           'activity_since': activity_since, 'ticks': ticks, 'fails': fails, 'skills': skills, 'subagents': subagents,
-          'in_flight': in_flight}
+          'in_flight': in_flight, 'transcript': str(data.get('transcript_path') or prev.get('transcript', ''))}
 fd, tmp = tempfile.mkstemp(dir=d, prefix='.tmp-')
 try:
     with os.fdopen(fd, 'w') as f:

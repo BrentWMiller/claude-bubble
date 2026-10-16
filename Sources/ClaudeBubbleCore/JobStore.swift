@@ -11,6 +11,8 @@ public struct JobInfo: Equatable, Sendable {
     public let tokens: Int?
     /// It opened a pull request (a `children` link of kind "pr"): the agents view's "Ready for review".
     public var hasPullRequest = false
+    /// Its pull requests and artifacts (the agents view's `children`), as chips.
+    public var links: [SessionLink] = []
 }
 
 public enum JobStore {
@@ -30,6 +32,18 @@ public enum JobStore {
 
     private struct Child: Decodable {
         let kind: String?
+        let id: String?
+        let href: String?
+        let title: String?
+
+        var link: SessionLink? {
+            guard let href, let url = URL(string: href) else { return nil }
+            switch kind {
+            case "pr": return SessionLink(kind: .pr, label: "#\(id ?? url.lastPathComponent)", url: url)
+            case "frame", "artifact": return SessionLink(kind: .artifact, label: title ?? id ?? "Artifact", url: url)
+            default: return nil
+            }
+        }
     }
 
     /// Jobs live in `<dir>/<first 8 chars of the session id>/state.json`; the full id must match.
@@ -41,7 +55,8 @@ public enum JobStore {
               record.sessionId == sessionId else { return nil }
         return JobInfo(name: record.name, detail: record.detail, state: record.state,
                        updatedAt: record.updatedAt.flatMap(parseDate), tokens: record.tokens,
-                       hasPullRequest: record.children?.contains { $0.kind == "pr" } ?? false)
+                       hasPullRequest: record.children?.contains { $0.kind == "pr" } ?? false,
+                       links: record.children?.compactMap(\.link) ?? [])
     }
 
     static func parseDate(_ text: String) -> Date? {
