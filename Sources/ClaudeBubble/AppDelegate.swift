@@ -877,21 +877,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return it
     }
 
+    /// Right-clicking the orb or island opens the quick panel (the menu-bar icon keeps the standard menu).
     private func showOrbMenu(with event: NSEvent, in view: NSView) {
         hover.dismiss()
         listPanel.popOut()
-        let menu = NSMenu()
-        makeQuickSettingsItems().forEach(menu.addItem)
-        menu.addItem(.separator())
-        menu.addItem(item("Settings…", #selector(openSettings)))
-        menu.addItem(item(bubbleHidden ? "Show Bubble" : "Hide Bubble", #selector(toggleBubble)))
-        menu.addItem(item("Reset Position", #selector(resetPosition)))
-        menu.addItem(.separator())
-        menu.addItem(submenu("Debug", makeDebugMenu()))
-        menu.addItem(item("Restart", #selector(restart)))
-        menu.addItem(NSMenuItem(title: "Quit Claude Bubble", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))
-        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        quickPanel.show(at: NSEvent.mouseLocation)
     }
+
+    private lazy var quickPanel = QuickPanel(settings: settings, actions: QuickPanelActions(
+        openSettings: { [weak self] in self?.openSettings() },
+        toggleHidden: { [weak self] in self?.toggleBubble() },
+        resetPosition: { [weak self] in self?.resetPosition() },
+        restart: { [weak self] in self?.restart() },
+        quit: { NSApp.terminate(nil) },
+        debugMenu: { [weak self] point in
+            guard let self else { return }
+            self.makeDebugMenu().popUp(positioning: nil, at: point, in: nil)
+        },
+        previewSound: { [weak self] option in self?.sounds.previewCompletion(option) }
+    ))
 
     /// Force a state to preview it (e.g. Working → Idle plays the completed moment); Live returns to real sessions.
     private func makeDebugMenu() -> NSMenu {
