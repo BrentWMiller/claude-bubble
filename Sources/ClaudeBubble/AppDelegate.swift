@@ -383,6 +383,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func toggleBubble() {
+        hideTimer?.cancel()
         bubbleHidden.toggle()
         updateVisibility()
         if !bubbleHidden { appearOrb() }
@@ -877,20 +878,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return it
     }
 
+    /// Right-clicking the orb or island opens the quick panel (the menu-bar icon keeps the standard menu).
     private func showOrbMenu(with event: NSEvent, in view: NSView) {
         hover.dismiss()
         listPanel.popOut()
-        let menu = NSMenu()
-        makeQuickSettingsItems().forEach(menu.addItem)
-        menu.addItem(.separator())
-        menu.addItem(item("Settings…", #selector(openSettings)))
-        menu.addItem(item(bubbleHidden ? "Show Bubble" : "Hide Bubble", #selector(toggleBubble)))
-        menu.addItem(item("Reset Position", #selector(resetPosition)))
-        menu.addItem(.separator())
-        menu.addItem(submenu("Debug", makeDebugMenu()))
-        menu.addItem(item("Restart", #selector(restart)))
-        menu.addItem(NSMenuItem(title: "Quit Claude Bubble", action: #selector(NSApplication.terminate(_:)), keyEquivalent: ""))
-        NSMenu.popUpContextMenu(menu, with: event, for: view)
+        quickPanel.show(at: NSEvent.mouseLocation)
+    }
+
+    private lazy var quickPanel = QuickPanel(settings: settings, actions: QuickPanelActions(
+        openSettings: { [weak self] in self?.openSettings() },
+        hideForAnHour: { [weak self] in self?.hide(for: 3600) },
+        restart: { [weak self] in self?.restart() },
+        quit: { NSApp.terminate(nil) },
+        previewSound: { [weak self] option in self?.sounds.previewCompletion(option) }
+    ))
+
+    private var hideTimer: DispatchWorkItem?
+
+    /// Hides the bubble and brings it back after `seconds` (unless it's been shown again by hand).
+    private func hide(for seconds: TimeInterval) {
+        guard !bubbleHidden else { return }
+        bubbleHidden = true
+        updateVisibility()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.bubbleHidden else { return }
+            self.bubbleHidden = false
+            self.updateVisibility()
+            self.appearOrb()
+        }
+        hideTimer?.cancel()
+        hideTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
     /// Force a state to preview it (e.g. Working → Idle plays the completed moment); Live returns to real sessions.
