@@ -29,6 +29,7 @@ final class QuickPanel: NSPanel {
     init(settings: SettingsModel, actions: QuickPanelActions) {
         self.actions = actions
         host = NSHostingView(rootView: QuickPanelView(settings: settings, actions: actions, close: {}))
+        host.sizingOptions = []   // sized by hand from fittingSize
         super.init(contentRect: CGRect(x: 0, y: 0, width: Self.width, height: 400),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isFloatingPanel = true

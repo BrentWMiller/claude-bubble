@@ -64,6 +64,7 @@ final class IslandPanel: NSPanel {
         orbView.allowsDrag = false
         orbView.passesMouseThrough = true
         orbView.crisp = true
+        orbView.preferredFramesPerSecond = 30   // a ~20pt orb looks the same at half the frames
         super.init(contentRect: CGRect(origin: .zero, size: IslandLayout.windowSize),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = true
@@ -76,6 +77,9 @@ final class IslandPanel: NSPanel {
         isReleasedWhenClosed = false
         ignoresMouseEvents = true
         let host = IslandHostingView(rootView: IslandView(model: model, sessions: sessions, orb: orbView))
+        // The window is sized by hand. Left to its defaults, the hosting view re-measures its whole tree for the
+        // window's min/max size on every animation frame (the glow), which was most of the app's CPU.
+        host.sizingOptions = []
         host.onRightClick = { [weak self] event, view in self?.onRightClick?(event, view) }
         host.onClick = { [weak self] in self?.onClick?() }
         host.onDragMoved = { [weak self] point in
@@ -602,7 +606,8 @@ private struct IslandRim: View {
     let palette: OrbPalette
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 15)) { context in
+        // On the glow's schedule, so the two redraw together rather than in between each other's frames.
+        TimelineView(.animation(minimumInterval: model.state == .needs || model.state == .error ? 1.0 / 30 : 1.0 / 20)) { context in
             let fast = model.state == .needs || model.state == .error
             let breath = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * (fast ? 4.2 : 1.7))
             let fan = model.colors(palette: palette, at: CACurrentMediaTime())

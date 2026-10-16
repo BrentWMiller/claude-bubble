@@ -227,7 +227,9 @@ final class ToastPanel: NSPanel {
         isReleasedWhenClosed = false
         ignoresMouseEvents = true
         appearance = NSAppearance(named: .darkAqua)
-        contentView = NSHostingView(rootView: ToastStackView(model: model))
+        let host = NSHostingView(rootView: ToastStackView(model: model))
+        host.sizingOptions = []   // sized by hand
+        contentView = host
     }
 
     override var canBecomeKey: Bool { false }

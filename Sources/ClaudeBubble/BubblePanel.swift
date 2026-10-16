@@ -26,6 +26,7 @@ final class BubblePanel: NSPanel {
         orbView.autoresizingMask = [.width, .height]
         container.addSubview(orbView)
         let pips = PassthroughHostingView(rootView: ArcPipsView(model: model))
+        pips.sizingOptions = []
         container.addSubview(pips)
         self.pips = pips
         contentView = container

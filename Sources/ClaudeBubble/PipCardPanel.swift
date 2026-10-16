@@ -11,6 +11,7 @@ final class PipCardPanel: NSPanel {
     init(model: SessionsModel) {
         self.model = model
         host = NSHostingView(rootView: PipCardView(session: Session(id: "", state: .idle, updatedAt: Date()), model: model))
+        host.sizingOptions = []   // sized by hand from fittingSize
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isFloatingPanel = true
         level = .floating

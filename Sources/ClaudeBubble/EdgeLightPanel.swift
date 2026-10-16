@@ -33,7 +33,9 @@ final class EdgeLightPanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         ignoresMouseEvents = true
-        contentView = NSHostingView(rootView: EdgeGlowView(model: model, edge: edge))
+        let host = NSHostingView(rootView: EdgeGlowView(model: model, edge: edge))
+        host.sizingOptions = []   // sized by hand; see SwiftUI sizing note in IslandPanel
+        contentView = host
     }
 
     override var canBecomeKey: Bool { false }
