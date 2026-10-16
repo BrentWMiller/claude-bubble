@@ -1,3 +1,4 @@
+import simd
 import XCTest
 @testable import ClaudeBubbleCore
 
@@ -36,7 +37,9 @@ final class PaletteTests: XCTestCase {
     }
 
     func testPresetsByName() {
-        XCTAssertEqual(OrbPalette.presets.map(\.name), ["Agents view", "Original design", "Blue"])
+        XCTAssertEqual(Array(OrbPalette.presets.map(\.name).prefix(3)), ["Agents view", "Original design", "Blue"])
+        XCTAssertGreaterThanOrEqual(OrbPalette.presets.count, 15)
+        XCTAssertEqual(Set(OrbPalette.presets.map(\.name)).count, OrbPalette.presets.count, "unique names")
         XCTAssertEqual(OrbPalette.preset(named: "Blue"), .blue)
         XCTAssertNil(OrbPalette.preset(named: "Nope"))
     }
@@ -99,5 +102,28 @@ final class PaletteTests: XCTestCase {
 
     func testAnimatorCanStartOnAPalette() {
         XCTAssertEqual(OrbAnimator(state: .idle, palette: .blue).current.c1, OrbPalette.blue.idle.c1)
+    }
+
+    func testEveryThemeKeepsItsStatesApart() {
+        for (name, p) in OrbPalette.presets {
+            let swatches = BubbleState.allCases.map { p[$0].swatch }
+            for i in swatches.indices {
+                for j in swatches.indices where j > i {
+                    XCTAssertGreaterThan(simd_distance(swatches[i], swatches[j]), 0.15, "\(name): \(BubbleState.allCases[i]) vs \(BubbleState.allCases[j])")
+                }
+            }
+        }
+    }
+
+    func testThemesLookDifferentFromEachOther() {
+        let working = OrbPalette.presets.map { ($0.name, $0.palette.working) }
+        for i in working.indices {
+            // The three originals share their working colours on purpose; every new theme must stand apart.
+            for j in working.indices where j > i && j >= 3 {
+                let a = working[i].1, b = working[j].1
+                XCTAssertGreaterThan(simd_distance(a.c1, b.c1) + simd_distance(a.c2, b.c2) + simd_distance(a.halo, b.halo), 0.25,
+                                     "\(working[i].0) vs \(working[j].0)")
+            }
+        }
     }
 }
