@@ -105,7 +105,10 @@ public enum IslandLayout {
     /// The top of the area the island can use on a screen: just under that screen's menu bar while it's showing,
     /// else the very top (a full-screen app, or an auto-hidden menu bar). `menuBars` are the menu bar windows on screen.
     public static func top(of screen: CGRect, menuBars: [CGRect]) -> CGFloat {
-        let bar = menuBars.first { $0.intersects(screen) && $0.maxY >= screen.maxY - 1 }
+        // Real overlap, not just a shared edge: a neighbouring display's bar starts where this screen ends.
+        let bar = menuBars.first {
+            $0.minX < screen.maxX - 1 && $0.maxX > screen.minX + 1 && $0.maxY >= screen.maxY - 1 && $0.minY < screen.maxY
+        }
         return bar.map { min($0.minY, screen.maxY) } ?? screen.maxY
     }
 
