@@ -279,12 +279,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The island's window: on its edge and spot (the dragged ones while dragging).
     private func islandWindowFrame(mouse: CGPoint) -> CGRect {
         let dock = islandDrag?.dock ?? applied.islandDock, along = islandDrag?.along ?? applied.islandAlong
-        return IslandLayout.windowFrame(dock: dock, visible: islandScreen(mouse: mouse)?.visibleFrame ?? island.frame, along: along)
+        return IslandLayout.windowFrame(dock: dock, visible: islandScreen(mouse: mouse).map(islandArea) ?? island.frame, along: along)
+    }
+
+    private var menuBars: [CGRect] = []
+    private var menuBarsCheckedAt: CFTimeInterval = 0
+
+    /// The menu bars showing right now (re-checked twice a second). macOS reports the menu bar's space as taken even
+    /// when it's hidden (a full-screen app, auto-hide), and not at all on some secondary displays, so look at the bars.
+    private func visibleMenuBars() -> [CGRect] {
+        let now = CACurrentMediaTime()
+        guard now - menuBarsCheckedAt > 0.5 else { return menuBars }
+        menuBarsCheckedAt = now
+        let level = Int(CGWindowLevelForKey(.mainMenuWindow))
+        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        menuBars = windows.compactMap { w in
+            guard w[kCGWindowLayer as String] as? Int == level,
+                  let dict = w[kCGWindowBounds as String] as? NSDictionary,
+                  let bounds = CGRect(dictionaryRepresentation: dict) else { return nil }
+            return IslandLayout.cocoaRect(fromWindowBounds: bounds, mainHeight: mainHeight)
+        }
+        return menuBars
+    }
+
+    /// Where the island can sit on a screen: the visible frame (clear of the Dock), up to just under the menu bar
+    /// while it's showing, or the very top when it isn't.
+    private func islandArea(_ screen: NSScreen) -> CGRect {
+        var v = screen.visibleFrame
+        v.size.height = IslandLayout.top(of: screen.frame, menuBars: visibleMenuBars()) - v.minY
+        return v
     }
 
     /// Dragging: snap to the edge nearest the pointer and slide along it, reshaping for that edge as it goes.
     private func dragIsland(to point: CGPoint) {
-        guard let visible = islandScreen(mouse: point)?.visibleFrame else { return }
+        guard let visible = islandScreen(mouse: point).map(islandArea) else { return }
         let target = IslandLayout.nearest(point, visible: visible)
         islandDrag = target
         hover.dismiss()
@@ -614,7 +643,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                                      pips: model.sessions.count, rows: model.sessions.count,
                                                                      footer: model.today != nil || model.usage != nil),
                                              dock: m.dock, window: island.frame)
-            let visible = NSScreen.screens.first { $0.frame.intersects(island.frame) }?.visibleFrame ?? island.frame
+            let visible = NSScreen.screens.first { $0.frame.intersects(island.frame) }.map(islandArea) ?? island.frame
             placement = ToastLayout.placeIsland(pill: pill, dock: m.dock, size: ToastPanel.size, visible: visible)
         } else {
             let orb = panel.frame

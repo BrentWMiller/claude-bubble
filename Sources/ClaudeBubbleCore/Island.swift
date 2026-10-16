@@ -43,8 +43,9 @@ public enum IslandMode: Equatable, Sendable {
 }
 
 public enum IslandLayout {
-    /// The island's window: large enough for the biggest pill, so it never moves or resizes.
-    public static let windowSize = CGSize(width: 380, height: 440)
+    /// The island's window: large enough for the biggest pill plus room for its drop shadow to fade out, so it never
+    /// moves or resizes.
+    public static let windowSize = CGSize(width: 440, height: 480)
     public static let orbSize: CGFloat = 28
     public static let pipSize: CGFloat = 5
     public static let maxPips = 5
@@ -99,6 +100,18 @@ public enum IslandLayout {
         case .left: return CGRect(x: v.minX, y: y, width: w.width, height: w.height)
         case .right: return CGRect(x: v.maxX - w.width, y: y, width: w.width, height: w.height)
         }
+    }
+
+    /// The top of the area the island can use on a screen: just under that screen's menu bar while it's showing,
+    /// else the very top (a full-screen app, or an auto-hidden menu bar). `menuBars` are the menu bar windows on screen.
+    public static func top(of screen: CGRect, menuBars: [CGRect]) -> CGFloat {
+        let bar = menuBars.first { $0.intersects(screen) && $0.maxY >= screen.maxY - 1 }
+        return bar.map { min($0.minY, screen.maxY) } ?? screen.maxY
+    }
+
+    /// Window-server window bounds (top-left origin on the main display) as a screen rect.
+    public static func cocoaRect(fromWindowBounds b: CGRect, mainHeight: CGFloat) -> CGRect {
+        CGRect(x: b.minX, y: mainHeight - b.maxY, width: b.width, height: b.height)
     }
 
     /// Dragging: the edge nearest `point`, and how far along it the point is (0…1).
