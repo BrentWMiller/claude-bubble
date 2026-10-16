@@ -55,6 +55,11 @@ public enum IslandLayout {
 
     public static func shownRows(_ count: Int) -> Int { min(count, maxRows) }
     public static let cornerRadius: CGFloat = 22
+    /// The bar's padding: tight against the docked edge, roomier on the open side.
+    public static let dockedInset: CGFloat = 4
+    public static let openInset: CGFloat = 8
+    /// The bar: the orb with its padding (40pt).
+    public static var barHeight: CGFloat { dockedInset + orbSize + openInset }
 
     /// `footer`: the hover panel's Today/usage line is showing.
     public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int,
@@ -63,16 +68,16 @@ public enum IslandLayout {
         case .hover:
             let shown = CGFloat(max(shownRows(rows), 1))
             let more = rows > maxRows ? moreHeight : 0
-            return CGSize(width: 350, height: 46 + rowHeight * shown + more + (footer ? 34 : 6) + openPadding)
-        case .needs, .error: return CGSize(width: 360, height: 98)
-        case .done: return CGSize(width: 300, height: 44)
+            return CGSize(width: 350, height: barHeight + 2 + rowHeight * shown + more + (footer ? 34 : 6) + openPadding)
+        case .needs, .error: return CGSize(width: 360, height: barHeight + 54)
+        case .done: return CGSize(width: 300, height: barHeight)
         case .rest:
             if dock.isSide {
                 let n = CGFloat(min(pips, maxPips))
                 let column = n > 0 ? 10 + n * pipSize + (n - 1) * 4 : 0
                 return CGSize(width: 44, height: 8 + orbSize + column + 12)
             }
-            return CGSize(width: rest == .compact ? 130 : 290, height: 44)
+            return CGSize(width: rest == .compact ? 130 : 290, height: barHeight)
         }
     }
 

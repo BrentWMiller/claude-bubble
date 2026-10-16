@@ -59,13 +59,13 @@ final class IslandTests: XCTestCase {
         func size(_ m: IslandMode, _ d: IslandDock = .top, _ r: IslandRest = .live, pips: Int = 3, rows: Int = 3) -> CGSize {
             IslandLayout.size(mode: m, dock: d, rest: r, pips: pips, rows: rows)
         }
-        XCTAssertEqual(size(.rest), CGSize(width: 290, height: 44))
-        XCTAssertEqual(size(.rest, .bottom, .compact), CGSize(width: 130, height: 44))
-        XCTAssertEqual(size(.needs("a")), CGSize(width: 360, height: 98))
-        XCTAssertEqual(size(.error("a"), .left), CGSize(width: 360, height: 98), "side docks go horizontal when not resting")
-        XCTAssertEqual(size(.done), CGSize(width: 300, height: 44))
-        XCTAssertEqual(size(.hover, rows: 3), CGSize(width: 350, height: 46 + 51 * 3 + 34 + 10))
-        XCTAssertEqual(size(.hover, rows: 0).height, 46 + 51 + 34 + 10, "at least one row")
+        XCTAssertEqual(size(.rest), CGSize(width: 290, height: 40))
+        XCTAssertEqual(size(.rest, .bottom, .compact), CGSize(width: 130, height: 40))
+        XCTAssertEqual(size(.needs("a")), CGSize(width: 360, height: 94))
+        XCTAssertEqual(size(.error("a"), .left), CGSize(width: 360, height: 94), "side docks go horizontal when not resting")
+        XCTAssertEqual(size(.done), CGSize(width: 300, height: 40))
+        XCTAssertEqual(size(.hover, rows: 3), CGSize(width: 350, height: 42 + 51 * 3 + 34 + 10))
+        XCTAssertEqual(size(.hover, rows: 0).height, 42 + 51 + 34 + 10, "at least one row")
     }
 
     func testSideRestIsAVerticalCapsule() {
@@ -112,7 +112,7 @@ final class IslandTests: XCTestCase {
             return ToastLayout.placeIsland(pill: pill, dock: dock, size: size, visible: visible)
         }
         let top = place(.top)
-        XCTAssertEqual(top.frame.maxY, 950 - 44 - 12)
+        XCTAssertEqual(top.frame.maxY, 950 - 44 - 12, "(placed against a 44pt test pill)")
         XCTAssertEqual(top.frame.midX, 756)
         XCTAssertFalse(top.flipped)
         let bottom = place(.bottom)
@@ -129,8 +129,8 @@ final class IslandTests: XCTestCase {
         XCTAssertEqual(IslandLayout.shownRows(4), 4)
         XCTAssertEqual(IslandLayout.shownRows(IslandLayout.maxRows + 3), IslandLayout.maxRows)
         let big = IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 12, rows: 12)
-        XCTAssertEqual(big.height, 46 + 51 * CGFloat(IslandLayout.maxRows) + IslandLayout.moreHeight + 34 + 10)
+        XCTAssertEqual(big.height, 42 + 51 * CGFloat(IslandLayout.maxRows) + IslandLayout.moreHeight + 34 + 10)
         XCTAssertLessThanOrEqual(big.height, IslandLayout.windowSize.height)
-        XCTAssertEqual(IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 2, rows: 2, footer: false).height, 46 + 51 * 2 + 6 + 10)
+        XCTAssertEqual(IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 2, rows: 2, footer: false).height, 42 + 51 * 2 + 6 + 10)
     }
 }

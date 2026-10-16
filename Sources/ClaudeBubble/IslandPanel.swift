@@ -149,7 +149,8 @@ struct IslandView: View {
     private var orbCentre: CGPoint {
         let half = IslandLayout.orbSize / 2
         if sideRest { return CGPoint(x: size.width / 2, y: 8 + half) }
-        return CGPoint(x: 10 + half, y: model.dock == .bottom ? size.height - 8 - half : 8 + half)
+        let inset = IslandLayout.dockedInset
+        return CGPoint(x: 10 + half, y: model.dock == .bottom ? size.height - inset - half : inset + half)
     }
 
     private var pill: some View {
@@ -211,9 +212,12 @@ struct IslandView: View {
                 HStack(spacing: 4) { ForEach(Array(live.prefix(IslandLayout.maxPips)), id: \.id) { pip($0) } }
             }
         }
+        .frame(height: IslandLayout.orbSize)
         .padding(.leading, 10)
         .padding(.trailing, 20)
-        .frame(height: IslandLayout.orbSize + 16)
+        // Tight against the docked edge, roomier on the open side.
+        .padding(model.dock == .bottom ? .bottom : .top, IslandLayout.dockedInset)
+        .padding(model.dock == .bottom ? .top : .bottom, IslandLayout.openInset)
     }
 
     @ViewBuilder private var detail: some View {
