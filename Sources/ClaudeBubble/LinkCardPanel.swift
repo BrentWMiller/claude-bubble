@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import ClaudeBubbleCore
 import SwiftUI
 
@@ -35,6 +36,7 @@ final class LinkCardController {
     private var anchor: NSRect = .zero   // the chip, in screen coordinates
     private var token: UUID?
     private var watch: Timer?
+    private var loaded: AnyCancellable?
     private static let gap: CGFloat = 6
 
     /// `owner`: who asked (a chip), so a late hide from another chip doesn't close this one.
@@ -78,11 +80,11 @@ final class LinkCardController {
         let h = NSHostingView(rootView: Content(model: model))
         h.sizingOptions = [.intrinsicContentSize]
         p.contentView = h
-        // The card grows when it finishes loading: keep it hugging the chip.
-        NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: h, queue: .main) { [weak self] _ in
-            self?.layout()
+        // The card grows when it finishes loading: re-measure once SwiftUI has the new content, keeping it on the chip.
+        loaded = LinkPreviewFetcher.shared.objectWillChange.sink { [weak self] _ in
+            DispatchQueue.main.async { self?.layout() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { self?.layout() }   // in case SwiftUI updated after the first look
         }
-        h.postsFrameChangedNotifications = true
         panel = p
         hosting = h
         return p
