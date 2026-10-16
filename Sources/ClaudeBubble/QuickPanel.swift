@@ -4,12 +4,19 @@ import SwiftUI
 
 /// What the quick panel's buttons do (supplied by the app).
 struct QuickPanelActions {
-    var openSettings: () -> Void
     /// Hides the bubble; it comes back on its own after an hour.
     var hideForAnHour: () -> Void
     var restart: () -> Void
     var quit: () -> Void
     var previewSound: (CompletionSound) -> Void
+    var installHooks: () -> Void
+    var resetPosition: () -> Void
+    var launchAtLogin: () -> Bool
+    var toggleLaunchAtLogin: () -> Void
+    /// "live", or a forced state's raw value.
+    var debugState: () -> String
+    var setDebugState: (String) -> Void
+    var openSimulator: () -> Void
 }
 
 /// The right-click panel: the bubble's own dark card with one-click controls, instead of a system menu.
@@ -34,6 +41,7 @@ final class QuickPanel: NSPanel {
         isReleasedWhenClosed = false
         appearance = NSAppearance(named: .darkAqua)
         host.rootView = QuickPanelView(settings: settings, actions: actions, close: { [weak self] in self?.dismiss() })
+        host.rootView.state.onResize = { [weak self] in self?.refit() }
         contentView = host
     }
 
@@ -46,19 +54,21 @@ final class QuickPanel: NSPanel {
         dismiss()
     }
 
-    /// ⌘H hide for an hour, ⌘, Settings, ⌘Q quit (the hints shown on the rows).
+    /// ⌘H hide for an hour, ⌘, settings, ⌘Q quit (the hints shown on the rows).
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else { return super.performKeyEquivalent(with: event) }
         switch event.charactersIgnoringModifiers {
         case "h": dismiss(); actions.hideForAnHour(); return true
-        case ",": dismiss(); actions.openSettings(); return true
+        case ",": host.rootView.state.go(.advanced); return true
         case "q": actions.quit(); return true
         default: return super.performKeyEquivalent(with: event)
         }
     }
 
-    /// Opens with its top-left at `point` (screen space), kept on that screen.
-    func show(at point: CGPoint) {
+    /// Opens with its top-left at `point` (screen space), kept on that screen, on `page`.
+    func show(at point: CGPoint, page: QuickPanelState.Page = .main) {
+        host.rootView.state.page = page
+        host.rootView.state.anchor = point
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
         let screen = NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main
@@ -67,12 +77,20 @@ final class QuickPanel: NSPanel {
         origin.x = min(max(origin.x, visible.minX + 8), visible.maxX - size.width - 8)
         origin.y = min(max(origin.y, visible.minY + 8), visible.maxY - size.height - 8)
         setFrame(CGRect(origin: origin, size: size), display: true)
-        host.rootView.appeared.reset()
+        host.rootView.state.popIn()
         makeKeyAndOrderFront(nil)
         // A click anywhere else closes it.
         if let m = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown], handler: { [weak self] _ in self?.dismiss() }) {
             monitors.append(m)
         }
+    }
+
+    /// The pages differ in height: keep the top-left where it opened as the content resizes.
+    func refit() {
+        guard isVisible else { return }
+        host.layoutSubtreeIfNeeded()
+        let size = host.fittingSize
+        setFrame(CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height), display: true)
     }
 
     func dismiss() {
@@ -83,12 +101,23 @@ final class QuickPanel: NSPanel {
     }
 }
 
-/// Drives the panel's pop-in each time it opens.
-final class Appeared: ObservableObject {
+/// The panel's page and pop-in.
+final class QuickPanelState: ObservableObject {
+    enum Page { case main, advanced }
+    @Published var page: Page = .main
     @Published var shown = false
-    func reset() {
+    var anchor: CGPoint = .zero
+    /// Called after the page changes so the window can fit it.
+    var onResize: (() -> Void)?
+
+    func popIn() {
         shown = false
         DispatchQueue.main.async { withAnimation(.spring(response: 0.32, dampingFraction: 0.78)) { self.shown = true } }
+    }
+
+    func go(_ page: Page) {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { self.page = page }
+        DispatchQueue.main.async { self.onResize?() }
     }
 }
 
@@ -96,13 +125,28 @@ struct QuickPanelView: View {
     @ObservedObject var settings: SettingsModel
     let actions: QuickPanelActions
     let close: () -> Void
-    @ObservedObject var appeared = Appeared()
+    @ObservedObject var state = QuickPanelState()
     @State private var hoveredTheme: String?
 
     private var prefs: BubblePreferences { settings.prefs }
     private let dim = Color.white.opacity(0.5)
 
     var body: some View {
+        Group {
+            if state.page == .main { mainPage.transition(.move(edge: .leading).combined(with: .opacity)) }
+            else { advancedPage.transition(.move(edge: .trailing).combined(with: .opacity)) }
+        }
+        .padding(10)
+        .frame(width: QuickPanel.width)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x1c / 255, green: 0x1c / 255, blue: 0x20 / 255)))
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.1), lineWidth: 1))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .scaleEffect(state.shown ? 1 : 0.95, anchor: .topLeading)
+        .opacity(state.shown ? 1 : 0)
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var mainPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             top
             divider
@@ -112,19 +156,81 @@ struct QuickPanelView: View {
             toggles
             divider
             Row(title: "Hide for an hour", shortcut: "⌘H") { close(); actions.hideForAnHour() }
-            Row(title: "Settings…", shortcut: "⌘,") { close(); actions.openSettings() }
+            Row(title: "Settings…", shortcut: "⌘,", chevron: true) { state.go(.advanced) }
             divider
             Row(title: "Restart") { actions.restart() }
             Row(title: "Quit Claude Bubble", shortcut: "⌘Q") { actions.quit() }
         }
-        .padding(10)
-        .frame(width: QuickPanel.width)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x1c / 255, green: 0x1c / 255, blue: 0x20 / 255)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.1), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .scaleEffect(appeared.shown ? 1 : 0.95, anchor: .topLeading)
-        .opacity(appeared.shown ? 1 : 0)
-        .environment(\.colorScheme, .dark)
+    }
+
+    // MARK: Advanced
+
+    private var advancedPage: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { state.go(.main) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
+                    Text("Settings").font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                }
+                .foregroundStyle(Color.white)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 4)
+            divider
+            sectionTitle("Colors")
+            ForEach([BubbleState.idle, .working, .needs, .error], id: \.self) { st in
+                HStack {
+                    Text(st.settingsLabel).foregroundStyle(Color.white.opacity(0.9))
+                    Spacer()
+                    ColorPicker("", selection: Binding(get: { st.color(in: prefs.palette) },
+                                                       set: { settings.setColor(NSColor($0), for: st) }),
+                                supportsOpacity: false)
+                        .labelsHidden()
+                }
+                .font(.system(size: 13))
+                .padding(.vertical, 1)
+            }
+            if prefs.customized {
+                Row(title: "Reset to \(prefs.presetName)") { settings.applyPreset(prefs.presetName) }
+            }
+            if prefs.style == .island {
+                divider
+                sectionTitle("Island")
+                HStack {
+                    Text("At rest").foregroundStyle(dim)
+                    Spacer()
+                    Segmented(options: [(IslandRest.live, nil, "Live"), (.compact, nil, "Compact")],
+                              selection: Binding(get: { prefs.islandRest }, set: { settings.prefs.islandRest = $0 }))
+                }
+                .font(.system(size: 13))
+                HStack {
+                    Text("Glow").foregroundStyle(dim)
+                    Spacer()
+                    Segmented(options: [(IslandGlow.waves, nil, "Waves"), (.none, nil, "None")],
+                              selection: Binding(get: { prefs.islandGlow }, set: { settings.prefs.islandGlow = $0 }))
+                }
+                .font(.system(size: 13))
+                .padding(.top, 6)
+            }
+            divider
+            sectionTitle("Setup")
+            toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
+            Row(title: "Install Claude Code hooks…") { close(); actions.installHooks() }
+            Row(title: "Reset position") { actions.resetPosition() }
+            divider
+            sectionTitle("Debug")
+            Segmented(options: [("live", nil, "Live"), ("idle", nil, "Idle"), ("working", nil, "Work"), ("needs", nil, "Needs"),
+                                ("error", nil, "Error")],
+                      selection: Binding(get: { actions.debugState() }, set: { actions.setDebugState($0) }), fill: true)
+            Row(title: "Session Simulator…") { close(); actions.openSimulator() }
+                .padding(.top, 4)
+        }
+    }
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text).font(.system(size: 13)).foregroundStyle(dim).padding(.bottom, 6)
     }
 
     private var divider: some View {
@@ -313,7 +419,7 @@ private struct Segmented<T: Hashable>: View {
                         else { Text(text).font(.system(size: large ? 14 : 13, weight: .medium)).fixedSize() }
                     }
                     .frame(maxWidth: fill ? .infinity : nil)
-                    .padding(.horizontal, icon == nil ? 12 : 10)
+                    .padding(.horizontal, fill ? 4 : icon == nil ? 12 : 10)
                     .padding(.vertical, large ? 7 : 5)
                     .foregroundStyle(on ? Color.black : Color.white.opacity(0.8))
                     .background(RoundedRectangle(cornerRadius: large ? 8 : 6).fill(on ? Color.white : Color.clear))
@@ -333,6 +439,7 @@ private struct Segmented<T: Hashable>: View {
 private struct Row: View {
     let title: String
     var shortcut: String?
+    var chevron = false
     let action: () -> Void
     @State private var hover = false
 
@@ -342,6 +449,7 @@ private struct Row: View {
                 Text(title).foregroundStyle(Color.white.opacity(0.92))
                 Spacer()
                 if let shortcut { Text(shortcut).foregroundStyle(Color.white.opacity(0.4)) }
+                if chevron { Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.white.opacity(0.4)) }
             }
             .font(.system(size: 13))
             .padding(.horizontal, 6)
