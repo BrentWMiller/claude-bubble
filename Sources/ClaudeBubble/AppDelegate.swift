@@ -170,6 +170,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(debugItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Claude Bubble", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        statusMenu = menu
         statusItem.menu = menu
     }
 
@@ -239,7 +240,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let state = forcedState ?? hoveredState ?? liveState
         animator.setState(state)
         // The menu-bar icon tracks the real (or forced) state, not a hover preview.
-        statusItem.button?.image = Self.statusImage(for: forcedState ?? liveState, palette: applied.palette)
+        statusItem.button?.image = bubbleHidden ? Self.hiddenImage : Self.statusImage(for: forcedState ?? liveState, palette: applied.palette)
+        statusItem.button?.toolTip = bubbleHidden ? "Claude Bubble is hidden — click to show it" : nil
         let selected = forcedState?.rawValue ?? "live"
         for it in debugItems { it.state = (it.representedObject as? String) == selected ? .on : .off }
     }
@@ -268,7 +270,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if listPanel.isShown { listPanel.popOut() }
             if pipCard.isVisible { pipCard.hide() }
         }
+        if !bubbleHidden { hiddenUntil = nil }
         toggleItem.title = bubbleHidden ? "Show Bubble" : "Hide Bubble"
+        // While hidden, a click on the menu-bar icon brings the bubble straight back (right-click still opens the menu).
+        if let button = statusItem.button, statusMenu != nil {
+            if bubbleHidden {
+                statusItem.menu = nil
+                button.target = self
+                button.action = #selector(statusItemClicked(_:))
+                button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            } else {
+                statusItem.menu = statusMenu
+            }
+            applyState()   // the icon shows the hidden state
+        }
     }
 
     /// The display the island lives on: the pointer's with Follow the Pointer, else the main one.
@@ -792,6 +807,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Login-item state can change in System Settings, so re-read it each time the menu opens.
     func menuWillOpen(_ menu: NSMenu) {
         launchAtLoginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        if bubbleHidden, let until = hiddenUntil, until > Date() {
+            toggleItem.title = "Show Bubble · back in \(DurationFormat.string(until.timeIntervalSinceNow + 59))"
+        }
         // Refresh the quick settings so their checkmarks match the current preferences.
         guard menu === statusItem.menu, let first = quickItems.first else { return }
         let index = menu.index(of: first)
@@ -894,6 +912,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     ))
 
     private var hideTimer: DispatchWorkItem?
+    /// When a timed hide ends (for the menu's countdown).
+    private var hiddenUntil: Date?
+    private var statusMenu: NSMenu!
 
     /// Hides the bubble and brings it back after `seconds` (unless it's been shown again by hand).
     private func hide(for seconds: TimeInterval) {
@@ -908,6 +929,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         hideTimer?.cancel()
         hideTimer = work
+        hiddenUntil = Date().addingTimeInterval(seconds)
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 
@@ -1040,6 +1062,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alert.informativeText = error.localizedDescription
         }
         alert.runModal()
+    }
+
+    /// The menu-bar icon while the bubble is hidden: crossed out, so it's clear how to bring it back.
+    private static let hiddenImage: NSImage? = {
+        let image = NSImage(systemSymbolName: "eye.slash.circle", accessibilityDescription: "Claude Bubble: hidden")
+        image?.isTemplate = true
+        return image
+    }()
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            // Open the usual menu for this one click.
+            statusItem.menu = statusMenu
+            sender.performClick(nil)
+            if bubbleHidden { statusItem.menu = nil }
+        } else if bubbleHidden {
+            toggleBubble()
+        }
     }
 
     private static func statusImage(for state: BubbleState, palette: OrbPalette) -> NSImage? {
