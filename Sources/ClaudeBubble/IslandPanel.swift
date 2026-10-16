@@ -24,9 +24,11 @@ final class IslandPanel: NSPanel {
     var onRightClick: ((NSEvent, NSView) -> Void)?
 
     init(animator: OrbAnimator, sessions: SessionsModel) {
-        let side = IslandLayout.orbSize / 0.6   // the orb fills 60% of its view
+        // As in the design, the 28pt slot is the orb's whole canvas (halo included); the orb itself is ~17pt.
+        let side = IslandLayout.orbSize
         orbView = OrbView(frame: NSRect(x: 0, y: 0, width: side, height: side), animator: animator)
         orbView.allowsDrag = false
+        orbView.crisp = true
         super.init(contentRect: CGRect(origin: .zero, size: IslandLayout.windowSize),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = true
@@ -121,15 +123,16 @@ struct IslandView: View {
         ZStack(alignment: .topLeading) {
             Color.black
             if model.glow == .waves {
-                IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: model.mode != .hover)
+                IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: model.mode != .hover,
+                               edge: !sideRest)
             }
             content
             OrbHost(view: orb)
-                .frame(width: IslandLayout.orbSize / 0.6, height: IslandLayout.orbSize / 0.6)
+                .frame(width: IslandLayout.orbSize, height: IslandLayout.orbSize)
                 .position(orbCentre)
         }
         .clipShape(shape)
-        .overlay(shape.strokeBorder(glowColor.opacity(model.glow == .waves ? 0.08 : 0), lineWidth: 1))
+        .overlay(model.glow == .waves ? IslandRim(shape: shape, color: glowColor, state: model.state) : nil)
         .shadow(color: .black.opacity(0.55), radius: 15, y: 10)
         .contentShape(shape)
         .onTapGesture(perform: onClick)
@@ -250,6 +253,18 @@ struct IslandGlowView: View {
     let orbCentre: CGPoint
     /// The dot-wave (off while the session panel is open, to keep it readable and cheap).
     let waves: Bool
+    /// The edge strip (off for the narrow side capsule).
+    let edge: Bool
+
+    /// One cell of the pixel glow's dot grid: a 1.05pt dot (soft to 1.6pt) every 4pt, tiled.
+    static let dot: Image = {
+        let image = NSImage(size: NSSize(width: 4, height: 4), flipped: false) { _ in
+            let g = NSGradient(colors: [.white, .white, .clear], atLocations: [0, 1.05 / 1.6, 1], colorSpace: .deviceRGB)
+            g?.draw(fromCenter: NSPoint(x: 2, y: 2), radius: 0, toCenter: NSPoint(x: 2, y: 2), radius: 1.6, options: [])
+            return true
+        }
+        return Image(nsImage: image)
+    }()
 
     static let doneColor = Color(red: 0.47, green: 0.9, blue: 0.67)
 
@@ -268,16 +283,45 @@ struct IslandGlowView: View {
             let pace = (model.state == .idle && model.mode != .done ? 0.45 : fast ? 1.35 : 1) * (1 + 0.5 * kick)
             let color = Self.color(state: model.state, done: model.mode == .done, palette: palette)
             ZStack(alignment: .topLeading) {
-                // Inner glow behind the orb.
+                // Behind the orb (design: innerS + inner): a soft glow, then a stronger one seen through a dot grid
+                // so it reads as lit pixels.
                 let r = 1 + 0.12 * breath + 0.1 * kick
-                RadialGradient(stops: [.init(color: color.opacity(0.55), location: 0),
-                                       .init(color: color.opacity(0.22), location: 0.09 * r),
-                                       .init(color: color.opacity(0.07), location: 0.22 * r),
-                                       .init(color: .clear, location: 0.5 * r)],
-                               center: .center, startRadius: 0, endRadius: 220)
+                let reach: CGFloat = 311   // the design's 440pt box, farthest-corner radius
+                RadialGradient(stops: [.init(color: color.opacity(0.35), location: 0),
+                                       .init(color: color.opacity(0.1), location: 0.14 * r),
+                                       .init(color: .clear, location: 0.36 * r)],
+                               center: .center, startRadius: 0, endRadius: reach)
                     .frame(width: 440, height: 440)
                     .position(orbCentre)
+                    .opacity(min(1, (0.5 + 0.3 * breath) * pace))
+                RadialGradient(stops: [.init(color: color.opacity(0.7), location: 0),
+                                       .init(color: color.opacity(0.38), location: 0.09 * r),
+                                       .init(color: color.opacity(0.12), location: 0.22 * r),
+                                       .init(color: color.opacity(0.03), location: 0.36 * r),
+                                       .init(color: .clear, location: 0.5 * r)],
+                               center: .center, startRadius: 0, endRadius: reach)
+                    .frame(width: 440, height: 440)
+                    .mask(Rectangle().fill(ImagePaint(image: Self.dot, scale: 1)))
+                    .position(orbCentre)
                     .opacity(min(1, (0.45 + 0.25 * breath) * pace))
+                // Edge glow (design: edge): a bright strip down the orb's edge of the pill, fading away from the dock.
+                if edge {
+                    LinearGradient(stops: [.init(color: color.opacity(0.55 + 0.25 * breath), location: 0),
+                                           .init(color: color.opacity(0.5 + 0.2 * breath), location: 1.5 / 26),
+                                           .init(color: color.opacity(0.22 + 0.12 * breath), location: 3 / 26),
+                                           .init(color: color.opacity(0.06), location: 12 / 26),
+                                           .init(color: .clear, location: 1)],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 26)
+                        .frame(maxHeight: .infinity)
+                        .mask(GeometryReader { geo in
+                            let h = max(geo.size.height, 1)
+                            LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: min(1, 34 / h)),
+                                                   .init(color: .clear, location: min(1, 96 / h))],
+                                           startPoint: model.dock == .bottom ? .bottom : .top,
+                                           endPoint: model.dock == .bottom ? .top : .bottom)
+                        })
+                }
                 if waves {
                     Canvas { ctx, size in
                         drawWaves(ctx, size: size, time: now, kick: kick, breath: breath, color: color)
@@ -323,5 +367,21 @@ struct IslandGlowView: View {
             }
             gx += 4
         }
+    }
+}
+
+/// The pill's 1pt inner rim in the state colour, breathing with the glow (design: inset box-shadow).
+private struct IslandRim: View {
+    let shape: UnevenRoundedRectangle
+    let color: Color
+    let state: BubbleState
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 15)) { context in
+            let fast = state == .needs || state == .error
+            let breath = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * (fast ? 4.2 : 1.7))
+            shape.strokeBorder(color.opacity(0.06 + 0.04 * breath), lineWidth: 1)
+        }
+        .allowsHitTesting(false)
     }
 }
