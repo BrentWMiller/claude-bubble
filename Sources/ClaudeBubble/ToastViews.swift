@@ -9,6 +9,8 @@ final class ToastModel: ObservableObject {
     /// Toasts sit above the orb (no room below): newest nearest the orb, stack growing upward.
     @Published var flipped = false
     @Published var palette: OrbPalette = .agentsView
+    /// Toasts hug the orb's side of the panel when the stack sits beside it.
+    @Published var align: ToastLayout.Align = .center
 }
 
 extension ToastKind {
@@ -28,16 +30,33 @@ struct ToastStackView: View {
     @ObservedObject var model: ToastModel
     static let pillHeight: CGFloat = 30
 
+    private var horizontal: Alignment {
+        switch model.align {
+        case .leading: .leading
+        case .center: .center
+        case .trailing: .trailing
+        }
+    }
+
+    private var anchor: UnitPoint {
+        switch model.align {
+        case .leading: model.flipped ? .bottomLeading : .topLeading
+        case .center: model.flipped ? .bottom : .top
+        case .trailing: model.flipped ? .bottomTrailing : .topTrailing
+        }
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .top) {
                 ForEach(model.placements, id: \.id) { t in
                     let y = model.flipped ? geo.size.height - t.top - Self.pillHeight : t.top
-                    ToastPill(toast: t, color: t.kind.color(in: model.palette))
-                        .scaleEffect(t.scale, anchor: model.flipped ? .bottom : .top)
+                    ToastPill(toast: t, color: t.kind.color(in: model.palette), alignment: horizontal)
+                        .scaleEffect(t.scale, anchor: anchor)
                         .blur(radius: t.blur)
                         .opacity(t.opacity)
                         .offset(y: t.showing ? 0 : -8)
+                        .frame(width: geo.size.width, alignment: horizontal)
                         .position(x: geo.size.width / 2, y: y + Self.pillHeight / 2)
                         .zIndex(Double(t.z))
                         .animation(.spring(response: 0.55, dampingFraction: 0.72), value: t.top)
@@ -55,10 +74,11 @@ struct ToastStackView: View {
 struct ToastPill: View {
     let toast: ToastPlacement
     let color: Color
+    var alignment: Alignment = .center
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: CACurrentMediaTime() - toast.born > 1)) { _ in
-            DecodingPill(toast: toast, color: color, frame: DecodeFrame(toast: toast, now: CACurrentMediaTime()))
+            DecodingPill(toast: toast, color: color, frame: DecodeFrame(toast: toast, now: CACurrentMediaTime()), alignment: alignment)
         }
     }
 }
@@ -94,6 +114,7 @@ struct DecodingPill: View {
     let toast: ToastPlacement
     let color: Color
     let frame: DecodeFrame
+    var alignment: Alignment = .center
 
     private var inverse: Double { 1 - frame.progress }
     private var dotOpacity: Double { frame.progress < 0.4 && frame.tick % 2 == 0 ? 0.25 : 1 }
@@ -104,9 +125,9 @@ struct DecodingPill: View {
             .overlay(Scanlines().opacity(max(0, inverse * 1.1 - 0.1)).clipShape(Capsule()))
             .overlay(Capsule().fill(color).blendMode(.screen).opacity(pow(inverse, 4) * 0.35))
             .overlay(Sweep(progress: frame.progress).clipShape(Capsule()))
-            .frame(maxWidth: 280)
             .offset(x: jitter)
             .mask { RevealMask(reveal: frame.reveal) }
+            .frame(maxWidth: 280, alignment: alignment)
     }
 
     private var content: some View {

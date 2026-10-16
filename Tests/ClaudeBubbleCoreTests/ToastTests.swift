@@ -132,41 +132,48 @@ final class ToastTests: XCTestCase {
         XCTAssertEqual(byKind[.finished], "finished")
     }
 
-    // Placement follows the pips
+    // Placement: centred under the orb, moved to the opposite side of whatever would be cut off
 
     let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
     let size = CGSize(width: 320, height: 230)
     func orb(_ cx: CGFloat, _ cy: CGFloat) -> CGRect { CGRect(x: cx - 60, y: cy - 60, width: 120, height: 120) }
 
     func testOpenSpaceSitsCentredBelow() {
-        let o = orb(500, 500)
-        let p = ToastLayout.place(orb: o, around: 90, size: size, visible: screen)
+        let p = ToastLayout.place(orb: orb(500, 500), size: size, visible: screen)
         XCTAssertEqual(p.frame.midX, 500)
         XCTAssertEqual(p.frame.maxY, 500 - 120 * 0.3 * 1.49, accuracy: 0.01)
         XCTAssertFalse(p.flipped)
+        XCTAssertEqual(p.align, .center)
         XCTAssertEqual(p.pull, SIMD2(0, -1))
     }
 
-    func testPipsAboveSendTheToastsAbove() {
-        let o = orb(500, 20)
-        let p = ToastLayout.place(orb: o, around: 270, size: size, visible: screen)
+    func testCutOffBelowGoesAbove() {
+        let p = ToastLayout.place(orb: orb(500, 20), size: size, visible: screen)
         XCTAssertTrue(p.flipped)
         XCTAssertGreaterThan(p.frame.minY, 20)
         XCTAssertEqual(p.pull, SIMD2(0, 1))
     }
 
-    func testPipsToTheLeftSendTheToastsLeftAndOnScreen() {
-        let o = orb(1010, 400)   // hanging off the right edge
-        let p = ToastLayout.place(orb: o, around: 180, size: size, visible: screen)
-        XCTAssertLessThanOrEqual(p.frame.maxX, 1010 - 120 * 0.3 * 1.28)
-        XCTAssertTrue(screen.contains(p.frame))
+    func testCutOffRightGoesLeftLevelWithTheOrb() {
+        let p = ToastLayout.place(orb: orb(1010, 400), size: size, visible: screen)   // hanging off the right
+        XCTAssertEqual(p.align, .trailing, "hugs the orb's side")
+        XCTAssertEqual(p.frame.maxX, 1010 - 120 * 0.3 * 1.28 - 12, accuracy: 0.01)
+        XCTAssertEqual(p.frame.maxY - 6 - 15, 400, accuracy: 0.01, "first toast centred on the orb")
+        XCTAssertFalse(p.flipped)
         XCTAssertEqual(p.pull, SIMD2(-1, 0))
     }
 
+    func testCutOffLeftGoesRight() {
+        let p = ToastLayout.place(orb: orb(-10, 400), size: size, visible: screen)
+        XCTAssertEqual(p.align, .leading)
+        XCTAssertEqual(p.frame.minX, -10 + 120 * 0.3 * 1.28 + 12, accuracy: 0.01)
+        XCTAssertEqual(p.pull, SIMD2(1, 0))
+    }
+
     func testAlwaysInsideTheScreen() {
-        for (cx, cy, around) in [(-10.0, 400.0, 0.0), (500, -10, 270), (1010, -10, 225), (990, 700, 135), (150, 400, 90)] {
-            let p = ToastLayout.place(orb: orb(cx, cy), around: around, size: size, visible: screen)
-            XCTAssertTrue(screen.insetBy(dx: -0.01, dy: -0.01).contains(p.frame), "\(cx),\(cy) @\(around)")
+        for (cx, cy) in [(-10.0, 400.0), (500, -10), (1010, -10), (990, 790), (150, 400), (1010, 790)] {
+            let p = ToastLayout.place(orb: orb(cx, cy), size: size, visible: screen)
+            XCTAssertTrue(screen.insetBy(dx: -0.01, dy: -0.01).contains(p.frame), "\(cx),\(cy)")
         }
     }
 }

@@ -428,10 +428,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let orb = panel.frame
         let visible = BubblePanel.screen(nearest: CGPoint(x: orb.midX, y: orb.midY))?.visibleFrame ?? orb
-        // Same side as the pips, and always fully on screen.
-        let placement = ToastLayout.place(orb: orb, around: model.pipAround, size: ToastPanel.size, visible: visible)
+        // Under the orb, or opposite whichever side would be cut off; always fully on screen.
+        let placement = ToastLayout.place(orb: orb, size: ToastPanel.size, visible: visible)
         let frame = placement.frame, flipped = placement.flipped
         toastPull = placement.pull
+        if toastModel.align != placement.align { toastModel.align = placement.align }
         // Expanded while the pointer is over the stack (lifetimes pause too).
         let collapsedHeight = toasts.stackHeight(expanded: false)
         let height = toastModel.placements.isEmpty ? collapsedHeight : max(collapsedHeight, toasts.stackHeight(expanded: hoverToasts))

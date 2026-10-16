@@ -108,12 +108,12 @@ When the orb is near a screen edge, a thin light runs along that edge. It is bri
 - **Preferences:** the edgeLight default, and older saved settings.
 - **By hand:** dragging the orb to each edge and corner.
 
-## 3. Toasts follow the pips
+## 3. Toasts stay on screen
 
-`ToastLayout.place(orb:around:size:visible:)` (core) puts the toast stack on the same side as the pip arc:
+`ToastLayout.place(orb:size:visible:)` (core) decides where the toast stack goes:
 
-- **Down** (45°–135°): centred below the pips, as before. It flips above the orb when there's no room below.
-- **Up:** above the orb, flipped (newest nearest the orb). It drops below the orb if there's no room above.
-- **Sideways:** out past the pips on that side, with the first toast level with the orb, growing downward.
+- **Default:** centred below the pips, as before.
+- **Cut off at the bottom:** above the orb, flipped (newest nearest the orb).
+- **Cut off at a side:** on the opposite side of the orb, just past the pips. The first toast is level with the orb's centre, and the toasts hug the orb's side of the panel.
 
-After that, the frame is pulled fully inside the visible frame, so a toast is never cut off. The orb's toast tug points toward the stack.
+After that, the frame is pulled fully inside the visible frame. The orb's toast tug points toward the stack.
