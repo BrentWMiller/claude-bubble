@@ -250,24 +250,29 @@ public enum PipArc {
     /// `centre` and `visible` are in screen space (y-up); the result is view degrees like `position`'s `around`.
     public static func around(centre: CGPoint, radius: CGFloat, slots: Int, visible: CGRect) -> Double {
         guard slots > 0 else { return 90 }
-        let inner = visible.insetBy(dx: 16, dy: 16)
-        func inside(_ a: Double) -> Int {
-            (0..<slots).filter { i in
+        func inside(_ a: Double, margin: CGFloat) -> Int {
+            let inner = visible.insetBy(dx: margin, dy: margin)
+            return (0..<slots).filter { i in
                 let p = position(slot: i, slots: slots, centre: .zero, radius: radius, around: a)
                 return inner.contains(CGPoint(x: centre.x + p.x, y: centre.y - p.y))   // view y-down → screen y-up
             }.count
         }
         func offDown(_ a: Double) -> Double { let d = abs((a - 90).truncatingRemainder(dividingBy: 360)); return min(d, 360 - d) }
         let candidates = stride(from: 90.0, to: 450, by: 5).map { $0.truncatingRemainder(dividingBy: 360) }
-        let scored = candidates.map { (angle: $0, inside: inside($0)) }
-        guard let best = scored.max(by: { a, b in
-            a.inside != b.inside ? a.inside < b.inside : offDown(a.angle) > offDown(b.angle)
-        }) else { return 90 }
-        guard best.angle != 90 else { return 90 }
-        // Turned: go a little further than the bare minimum, so the pips sit comfortably on screen.
-        let away = (best.angle - 90 + 540).truncatingRemainder(dividingBy: 360) - 180
-        let further = (best.angle + (away > 0 ? 12 : -12) + 360).truncatingRemainder(dividingBy: 360)
-        return inside(further) >= best.inside ? further : best.angle
+        // A comfortable 16pt margin if any angle allows it; deep in a corner, settle for less.
+        for margin: CGFloat in [16, 8, 4, 0] {
+            let clear = candidates.filter { inside($0, margin: margin) == slots }
+            guard let best = clear.min(by: { offDown($0) < offDown($1) }) else { continue }
+            guard best != 90 else { return 90 }
+            // Turned: go a little further than the bare minimum, so the pips sit comfortably on screen.
+            let away = (best - 90 + 540).truncatingRemainder(dividingBy: 360) - 180
+            let further = (best + (away > 0 ? 12 : -12) + 360).truncatingRemainder(dividingBy: 360)
+            return inside(further, margin: margin) == slots ? further : best
+        }
+        return candidates.max { a, b in
+            let ia = inside(a, margin: 0), ib = inside(b, margin: 0)
+            return ia != ib ? ia < ib : offDown(a) > offDown(b)
+        } ?? 90
     }
 
     /// The session whose visible pip is nearest `point`, within half the pip spacing (at most 7pt), if any.

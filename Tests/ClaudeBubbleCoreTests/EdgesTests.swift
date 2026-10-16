@@ -110,13 +110,15 @@ final class EdgesTests: XCTestCase {
 
     // Further off screen, and pips further on
 
-    func testDragClampLetsTheCentrePassTheEdgeByHalfARadius() {
+    func testDragClampLetsFourFifthsOfTheOrbOffScreen() {
         let side: CGFloat = 120, radius = side * 0.3   // 36
         let visible = CGRect(x: 0, y: 80, width: 1000, height: 690)
-        // Far off the bottom-right: the centre stops 18pt past the right and bottom edges.
+        // Far off the bottom-right: the centre stops 0.6 of a radius past the edges, so a fifth of the width shows.
         let o = BubblePlacement.clampedOrigin(CGPoint(x: 2000, y: -500), side: side, screen: screen, visible: visible)
-        XCTAssertEqual(o.x + side / 2, screen.maxX + radius / 2)
-        XCTAssertEqual(o.y + side / 2, screen.minY - radius / 2)
+        XCTAssertEqual(o.x + side / 2, screen.maxX + radius * 0.6, accuracy: 0.001)
+        XCTAssertEqual(o.y + side / 2, screen.minY - radius * 0.6, accuracy: 0.001)
+        let showing = screen.maxX - (o.x + side / 2 - radius)
+        XCTAssertEqual(showing / (2 * radius), 0.2, accuracy: 0.001)
         // The top keeps the whole orb below the menu bar.
         let top = BubblePlacement.clampedOrigin(CGPoint(x: 400, y: 2000), side: side, screen: screen, visible: visible)
         XCTAssertEqual(top.y + side / 2, visible.maxY - radius)
@@ -127,7 +129,7 @@ final class EdgesTests: XCTestCase {
 
     func testSavedSpotPartlyOffScreenIsKept() {
         let side: CGFloat = 120
-        let saved = CGPoint(x: 1000 + 18 - 60, y: -18 - 60)   // centre 18pt past the bottom-right corner
+        let saved = CGPoint(x: 1000 + 21.6 - 60, y: -21.6 - 60)   // centre 0.6 radius past the bottom-right corner
         XCTAssertEqual(BubblePlacement.origin(saved: saved, size: side, screenFrames: [screen], mainVisibleFrame: screen), saved)
     }
 
@@ -146,5 +148,14 @@ final class EdgesTests: XCTestCase {
         XCTAssertEqual(EdgeLight.sharedEdges(of: a, among: [b]), [.right])
         XCTAssertEqual(EdgeLight.sharedEdges(of: b, among: [a]), [.left])
         XCTAssertEqual(EdgeLight.strips(orbCentre: CGPoint(x: 995, y: 300), orbRadius: 30, screen: a, skipping: [.right]), [])
+    }
+
+    func testDeepCornerStillShowsThePips() {
+        // The orb 0.6 radius past both edges of the bottom-right corner (orb radius = arc radius / 1.28).
+        let orbR = r / 1.28
+        let c = CGPoint(x: 1000 + orbR * 0.6, y: -orbR * 0.6)
+        let a = PipArc.around(centre: c, radius: r, slots: 4, visible: screen)
+        XCTAssertTrue(slots(c, 4, around: a).allSatisfy { screen.contains($0) }, "every pip on screen")
+        XCTAssertTrue(slots(c, 4, around: a).allSatisfy { $0.x < 1000 && $0.y > 0 })
     }
 }

@@ -16,7 +16,7 @@ The pip arc keeps its radius, its 11° step and its order. The whole arc rotates
   - the visible frame of the screen the orb is on. When the centre is off every screen, this is the screen nearest to it.
 - **Candidates:** every 5° around the circle.
 - **Pick:**
-  - a candidate is "clear" when every slot's centre is at least 16pt inside the visible frame;
+  - a candidate is "clear" when every slot's centre is at least 16pt inside the visible frame (falling back to 8, 4, then 0pt when no angle manages it, e.g. deep in a corner);
   - pick the clear candidate nearest to straight down;
   - if none is clear, pick the one with the most slots inside, nearest to down on ties;
   - once the arc has to turn, it turns 12° further (if that stays clear), so the pips sit comfortably on screen.
@@ -38,7 +38,7 @@ The pip arc keeps its radius, its 11° step and its order. The whole arc rotates
 ## 1b. Dragging partly off screen
 
 - **Our own drag** (not the system's) moves the orb.
-  - **Left, right and bottom:** its centre may go half an orb radius past the screen's edges, which leaves about a third of the orb showing.
+  - **Left, right and bottom:** its centre may go 0.6 of an orb radius past the screen's edges, so four fifths of its width can be off screen.
   - **Top:** the whole orb stays below the menu bar.
 - **Saved position:** kept on relaunch while the orb's centre is within an orb radius of a screen.
 

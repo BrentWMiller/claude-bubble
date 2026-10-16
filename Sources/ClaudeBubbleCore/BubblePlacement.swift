@@ -6,10 +6,10 @@ public enum BubblePlacement {
         CGPoint(x: visibleFrame.midX - size / 2, y: visibleFrame.minY + 56)
     }
 
-    /// The orb may hang off the left, right and bottom of a screen until its centre is half a radius past the edge
-    /// (about a third of it still showing); at the top it stays wholly below the menu bar.
+    /// The orb may hang off the left, right and bottom of a screen until its centre is 0.6 of a radius past the edge
+    /// (four fifths of its width off, a fifth still showing to grab); at the top it stays wholly below the menu bar.
     public static func clampedOrigin(_ origin: CGPoint, side: CGFloat, screen: CGRect, visible: CGRect) -> CGPoint {
-        let radius = side * 0.3, over = radius / 2
+        let radius = side * 0.3, over = radius * 0.6
         let cx = min(max(origin.x + side / 2, screen.minX - over), screen.maxX + over)
         let cy = min(max(origin.y + side / 2, screen.minY - over), visible.maxY - radius)
         return CGPoint(x: cx - side / 2, y: cy - side / 2)
