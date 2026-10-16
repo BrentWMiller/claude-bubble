@@ -9,7 +9,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private lazy var animator = OrbAnimator(palette: settings.prefs.palette)
     private var applied = BubblePreferences.defaults
     private var settingsSubscription: AnyCancellable?
-    private var settingsWindow: SettingsWindowController?
     private var lastTodayRefresh: CFTimeInterval = 0
     private var hoverToasts = false
     /// Re-anchors the list once a drag settles.
@@ -171,7 +170,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Claude Bubble", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusMenu = menu
-        statusItem.menu = menu
+        // The icon opens the same panel as right-clicking the bubble (or, while hidden, a click brings it back).
+        if let button = statusItem.button {
+            button.target = self
+            button.action = #selector(statusItemClicked(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        }
     }
 
     private func item(_ title: String, _ action: Selector) -> NSMenuItem {
@@ -273,17 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !bubbleHidden { hiddenUntil = nil }
         toggleItem.title = bubbleHidden ? "Show Bubble" : "Hide Bubble"
         // While hidden, a click on the menu-bar icon brings the bubble straight back (right-click still opens the menu).
-        if let button = statusItem.button, statusMenu != nil {
-            if bubbleHidden {
-                statusItem.menu = nil
-                button.target = self
-                button.action = #selector(statusItemClicked(_:))
-                button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            } else {
-                statusItem.menu = statusMenu
-            }
-            applyState()   // the icon shows the hidden state
-        }
+        if statusItem != nil { applyState() }   // the icon shows the hidden state
     }
 
     /// The display the island lives on: the pointer's with Follow the Pointer, else the main one.
@@ -465,11 +459,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Settings live on the panel's second page.
     @objc private func openSettings() {
-        if settingsWindow == nil {
-            settingsWindow = SettingsWindowController(settings: settings) { [weak self] in self?.sounds.previewCompletion($0) }
-        }
-        settingsWindow?.show()
+        showQuickPanelFromStatusItem(page: .advanced)
     }
 
     /// Pushes changed preferences to the orb, pips, list and window.
@@ -904,12 +896,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private lazy var quickPanel = QuickPanel(settings: settings, actions: QuickPanelActions(
-        openSettings: { [weak self] in self?.openSettings() },
         hideForAnHour: { [weak self] in self?.hide(for: 3600) },
         restart: { [weak self] in self?.restart() },
         quit: { NSApp.terminate(nil) },
-        previewSound: { [weak self] option in self?.sounds.previewCompletion(option) }
+        previewSound: { [weak self] option in self?.sounds.previewCompletion(option) },
+        installHooks: { [weak self] in self?.installHooks() },
+        resetPosition: { [weak self] in self?.resetPosition() },
+        launchAtLogin: { SMAppService.mainApp.status == .enabled },
+        toggleLaunchAtLogin: { [weak self] in self?.toggleLaunchAtLogin() },
+        debugState: { [weak self] in self?.forcedState?.rawValue ?? "live" },
+        setDebugState: { [weak self] key in self?.forceState(key) },
+        openSimulator: { [weak self] in self?.openSimulator() }
     ))
+
+    /// Under the menu-bar icon (or at the pointer if the icon isn't showing).
+    private func showQuickPanelFromStatusItem(page: QuickPanelState.Page = .main) {
+        if let button = statusItem.button, let window = button.window {
+            let r = window.convertToScreen(button.convert(button.bounds, to: nil))
+            quickPanel.show(at: CGPoint(x: r.minX - 4, y: r.minY), page: page)
+        } else {
+            quickPanel.show(at: NSEvent.mouseLocation, page: page)
+        }
+    }
 
     private var hideTimer: DispatchWorkItem?
     /// When a timed hide ends (for the menu's countdown).
@@ -1033,10 +1041,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func setDebugState(_ sender: NSMenuItem) {
+        forceState(sender.representedObject as? String ?? "live")
+    }
+
+    /// Debug: force a state ("live" returns to real sessions); Working then Idle previews the completed moment.
+    private func forceState(_ key: String) {
         let before = forcedState ?? liveState
-        forcedState = (sender.representedObject as? String).flatMap(BubbleState.init(rawValue:))
+        forcedState = BubbleState(rawValue: key)
         applyState()
-        // Debug ▸ Working then Idle previews the completed moment.
         if before == .working, forcedState == .idle { animator.celebrate(from: .working) }
     }
 
@@ -1072,13 +1084,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }()
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        if NSApp.currentEvent?.type == .rightMouseUp {
-            // Open the usual menu for this one click.
-            statusItem.menu = statusMenu
-            sender.performClick(nil)
-            if bubbleHidden { statusItem.menu = nil }
-        } else if bubbleHidden {
+        if bubbleHidden, NSApp.currentEvent?.type != .rightMouseUp {
             toggleBubble()
+        } else if quickPanel.isVisible {
+            quickPanel.dismiss()
+        } else {
+            showQuickPanelFromStatusItem()
         }
     }
 
