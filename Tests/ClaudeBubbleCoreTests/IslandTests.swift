@@ -172,4 +172,27 @@ final class IslandTests: XCTestCase {
         XCTAssertEqual(old.islandAlong, 0.5)
         XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: Data(#"{"islandAlong": 7}"#.utf8)).clamped().islandAlong, 1, "clamped")
     }
+
+    // The top edge: under a menu bar that's showing, else the screen's top
+
+    func testTopIsUnderAShowingMenuBarElseTheScreenTop() {
+        let screen = CGRect(x: 0, y: 0, width: 1728, height: 1117)
+        let bar = CGRect(x: 0, y: 1084, width: 1728, height: 33)
+        XCTAssertEqual(IslandLayout.top(of: screen, menuBars: [bar]), 1084)
+        XCTAssertEqual(IslandLayout.top(of: screen, menuBars: []), 1117, "full screen or auto-hidden: right to the top")
+        let other = CGRect(x: 891, y: 2167, width: 1920, height: 30)   // another display's bar
+        XCTAssertEqual(IslandLayout.top(of: screen, menuBars: [other]), 1117)
+    }
+
+    func testMenuBarFromWindowServerBounds() {
+        // Window-server bounds are top-left based; the main display is 1117pt tall.
+        XCTAssertEqual(IslandLayout.cocoaRect(fromWindowBounds: CGRect(x: 891, y: -1080, width: 1920, height: 30), mainHeight: 1117),
+                       CGRect(x: 891, y: 2167, width: 1920, height: 30))
+    }
+
+    func testWindowLeavesRoomForTheShadow() {
+        XCTAssertGreaterThanOrEqual(IslandLayout.windowSize.width - 360, 2 * 30, "the widest pill plus shadow room")
+        XCTAssertGreaterThanOrEqual(IslandLayout.windowSize.height,
+                                    IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 9, rows: 9).height + 30)
+    }
 }
