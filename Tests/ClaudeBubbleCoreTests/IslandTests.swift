@@ -133,4 +133,43 @@ final class IslandTests: XCTestCase {
         XCTAssertLessThanOrEqual(big.height, IslandLayout.windowSize.height)
         XCTAssertEqual(IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 2, rows: 2, footer: false).height, 42 + 51 * 2 + 6 + 10)
     }
+
+    // Dragging around the edges
+
+    func testNearestEdgeAndPositionAlongIt() {
+        // visible = (0, 50, 1512 × 900)
+        XCTAssertEqual(IslandLayout.nearest(CGPoint(x: 300, y: 930), visible: visible).dock, .top)
+        XCTAssertEqual(IslandLayout.nearest(CGPoint(x: 300, y: 930), visible: visible).along, 300.0 / 1512, accuracy: 1e-6)
+        XCTAssertEqual(IslandLayout.nearest(CGPoint(x: 1500, y: 500), visible: visible).dock, .right)
+        XCTAssertEqual(IslandLayout.nearest(CGPoint(x: 1500, y: 500), visible: visible).along, 0.5, accuracy: 1e-6)
+        XCTAssertEqual(IslandLayout.nearest(CGPoint(x: 10, y: 600), visible: visible).dock, .left)
+        XCTAssertEqual(IslandLayout.nearest(CGPoint(x: 700, y: 60), visible: visible).dock, .bottom)
+        // Off the screen still picks an edge, clamped along it.
+        let off = IslandLayout.nearest(CGPoint(x: -400, y: 5000), visible: visible)
+        XCTAssertTrue(off.along >= 0 && off.along <= 1)
+    }
+
+    func testWindowSlidesAlongItsEdgeButStaysOnScreen() {
+        let w = IslandLayout.windowSize
+        let mid = IslandLayout.windowFrame(dock: .top, visible: visible, along: 0.25)
+        XCTAssertEqual(mid.midX, 1512 * 0.25, accuracy: 0.01)
+        XCTAssertEqual(mid.maxY, 950)
+        XCTAssertEqual(IslandLayout.windowFrame(dock: .top, visible: visible, along: 0).minX, 0, "clear of the corner")
+        XCTAssertEqual(IslandLayout.windowFrame(dock: .bottom, visible: visible, along: 1).maxX, 1512)
+        XCTAssertEqual(IslandLayout.windowFrame(dock: .left, visible: visible, along: 0.9).midY, 50 + 900 * 0.9 > 950 - w.height / 2
+                       ? 950 - w.height / 2 : 50 + 900 * 0.9, accuracy: 0.01)
+        XCTAssertEqual(IslandLayout.windowFrame(dock: .right, visible: visible, along: 0).minY, 50)
+        XCTAssertEqual(IslandLayout.windowFrame(dock: .top, visible: visible), IslandLayout.windowFrame(dock: .top, visible: visible, along: 0.5))
+    }
+
+    func testAlongIsSavedAndDefaultsToTheMiddle() throws {
+        XCTAssertEqual(BubblePreferences.defaults.islandAlong, 0.5)
+        var p = BubblePreferences.defaults
+        p.islandAlong = 0.2
+        let back = try JSONDecoder().decode(BubblePreferences.self, from: JSONEncoder().encode(p))
+        XCTAssertEqual(back.islandAlong, 0.2)
+        let old = try JSONDecoder().decode(BubblePreferences.self, from: Data(#"{"islandDock": "left"}"#.utf8))
+        XCTAssertEqual(old.islandAlong, 0.5)
+        XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: Data(#"{"islandAlong": 7}"#.utf8)).clamped().islandAlong, 1, "clamped")
+    }
 }

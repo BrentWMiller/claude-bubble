@@ -41,6 +41,8 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var islandDock: IslandDock
     public var islandRest: IslandRest
     public var islandGlow: IslandGlow
+    /// Where along its edge the island sits (0…1; dragging sets it).
+    public var islandAlong: Double
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
@@ -68,6 +70,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandDock = .top
         islandRest = .live
         islandGlow = .waves
+        islandAlong = 0.5
     }
 
     func with(style: BubbleStyle, dock: IslandDock, rest: IslandRest, glow: IslandGlow) -> BubblePreferences {
@@ -100,6 +103,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandDock = (try? c.decodeIfPresent(IslandDock.self, forKey: .islandDock)) ?? d.islandDock
         islandRest = (try? c.decodeIfPresent(IslandRest.self, forKey: .islandRest)) ?? d.islandRest
         islandGlow = (try? c.decodeIfPresent(IslandGlow.self, forKey: .islandGlow)) ?? d.islandGlow
+        islandAlong = (try? c.decodeIfPresent(Double.self, forKey: .islandAlong)) ?? d.islandAlong
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {
@@ -124,6 +128,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         var p = self
         p.diameter = min(max(diameter, OrbSize.minDiameter), OrbSize.maxDiameter)
         p.opacity = min(max(opacity, 0.3), 1)
+        p.islandAlong = min(max(islandAlong, 0), 1)
         if OrbPalette.preset(named: presetName) == nil { p.presetName = "Agents view" }
         if let spot = relativeSpot, spot.count != 2 { p.relativeSpot = nil }
         return p

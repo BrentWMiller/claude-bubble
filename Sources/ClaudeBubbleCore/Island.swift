@@ -81,15 +81,27 @@ public enum IslandLayout {
         }
     }
 
-    /// Flush with the docked edge of the visible frame (so a top island sits just under the menu bar).
-    public static func windowFrame(dock: IslandDock, visible v: CGRect) -> CGRect {
-        let w = windowSize
+    /// Flush with the docked edge of the visible frame (so a top island sits just under the menu bar), `along` that
+    /// edge (0 = left/bottom end, 1 = right/top end), kept wholly on screen so it stays clear of the corners.
+    public static func windowFrame(dock: IslandDock, visible v: CGRect, along: Double = 0.5) -> CGRect {
+        let w = windowSize, a = CGFloat(min(max(along, 0), 1))
+        let x = min(max(v.minX + a * v.width - w.width / 2, v.minX), v.maxX - w.width)
+        let y = min(max(v.minY + a * v.height - w.height / 2, v.minY), v.maxY - w.height)
         switch dock {
-        case .top: return CGRect(x: v.midX - w.width / 2, y: v.maxY - w.height, width: w.width, height: w.height)
-        case .bottom: return CGRect(x: v.midX - w.width / 2, y: v.minY, width: w.width, height: w.height)
-        case .left: return CGRect(x: v.minX, y: v.midY - w.height / 2, width: w.width, height: w.height)
-        case .right: return CGRect(x: v.maxX - w.width, y: v.midY - w.height / 2, width: w.width, height: w.height)
+        case .top: return CGRect(x: x, y: v.maxY - w.height, width: w.width, height: w.height)
+        case .bottom: return CGRect(x: x, y: v.minY, width: w.width, height: w.height)
+        case .left: return CGRect(x: v.minX, y: y, width: w.width, height: w.height)
+        case .right: return CGRect(x: v.maxX - w.width, y: y, width: w.width, height: w.height)
         }
+    }
+
+    /// Dragging: the edge nearest `point`, and how far along it the point is (0…1).
+    public static func nearest(_ p: CGPoint, visible v: CGRect) -> (dock: IslandDock, along: Double) {
+        let candidates: [(IslandDock, CGFloat)] = [(.top, v.maxY - p.y), (.bottom, p.y - v.minY),
+                                                   (.left, p.x - v.minX), (.right, v.maxX - p.x)]
+        let dock = candidates.min { $0.1 < $1.1 }!.0
+        let along = dock.isSide ? (p.y - v.minY) / v.height : (p.x - v.minX) / v.width
+        return (dock, Double(min(max(along, 0), 1)))
     }
 
     /// The pill inside the window: on the docked edge, centred along it (screen space).
