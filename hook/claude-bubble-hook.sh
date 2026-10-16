@@ -3,8 +3,10 @@
 # Never blocks or fails Claude: output is discarded and the exit code is always 0.
 DIR="${CLAUDE_BUBBLE_DIR:-$HOME/.claude-bubble}/sessions"
 
-PY=$(cat <<'EOF'
-import hashlib, json, os, sys, tempfile, time
+# read (a builtin), not $(cat …): no subshell or cat on every tool call.
+IFS= read -r -d '' PY <<'EOF'
+# hashlib and tempfile would add ~50ms to every tool call; zlib and os.open do the job.
+import json, os, sys, time, zlib
 
 d = sys.argv[1]
 window = float(os.environ.get('CLAUDE_BUBBLE_REPLAY_WINDOW', '3'))
@@ -70,7 +72,8 @@ if not prompted and event != 'SessionStart' and now - started < window:
 pending = set(prev.get('pending', []))
 def tool_key(payload):
     raw = str(payload.get('tool_name') or '') + json.dumps(payload.get('tool_input'), sort_keys=True, default=str)
-    return hashlib.sha1(raw.encode()).hexdigest()[:12]
+    b = raw.encode()
+    return '%08x%04x' % (zlib.crc32(b), zlib.adler32(b) & 0xffff)
 
 
 # PermissionRequest carries no tool_use_id, but the PreToolUse for the same call does.
@@ -227,7 +230,8 @@ record = {'state': state, 'event': event, 'cwd': cwd, 'updated_at': now, 'starte
           'state_since': state_since, 'pid': pid, 'tool_ids': tool_ids, 'activity': activity,
           'activity_since': activity_since, 'ticks': ticks, 'fails': fails, 'skills': skills, 'subagents': subagents,
           'in_flight': in_flight, 'transcript': str(data.get('transcript_path') or prev.get('transcript', ''))}
-fd, tmp = tempfile.mkstemp(dir=d, prefix='.tmp-')
+tmp = os.path.join(d, '.tmp-%d-%d' % (os.getpid(), time.time_ns()))
+fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
 try:
     with os.fdopen(fd, 'w') as f:
         json.dump(record, f)
@@ -238,7 +242,6 @@ except Exception:
     except OSError:
         pass
 EOF
-)
 
 # Claude runs hooks through a shell; walk past shells to the Claude process that owns this session.
 # Only a confirmed non-shell owner is recorded: anything else would be a short-lived process the app
@@ -258,5 +261,19 @@ if [ -z "${CLAUDE_BUBBLE_PID:-}" ]; then
   export CLAUDE_BUBBLE_PID="$owner"
 fi
 
-/usr/bin/python3 -c "$PY" "$DIR" >/dev/null 2>&1
+# /usr/bin/python3 is usually Apple's shim, which looks up the real interpreter every run (~13ms). Look it up
+# once and remember it; if it moves (an Xcode update), the shim finds it again.
+BASE="${DIR%/sessions}"
+PYTHON=""
+[ -r "$BASE/python-path" ] && read -r PYTHON < "$BASE/python-path"
+if [ -z "$PYTHON" ] || [ ! -x "$PYTHON" ]; then
+  PYTHON=$(/usr/bin/python3 -c 'import sys; print(sys.executable)' 2>/dev/null)
+  if [ -n "$PYTHON" ] && [ -x "$PYTHON" ]; then
+    mkdir -p "$BASE" 2>/dev/null && echo "$PYTHON" > "$BASE/python-path" 2>/dev/null
+  else
+    PYTHON=/usr/bin/python3
+  fi
+fi
+
+"$PYTHON" -c "$PY" "$DIR" >/dev/null 2>&1
 exit 0

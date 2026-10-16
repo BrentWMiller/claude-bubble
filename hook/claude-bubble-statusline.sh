@@ -12,12 +12,12 @@ dir="${CLAUDE_BUBBLE_DIR:-$HOME/.claude-bubble}"
 input=$(cat; printf x)
 input=${input%x}
 
-if [[ $input == *'"five_hour"'* ]] && mkdir -p "$dir" 2>/dev/null; then
+if [[ $input == *'"five_hour"'* ]] && { [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null; }; then
   tmp="$dir/.usage.$$"
   printf '%s' "$input" > "$tmp" 2>/dev/null && mv -f "$tmp" "$dir/usage.json" 2>/dev/null || rm -f "$tmp" 2>/dev/null
 fi
 
 inner=""
-[ -f "$dir/statusline-inner" ] && inner=$(cat "$dir/statusline-inner")
+[ -f "$dir/statusline-inner" ] && inner=$(<"$dir/statusline-inner")
 [ -z "$inner" ] && exit 0
 printf '%s' "$input" | bash -c "$inner"
