@@ -6,6 +6,8 @@ public enum ToastKind: String, CaseIterable, Sendable {
     case started, needs, error, finished, review, resumed, allDone
     /// Usage thresholds (25% and 10% left) and the window resetting; their text comes with the toast.
     case usageLow, usageCritical, usageRefreshed
+    /// Quiet mode's "While you were away" summary; its text comes with the toast.
+    case catchUp
 
     public var text: String {
         switch self {
@@ -17,6 +19,7 @@ public enum ToastKind: String, CaseIterable, Sendable {
         case .resumed: "back to work"
         case .allDone: "complete"
         case .usageLow, .usageCritical, .usageRefreshed: "usage"
+        case .catchUp: "updates"
         }
     }
 
@@ -24,7 +27,7 @@ public enum ToastKind: String, CaseIterable, Sendable {
     public var lifetime: Double {
         switch self {
         case .started: 4
-        case .needs, .error, .review, .usageCritical: 8
+        case .needs, .error, .review, .usageCritical, .catchUp: 8
         case .finished, .allDone, .usageLow, .usageRefreshed: 6
         case .resumed: 3.5
         }

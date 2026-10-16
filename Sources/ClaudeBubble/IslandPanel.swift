@@ -172,7 +172,13 @@ struct IslandView: View {
         }
     }
 
+    private var quiet: Bool { model.mode == .quiet }
+
     private var shape: UnevenRoundedRectangle {
+        if quiet {
+            let r = IslandLayout.quietDot / 2
+            return UnevenRoundedRectangle(topLeadingRadius: r, bottomLeadingRadius: r, bottomTrailingRadius: r, topTrailingRadius: r)
+        }
         let r = IslandLayout.cornerRadius
         switch model.dock {
         case .top: return UnevenRoundedRectangle(bottomLeadingRadius: r, bottomTrailingRadius: r)
@@ -193,14 +199,21 @@ struct IslandView: View {
     private var pill: some View {
         ZStack(alignment: .topLeading) {
             Color.black
-            if model.glow == .waves {
-                IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
-                               edge: !sideRest)
+            if quiet {
+                QuietDot(color: glowColor, urgent: live.contains { $0.state == .needs || $0.state == .error })
+                    .transition(.opacity)
+            } else {
+                if model.glow == .waves {
+                    IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
+                                   edge: !sideRest)
+                }
+                content
             }
-            content
+            // Always in the hierarchy (one Metal view), just hidden while quiet.
             OrbHost(view: orb)
                 .frame(width: IslandLayout.orbSize, height: IslandLayout.orbSize)
                 .position(orbCentre)
+                .opacity(quiet ? 0 : 1)
         }
         .clipShape(shape)
         .overlay(model.glow == .waves ? IslandRim(shape: shape, color: glowColor, state: model.state) : nil)
@@ -313,6 +326,7 @@ struct IslandView: View {
         case let .error(id): return "\(name(id)) hit an error"
         case .done: return "All sessions complete"
         case .hover: return "Sessions"
+        case .quiet: return ""
         case .rest:
             guard !live.isEmpty else { return "No sessions" }
             let focus = SessionStore.motionFocus(live) ?? live.first!
@@ -475,6 +489,25 @@ private struct IslandRim: View {
             let fast = state == .needs || state == .error
             let breath = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * (fast ? 4.2 : 1.7))
             shape.strokeBorder(color.opacity(0.06 + 0.04 * breath), lineWidth: 1)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// Quiet mode's dot: the state colour, breathing when something needs you or failed.
+private struct QuietDot: View {
+    let color: Color
+    let urgent: Bool
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: !urgent)) { context in
+            let b = urgent ? 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * 4.2) : 0.5
+            Circle()
+                .fill(color)
+                .padding(4)
+                .scaleEffect(0.85 + 0.2 * b)
+                .shadow(color: color.opacity(0.4 + 0.5 * b), radius: 2 + 3 * b)
+                .frame(width: IslandLayout.quietDot, height: IslandLayout.quietDot)
         }
         .allowsHitTesting(false)
     }
