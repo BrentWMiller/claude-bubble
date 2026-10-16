@@ -74,6 +74,7 @@ struct SettingsView: View {
             Section("Display") {
                 Toggle("Show toasts", isOn: $settings.prefs.toasts)
                 Toggle("Show usage", isOn: $settings.prefs.usage)
+                Toggle("Edge light", isOn: $settings.prefs.edgeLight)
                 Toggle("Follow the pointer to other displays",
                        isOn: Binding(get: { settings.prefs.followPointer }, set: { settings.setFollowPointer($0) }))
             }

@@ -16,4 +16,6 @@ final class SessionsModel: ObservableObject {
     @Published var pips: PipsFrame = .empty
     /// The session whose pip the pointer is on.
     @Published var hoveredPip: String?
+    /// How far the pip arc is turned around the orb so the pips stay on screen (view degrees; 90 = down).
+    @Published var pipAround: Double = 90
 }

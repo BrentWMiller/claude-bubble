@@ -111,6 +111,16 @@ final class BubblePanel: NSPanel {
         NSScreen.screens.first { $0.frame.contains(point) }
     }
 
+    /// The screen holding `point`, else the one nearest to it (for an orb dragged partly off every screen).
+    static func screen(nearest point: CGPoint) -> NSScreen? {
+        screen(containing: point) ?? NSScreen.screens.min { a, b in
+            func gap(_ f: CGRect) -> CGFloat {
+                hypot(max(f.minX - point.x, 0, point.x - f.maxX), max(f.minY - point.y, 0, point.y - f.maxY))
+            }
+            return gap(a.frame) < gap(b.frame)
+        }
+    }
+
     @objc private func didMove() {
         UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
         if let expected = expectedOrigin, abs(expected.x - frame.origin.x) < 0.5, abs(expected.y - frame.origin.y) < 0.5 {
