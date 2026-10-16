@@ -37,12 +37,10 @@ final class SessionPresentationTests: XCTestCase {
     }
 
     func testIslandOpensQuicker() {
-        XCTAssertEqual(HoverTracker.islandOpenDelay, 0.2)
+        XCTAssertEqual(HoverTracker.islandOpenDelay, 0)
         var h = HoverTracker()
-        let d = HoverTracker.islandOpenDelay
-        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: 0, openDelay: d))
-        XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: true, now: d - 0.01, openDelay: d))
-        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: d + 0.01, openDelay: d))
+        XCTAssertTrue(h.update(overOrb: true, overList: false, hasContent: true, now: 0, openDelay: HoverTracker.islandOpenDelay),
+                      "opens the moment the pointer is on it")
     }
 
     func testPassingOverDoesNotOpen() {

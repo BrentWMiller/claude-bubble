@@ -80,8 +80,8 @@ public enum ElapsedFormat {
 /// Open after resting on the orb, stay open while over orb or list, close shortly after leaving both.
 public struct HoverTracker {
     public static let openDelay: Double = 0.6
-    /// The docked island sits out of the way at the screen's edge, so resting on it is deliberate: open sooner.
-    public static let islandOpenDelay: Double = 0.2
+    /// The docked island sits out of the way at the screen's edge, so reaching it is deliberate: open at once.
+    public static let islandOpenDelay: Double = 0
     public static let closeDelay: Double = 0.35
 
     public private(set) var isOpen = false
