@@ -80,6 +80,8 @@ public enum ElapsedFormat {
 /// Open after resting on the orb, stay open while over orb or list, close shortly after leaving both.
 public struct HoverTracker {
     public static let openDelay: Double = 0.6
+    /// The docked island sits out of the way at the screen's edge, so resting on it is deliberate: open sooner.
+    public static let islandOpenDelay: Double = 0.2
     public static let closeDelay: Double = 0.35
 
     public private(set) var isOpen = false
@@ -98,7 +100,8 @@ public struct HoverTracker {
         suppressed = true
     }
 
-    public mutating func update(overOrb: Bool, overList: Bool, hasContent: Bool, now: Double) -> Bool {
+    public mutating func update(overOrb: Bool, overList: Bool, hasContent: Bool, now: Double,
+                                openDelay: Double = HoverTracker.openDelay) -> Bool {
         guard hasContent else {
             isOpen = false
             insideSince = nil
@@ -114,7 +117,7 @@ public struct HoverTracker {
             outsideSince = nil
             let since = insideSince ?? now
             insideSince = since
-            if !isOpen, now - since >= Self.openDelay { isOpen = true }
+            if !isOpen, now - since >= openDelay { isOpen = true }
         } else {
             insideSince = nil
             if isOpen {

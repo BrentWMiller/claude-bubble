@@ -379,7 +379,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let over = pill(m.mode).contains(mouse)
         let wasOpen = m.mode == .hover
         let open = islandDrag == nil
-            && hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime())
+            && hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime(),
+                            openDelay: HoverTracker.islandOpenDelay)
         if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
         if open, !wasOpen { prStatus.refresh(model.sessions, looking: true) }
         let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt, quiet: quiet)
