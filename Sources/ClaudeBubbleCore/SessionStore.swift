@@ -45,6 +45,16 @@ public struct Session: Equatable, Sendable {
     /// The conversation's transcript file, for finding the issues it mentions.
     public var transcriptPath: String?
 
+    /// A copy with a different review flag and status line (everything else kept).
+    public func replacing(reviewReady: Bool, detail: String) -> Session {
+        var s = Session(id: id, state: state, cwd: cwd, updatedAt: updatedAt, project: project, detail: detail,
+                        stateSince: stateSince, pid: pid, title: title, prompted: prompted, tokens: tokens, reviewReady: reviewReady)
+        s.activity = activity
+        s.links = links
+        s.transcriptPath = transcriptPath
+        return s
+    }
+
     /// What to call the session: Claude Code's title, else the project folder.
     public var displayName: String { title ?? project }
 

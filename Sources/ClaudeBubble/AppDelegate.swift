@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let layerTracker = LayerTracker()
     private let edgeLight = EdgeLightController()
     private let linkScanner = LinkScanner()
+    private let prStatus = PRStatusFetcher()
     private var island: IslandPanel!
     /// The all-done moment, for the island's "All sessions complete".
     private var islandDoneAt: Date?
@@ -102,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         island.onDragEnded = { [weak self] in self?.endIslandDrag() }
         applyIslandOptions(applied)
         linkScanner.onChange = { [weak self] in self?.syncSessions() }
+        prStatus.onChange = { [weak self] in self?.syncSessions() }
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
         // re-anchor it (it may need to flip above/below or come back on screen).
@@ -194,8 +196,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             liveState = SessionStore.aggregate(sims)
         } else {
             // Issue chips come from the branch name and the conversation (found in the background).
-            model.sessions = linkScanner.apply(to: watchedSessions)
+            // PR chips carry live status (checks, review, merged), which also clears "Ready for review" once merged.
+            model.sessions = PRStatus.apply(prStatus.statuses, to: linkScanner.apply(to: watchedSessions))
             linkScanner.refresh(watchedSessions)
+            prStatus.refresh(model.sessions)
             liveState = watchedState
         }
         applyState()
@@ -570,6 +574,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.realUsage = UsageReading.load()
             self.refreshUsage()
             self.linkScanner.refresh(self.watchedSessions)   // new issue mentions turn up between session events too
+            self.prStatus.refresh(self.model.sessions)
         }
         RunLoop.main.add(timer, forMode: .common)
         usageTimer = timer
