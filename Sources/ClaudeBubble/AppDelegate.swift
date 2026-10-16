@@ -114,6 +114,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setUpStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        // Remember where the user ⌘-drags it, so restarts don't put it back at the far left (where a crowded,
+        // notched menu bar hides it first).
+        statusItem.autosaveName = "ClaudeBubble"
         let menu = NSMenu()
         toggleItem.target = self
         menu.addItem(toggleItem)
