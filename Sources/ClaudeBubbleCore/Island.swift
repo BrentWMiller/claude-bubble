@@ -45,12 +45,25 @@ public enum IslandLayout {
     public static let orbSize: CGFloat = 28
     public static let pipSize: CGFloat = 5
     public static let maxPips = 5
-    public static let rowHeight: CGFloat = 49
+    /// A session row plus the list's 2pt spacing.
+    public static let rowHeight: CGFloat = 51
+    /// The most rows the hover panel shows (the rest fold into "+N more"), so it always fits the window.
+    public static let maxRows = 6
+    public static let moreHeight: CGFloat = 20
+    /// Breathing room at the panel's open end (under the footer, or above the first row on a bottom dock).
+    public static let openPadding: CGFloat = 10
+
+    public static func shownRows(_ count: Int) -> Int { min(count, maxRows) }
     public static let cornerRadius: CGFloat = 22
 
-    public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int) -> CGSize {
+    /// `footer`: the hover panel's Today/usage line is showing.
+    public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int,
+                            footer: Bool = true) -> CGSize {
         switch mode {
-        case .hover: return CGSize(width: 350, height: 46 + rowHeight * CGFloat(max(rows, 1)) + 34)
+        case .hover:
+            let shown = CGFloat(max(shownRows(rows), 1))
+            let more = rows > maxRows ? moreHeight : 0
+            return CGSize(width: 350, height: 46 + rowHeight * shown + more + (footer ? 34 : 6) + openPadding)
         case .needs, .error: return CGSize(width: 360, height: 98)
         case .done: return CGSize(width: 300, height: 44)
         case .rest:

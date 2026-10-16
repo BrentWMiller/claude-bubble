@@ -64,8 +64,8 @@ final class IslandTests: XCTestCase {
         XCTAssertEqual(size(.needs("a")), CGSize(width: 360, height: 98))
         XCTAssertEqual(size(.error("a"), .left), CGSize(width: 360, height: 98), "side docks go horizontal when not resting")
         XCTAssertEqual(size(.done), CGSize(width: 300, height: 44))
-        XCTAssertEqual(size(.hover, rows: 3), CGSize(width: 350, height: 46 + 49 * 3 + 34))
-        XCTAssertEqual(size(.hover, rows: 0).height, 46 + 49 + 34, "at least one row")
+        XCTAssertEqual(size(.hover, rows: 3), CGSize(width: 350, height: 46 + 51 * 3 + 34 + 10))
+        XCTAssertEqual(size(.hover, rows: 0).height, 46 + 51 + 34 + 10, "at least one row")
     }
 
     func testSideRestIsAVerticalCapsule() {
@@ -123,5 +123,14 @@ final class IslandTests: XCTestCase {
         XCTAssertEqual(left.frame.minX, 0)
         XCTAssertEqual(place(.right).align, .trailing)
         for dock in IslandDock.allCases { XCTAssertTrue(visible.contains(place(dock).frame), "\(dock)") }
+    }
+
+    func testHoverListFitsTheWindow() {
+        XCTAssertEqual(IslandLayout.shownRows(4), 4)
+        XCTAssertEqual(IslandLayout.shownRows(IslandLayout.maxRows + 3), IslandLayout.maxRows)
+        let big = IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 12, rows: 12)
+        XCTAssertEqual(big.height, 46 + 51 * CGFloat(IslandLayout.maxRows) + IslandLayout.moreHeight + 34 + 10)
+        XCTAssertLessThanOrEqual(big.height, IslandLayout.windowSize.height)
+        XCTAssertEqual(IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 2, rows: 2, footer: false).height, 46 + 51 * 2 + 6 + 10)
     }
 }

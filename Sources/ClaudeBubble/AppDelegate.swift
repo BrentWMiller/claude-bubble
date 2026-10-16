@@ -88,7 +88,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toastPanel = ToastPanel(model: toastModel)
         toastPanel.bubble = panel
         island = IslandPanel(animator: animator, sessions: model)
-        island.onClick = { [weak self] in self?.focusTerminal() }
+        island.onClick = { [weak self] in
+            self?.focusTerminal()
+            self?.hover.dismiss()
+        }
         island.onRightClick = { [weak self] event, view in self?.showOrbMenu(with: event, in: view) }
         applyIslandOptions(applied)
         toastModel.palette = applied.palette
@@ -239,7 +242,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if showOrb { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
         panel.setRendering(showOrb)
         if let island {
-            if showIsland { island.orderFrontRegardless() } else { island.orderOut(nil) }
+            if showIsland {
+                island.setFrame(islandWindowFrame(mouse: NSEvent.mouseLocation), display: false)   // in place before it shows
+                island.orderFrontRegardless()
+            } else {
+                island.orderOut(nil)
+            }
             island.setRendering(showIsland)
         }
         // Toasts hang from whichever is showing.
@@ -255,7 +263,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleItem.title = bubbleHidden ? "Show Bubble" : "Hide Bubble"
     }
 
+    /// The island's window on its display: the pointer's with Follow the Pointer, else the main one.
+    private func islandWindowFrame(mouse: CGPoint) -> CGRect {
+        let screen = (applied.followPointer ? BubblePanel.screen(nearest: mouse) : nil) ?? NSScreen.screens.first
+        return IslandLayout.windowFrame(dock: applied.islandDock, visible: screen?.visibleFrame ?? island.frame)
+    }
+
     private func applyIslandOptions(_ prefs: BubblePreferences) {
+        island.alphaValue = prefs.opacity
         let m = island.model
         if m.dock != prefs.islandDock { m.dock = prefs.islandDock }
         if m.rest != prefs.islandRest { m.rest = prefs.islandRest }
@@ -265,14 +280,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Places the island on its display and picks its mode: hover, needs, error, done or rest.
     private func updateIsland(mouse: CGPoint) {
         guard !bubbleHidden else { return }
-        let screen = (applied.followPointer ? NSScreen.screens.first { $0.frame.contains(mouse) } : nil) ?? NSScreen.screens.first
-        guard let visible = screen?.visibleFrame else { return }
-        let window = IslandLayout.windowFrame(dock: applied.islandDock, visible: visible)
+        let window = islandWindowFrame(mouse: mouse)
         if island.frame != window { island.setFrame(window, display: true) }
         let m = island.model
         func pill(_ mode: IslandMode) -> CGRect {
             IslandLayout.pillRect(size: IslandLayout.size(mode: mode, dock: m.dock, rest: m.rest, pips: model.sessions.count,
-                                                          rows: model.sessions.count),
+                                                          rows: model.sessions.count,
+                                                          footer: model.today != nil || model.usage != nil),
                                   dock: m.dock, window: window)
         }
         let over = pill(m.mode).contains(mouse)
@@ -282,8 +296,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt)
         if m.mode != mode { m.mode = mode }
         if m.state != animator.state { m.state = animator.state }
-        m.ticks.removeAll { CACurrentMediaTime() - $0 > 0.6 }
-        island.updateMouseCapture(pill: pill(mode))
+        // Only publish when something actually expires (the whole island re-renders on every change).
+        if m.ticks.contains(where: { CACurrentMediaTime() - $0 > 0.6 }) { m.ticks.removeAll { CACurrentMediaTime() - $0 > 0.6 } }
+        island.pill = pill(mode)
     }
 
     @objc private func toggleBubble() {
@@ -361,6 +376,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if paletteChanged { applyState() }   // menu-bar icon color
         applyIslandOptions(prefs)
         if styleChanged {
+            hover.dismiss()   // an open list or island panel mustn't carry over to the other style
             updateVisibility()
             if !bubbleHidden { appearOrb() }
         }
@@ -500,7 +516,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Off the island's open side.
             let m = island.model
             let pill = IslandLayout.pillRect(size: IslandLayout.size(mode: m.mode, dock: m.dock, rest: m.rest,
-                                                                     pips: model.sessions.count, rows: model.sessions.count),
+                                                                     pips: model.sessions.count, rows: model.sessions.count,
+                                                                     footer: model.today != nil || model.usage != nil),
                                              dock: m.dock, window: island.frame)
             let visible = NSScreen.screens.first { $0.frame.intersects(island.frame) }?.visibleFrame ?? island.frame
             placement = ToastLayout.placeIsland(pill: pill, dock: m.dock, size: ToastPanel.size, visible: visible)

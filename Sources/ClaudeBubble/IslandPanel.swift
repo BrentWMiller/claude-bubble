@@ -46,6 +46,7 @@ final class IslandPanel: NSPanel {
         orbView.onClick = { [weak self] in self?.onClick?() }
         orbView.onRightClick = { [weak self] event, view in self?.onRightClick?(event, view) }
         contentView = host
+        startMouseCapture()
     }
 
     override var canBecomeKey: Bool { false }
@@ -53,8 +54,25 @@ final class IslandPanel: NSPanel {
 
     func setRendering(_ on: Bool) { orbView.isPaused = !on }
 
-    /// Only the pill takes the mouse.
-    func updateMouseCapture(pill: CGRect) {
+    /// Where the pill is on screen (kept current by the app); only it takes the mouse.
+    var pill: CGRect = .zero { didSet { updateMouseCapture() } }
+    private var mouseMonitors: [Any] = []
+
+    /// Follow the pointer between the 20Hz ticks too, so a quick click lands where it looks like it will.
+    private func startMouseCapture() {
+        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: events, handler: { [weak self] _ in self?.updateMouseCapture() }) {
+            mouseMonitors.append(global)
+        }
+        if let local = NSEvent.addLocalMonitorForEvents(matching: events, handler: { [weak self] event in
+            self?.updateMouseCapture()
+            return event
+        }) {
+            mouseMonitors.append(local)
+        }
+    }
+
+    func updateMouseCapture() {
         let over = isVisible && pill.contains(NSEvent.mouseLocation)
         if ignoresMouseEvents == over { ignoresMouseEvents = !over }
     }
@@ -64,6 +82,10 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
     var onRightClick: ((NSEvent, NSView) -> Void)?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func rightMouseDown(with event: NSEvent) { onRightClick?(event, self) }
+    override func mouseDown(with event: NSEvent) {
+        // Control-click is a right-click on macOS, as on the orb.
+        if event.modifierFlags.contains(.control) { onRightClick?(event, self) } else { super.mouseDown(with: event) }
+    }
 }
 
 /// Hosts the island's own Metal orb view (one instance, always in the same place in the hierarchy).
@@ -81,8 +103,10 @@ struct IslandView: View {
 
     private var live: [Session] { SessionStore.sorted(sessions.sessions) }
     private var sideRest: Bool { model.dock.isSide && model.mode == .rest }
+    private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {
-        IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count)
+        IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
+                          footer: hasFooter)
     }
     private let spring = Animation.spring(response: 0.5, dampingFraction: 0.72)
 
@@ -123,7 +147,7 @@ struct IslandView: View {
         ZStack(alignment: .topLeading) {
             Color.black
             if model.glow == .waves {
-                IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: model.mode != .hover,
+                IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
                                edge: !sideRest)
             }
             content
@@ -198,13 +222,22 @@ struct IslandView: View {
                 .transition(.opacity)
             }
         case .hover:
-            VStack(spacing: 2) {
-                ForEach(live, id: \.id) { s in
-                    SessionRow(session: s, now: Date(), palette: sessions.palette).onTapGesture(perform: onClick)
-                }
-                if sessions.today != nil || sessions.usage != nil {
-                    Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
-                    TodayFooter(summary: sessions.today, usage: sessions.usage, palette: sessions.palette)
+            // Ticks once a second so the rows' elapsed times stay current.
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                VStack(spacing: 2) {
+                    ForEach(Array(live.prefix(IslandLayout.maxRows)), id: \.id) { s in
+                        SessionRow(session: s, now: context.date, palette: sessions.palette).onTapGesture(perform: onClick)
+                    }
+                    if live.count > IslandLayout.maxRows {
+                        Text("+\(live.count - IslandLayout.maxRows) more")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Color.white.opacity(0.45))
+                            .frame(height: IslandLayout.moreHeight - 2)
+                    }
+                    if hasFooter {
+                        Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
+                        TodayFooter(summary: sessions.today, usage: sessions.usage, palette: sessions.palette)
+                    }
                 }
             }
             .padding(.horizontal, 8)
@@ -230,7 +263,8 @@ struct IslandView: View {
         case .rest:
             guard !live.isEmpty else { return "No sessions" }
             let focus = SessionStore.motionFocus(live) ?? live.first!
-            return focus.state == .working && !focus.detail.isEmpty ? focus.detail : focus.state == .idle ? "Idle" : focus.detail
+            if focus.state == .idle { return "Idle" }
+            return focus.detail.isEmpty ? focus.state.settingsLabel : focus.detail
         }
     }
 
@@ -274,7 +308,8 @@ struct IslandGlowView: View {
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+        // Full rate while something needs you or failed; calmer (and cheaper) otherwise.
+        TimelineView(.animation(minimumInterval: model.state == .needs || model.state == .error ? 1.0 / 30 : 1.0 / 20)) { context in
             let now = context.date.timeIntervalSinceReferenceDate
             let media = CACurrentMediaTime()
             let fast = model.state == .needs || model.state == .error
@@ -294,16 +329,16 @@ struct IslandGlowView: View {
                     .frame(width: 440, height: 440)
                     .position(orbCentre)
                     .opacity(min(1, (0.5 + 0.3 * breath) * pace))
-                RadialGradient(stops: [.init(color: color.opacity(0.7), location: 0),
-                                       .init(color: color.opacity(0.38), location: 0.09 * r),
-                                       .init(color: color.opacity(0.12), location: 0.22 * r),
-                                       .init(color: color.opacity(0.03), location: 0.36 * r),
+                RadialGradient(stops: [.init(color: color.opacity(0.9), location: 0),
+                                       .init(color: color.opacity(0.55), location: 0.09 * r),
+                                       .init(color: color.opacity(0.2), location: 0.22 * r),
+                                       .init(color: color.opacity(0.05), location: 0.36 * r),
                                        .init(color: .clear, location: 0.5 * r)],
                                center: .center, startRadius: 0, endRadius: reach)
                     .frame(width: 440, height: 440)
                     .mask(Rectangle().fill(ImagePaint(image: Self.dot, scale: 1)))
                     .position(orbCentre)
-                    .opacity(min(1, (0.45 + 0.25 * breath) * pace))
+                    .opacity(min(1, (0.6 + 0.3 * breath) * pace))
                 // Edge glow (design: edge): a bright strip down the orb's edge of the pill, fading away from the dock.
                 if edge {
                     LinearGradient(stops: [.init(color: color.opacity(0.55 + 0.25 * breath), location: 0),
@@ -316,8 +351,8 @@ struct IslandGlowView: View {
                         .frame(maxHeight: .infinity)
                         .mask(GeometryReader { geo in
                             let h = max(geo.size.height, 1)
-                            LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: min(1, 34 / h)),
-                                                   .init(color: .clear, location: min(1, 96 / h))],
+                            LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: min(1, 48 / h)),
+                                                   .init(color: .clear, location: min(1, 140 / h))],
                                            startPoint: model.dock == .bottom ? .bottom : .top,
                                            endPoint: model.dock == .bottom ? .top : .bottom)
                         })
@@ -336,11 +371,15 @@ struct IslandGlowView: View {
     private func drawWaves(_ ctx: GraphicsContext, size: CGSize, time: Double, kick: Double, breath: Double, color: Color) {
         let idle = model.state == .idle && model.mode != .done
         let fast = model.state == .needs || model.state == .error
-        let amp = (idle ? 0.45 : 1) * (1 + 0.6 * kick)
+        // Brighter than the design's numbers: on a real desktop the wave read too faint next to the prototype.
+        let amp = (idle ? 0.45 : 1) * (1 + 0.6 * kick) * 1.8
         let tt = time * (idle ? 0.5 : fast ? 1.6 : 1.1)
         let oz = Double(IslandLayout.orbSize)
         let ox = Double(orbCentre.x), oy = Double(orbCentre.y)
         let r0 = max(Double(size.width) * 0.9, 160)
+        // Dots are grouped by brightness into a few paths, so a frame is 8 fills, not thousands.
+        let buckets = 8
+        var paths = Array(repeating: Path(), count: buckets)
         var gx = 2.0
         while gx < Double(size.width) {
             var gy = 2.0
@@ -359,13 +398,15 @@ struct IslandGlowView: View {
                 let px = gx + cos(an) * push, py = gy + sin(an) * push, dist = d0 + push
                 let fall = max(0, 1 - dist / r0)
                 if fall <= 0 { continue }
-                let a = min(1, fall * fall * (0.1 + crest * amp) * (0.7 + 0.3 * breath))
+                let a = min(1, fall * fall * (0.16 + crest * amp) * (0.7 + 0.3 * breath))
                 if a < 0.02 { continue }
-                let rad = 0.55 + crest * 0.5
-                ctx.fill(Path(ellipseIn: CGRect(x: px - rad, y: py - rad, width: rad * 2, height: rad * 2)),
-                         with: .color(color.opacity(a)))
+                let rad = 0.6 + crest * 0.6
+                paths[min(buckets - 1, Int(a * Double(buckets)))].addEllipse(in: CGRect(x: px - rad, y: py - rad, width: rad * 2, height: rad * 2))
             }
             gx += 4
+        }
+        for (i, path) in paths.enumerated() where !path.isEmpty {
+            ctx.fill(path, with: .color(color.opacity((Double(i) + 0.75) / Double(buckets))))
         }
     }
 }
