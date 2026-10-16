@@ -10,7 +10,7 @@ final class SimulatorWindowController: NSWindowController, NSWindowDelegate {
         let window = NSWindow(contentViewController: NSHostingController(rootView: SimulatorView(sim: simulator, palette: palette)))
         window.title = "Session Simulator"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 400, height: 480))
+        window.setContentSize(NSSize(width: 400, height: 580))
         window.isReleasedWhenClosed = false
         window.center()
         super.init(window: window)
@@ -29,6 +29,7 @@ final class SimulatorWindowController: NSWindowController, NSWindowDelegate {
     /// Closing hands the orb back to the real sessions and stops any story mid-way.
     func windowWillClose(_ notification: Notification) {
         simulator.reset()
+        simulator.usageActive = false
         simulator.isOpen = false
     }
 }
@@ -54,6 +55,7 @@ struct SimulatorView: View {
                 }
             }
             .frame(maxHeight: .infinity)
+            usage
             HStack {
                 Button("Play story") { sim.playStory() }.keyboardShortcut(.defaultAction)
                 Button("Reset") { sim.reset() }
@@ -62,7 +64,26 @@ struct SimulatorView: View {
             }
         }
         .padding(16)
-        .frame(width: 400, height: 480)
+        .frame(width: 400, height: 580)
+    }
+
+    private var usage: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Toggle("Simulate usage", isOn: $sim.usageActive)
+                Spacer()
+                Button("Reset window") { sim.resetWindow() }.disabled(!sim.usageActive)
+            }
+            HStack {
+                Slider(value: $sim.usageLeft, in: 0...100)
+                Text("\(Int(sim.usageLeft.rounded()))% left")
+                    .font(.system(size: 12, design: .monospaced)).frame(width: 70, alignment: .trailing)
+            }
+            .disabled(!sim.usageActive)
+        }
+        .controlSize(.small)
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
     }
 
     private func row(_ s: SimulatorModel.Sim) -> some View {

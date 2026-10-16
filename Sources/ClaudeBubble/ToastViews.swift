@@ -15,9 +15,9 @@ extension ToastKind {
     func color(in palette: OrbPalette) -> Color {
         let c: SIMD3<Float> = switch self {
         case .started, .resumed: palette[.working].swatch
-        case .needs, .review: palette[.needs].swatch
-        case .error: palette[.error].swatch
-        case .finished: palette[.idle].swatch
+        case .needs, .review, .usageLow: palette[.needs].swatch
+        case .error, .usageCritical: palette[.error].swatch
+        case .finished, .usageRefreshed: palette[.idle].swatch
         case .allDone: OrbAnimator.doneGreen.swatch
         }
         return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
@@ -86,7 +86,7 @@ struct DecodeFrame {
         let r = min(1, age / 0.8)
         reveal = CGFloat(1 - pow(1 - r, 3))
         name = ToastDecode.text(toast.name, progress: p, seed: toast.id, tick: tick)
-        text = ToastDecode.text(toast.kind.text, progress: p, seed: toast.id, tick: tick, offset: 50)
+        text = ToastDecode.text(toast.text, progress: p, seed: toast.id, tick: tick, offset: 50)
     }
 }
 

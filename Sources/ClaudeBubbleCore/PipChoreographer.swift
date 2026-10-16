@@ -226,13 +226,20 @@ extension BubbleState {
 
 /// Where pips sit: an arc under the orb, in y-down view space.
 public enum PipArc {
-    public static let stepDegrees = 11.0
+    public static let designStepDegrees = 11.0
+    /// Neighbouring pips never sit closer than this along the arc, so small orbs spread them wider.
+    public static let minSpacing: CGFloat = 8.8
+
+    public static func stepDegrees(radius: CGFloat) -> Double {
+        guard radius > 0 else { return designStepDegrees }
+        return max(designStepDegrees, Double(minSpacing / radius) * 180 / .pi)
+    }
     /// Arc radius as a multiple of the orb's radius (the design's 100 / 78).
     public static let radiusScale: CGFloat = 1.28
     public static let hitTolerance: CGFloat = 7
 
     public static func position(slot: Int, slots: Int, centre: CGPoint, radius: CGFloat) -> CGPoint {
-        let degrees = 90 - (Double(slot) - Double(slots - 1) / 2) * stepDegrees
+        let degrees = 90 - (Double(slot) - Double(slots - 1) / 2) * stepDegrees(radius: radius)
         let a = degrees * .pi / 180
         return CGPoint(x: centre.x + CGFloat(cos(a)) * radius, y: centre.y + CGFloat(sin(a)) * radius)
     }
@@ -240,7 +247,7 @@ public enum PipArc {
     /// The session whose visible pip is nearest `point`, within half the pip spacing (at most 7pt), if any.
     public static func hit(_ point: CGPoint, frame: PipsFrame, centre: CGPoint, radius: CGFloat) -> String? {
         guard frame.visible, !frame.merged else { return nil }
-        let spacing = radius * CGFloat(stepDegrees * .pi / 180)
+        let spacing = radius * CGFloat(stepDegrees(radius: radius) * .pi / 180)
         let tolerance = min(hitTolerance, spacing / 2)
         var best: (id: String, distance: CGFloat)?
         for pip in frame.pips {

@@ -36,6 +36,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let toastModel = ToastModel()
     private var toastPanel: ToastPanel!
     private var soundLimiter = SoundRateLimiter()
+    private let usageAlerts = UsageAlerts()
+    /// What the status line wrapper last saved; re-read every 5s.
+    private var realUsage: UsageReading?
+    private var usageTimer: Timer?
+    /// Which reading the alerts are following (real or simulated); switching re-baselines them.
+    private var usageFromSimulator = false
     /// No sounds for the burst of pips that appear at launch.
     private let launchedAt = CACurrentMediaTime()
     private var forcedState: BubbleState?
@@ -94,8 +100,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.watchedSessions = sessions
             self?.syncSessions()
         }
-        simulatorSubscription = simulator.objectWillChange.receive(on: RunLoop.main).sink { [weak self] in self?.syncSessions() }
+        // DispatchQueue (not RunLoop.main) so a dragged slider updates live, even in event-tracking mode.
+        simulatorSubscription = simulator.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.syncSessions() }
         watcher.start()
+        startUsagePolling()
         updateVisibility()
         applyState()
         appearOrb()
@@ -155,6 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             liveState = watchedState
         }
         applyState()
+        refreshUsage()
     }
 
     /// Hovering a pip previews that session's state on the orb (previews never celebrate).
@@ -202,14 +211,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Keeps an already-installed hook in step with this build, so rebuilds don't need a reinstall.
     private func refreshInstalledHook() {
-        guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh") else { return }
-        let destination = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude-bubble/hook.sh")
-        do {
-            if try HookInstaller.refreshInstalledHook(source: source, destination: destination) {
-                NSLog("ClaudeBubble: refreshed installed hook")
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        for (resource, installed) in [("claude-bubble-hook", "hook.sh"), ("claude-bubble-statusline", "statusline.sh")] {
+            guard let source = Bundle.main.url(forResource: resource, withExtension: "sh") else { continue }
+            do {
+                if try HookInstaller.refreshInstalledHook(source: source, destination: home.appendingPathComponent(".claude-bubble/\(installed)")) {
+                    NSLog("ClaudeBubble: refreshed installed \(installed)")
+                }
+            } catch {
+                NSLog("ClaudeBubble: \(installed) refresh failed: \(error)")
             }
-        } catch {
-            NSLog("ClaudeBubble: hook refresh failed: \(error)")
         }
     }
 
@@ -232,9 +243,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
         animator.interaction = prefs.interaction
         sounds.enabled = prefs.sounds
+        let usageChanged = prefs.usage != applied.usage
         let paletteChanged = prefs.palette != applied.palette
         applied = prefs
         if paletteChanged { applyState() }   // menu-bar icon color
+        if usageChanged {
+            // Turning usage back on never announces thresholds crossed while it was off.
+            usageAlerts.reset()
+            refreshUsage()
+        }
     }
 
     /// Advances the pip choreography, reports finished sessions to the orb, and handles pip hover.
@@ -287,6 +304,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
         pipCard.show(session, under: CGPoint(x: panel.frame.minX + p.x, y: panel.frame.maxY - p.y))
+    }
+
+    // MARK: Usage
+
+    private func startUsagePolling() {
+        realUsage = UsageReading.load()
+        refreshUsage()
+        let timer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.realUsage = UsageReading.load()
+            self.refreshUsage()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        usageTimer = timer
+    }
+
+    /// Pushes the current usage (real, or the simulator's) to the orb, the hover card and the toasts.
+    private func refreshUsage() {
+        let fromSimulator = simulator.isOpen && simulator.usageActive
+        if fromSimulator != usageFromSimulator {
+            usageFromSimulator = fromSimulator
+            usageAlerts.reset()
+        }
+        let reading = applied.usage ? (fromSimulator ? simulator.usageReading : realUsage) : nil
+        let now = Date()
+        if reading != model.usage { model.usage = reading }
+        animator.usageLeft = reading?.left(at: now)
+        for alert in usageAlerts.update(reading, now: now) where applied.toasts && !bubbleHidden {
+            toasts.push(alert.kind, name: "Usage", text: alert.text, now: CACurrentMediaTime())
+            tugTowardToasts()
+        }
     }
 
     // MARK: Toasts
@@ -480,6 +528,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let toastItem = item("Toasts", #selector(toggleToasts))
         toastItem.state = prefs.toasts ? .on : .off
+        let usageItem = item("Usage", #selector(toggleUsage))
+        usageItem.state = prefs.usage ? .on : .off
         let soundItem = item("Sounds", #selector(toggleSounds))
         soundItem.state = prefs.sounds ? .on : .off
         let completions = NSMenu()
@@ -492,7 +542,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
         return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
-                submenu("Interaction", interactions), toastItem, soundItem, submenu("Completion Sound", completions), follow]
+                submenu("Interaction", interactions), toastItem, usageItem, soundItem, submenu("Completion Sound", completions), follow]
     }
 
     private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
@@ -560,6 +610,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.prefs.toasts.toggle()
     }
 
+    @objc private func toggleUsage() {
+        settings.prefs.usage.toggle()
+    }
+
     @objc private func toggleSounds() {
         settings.prefs.sounds.toggle()
     }
@@ -608,15 +662,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         do {
-            guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh") else {
+            guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh"),
+                  let statusLine = Bundle.main.url(forResource: "claude-bubble-statusline", withExtension: "sh") else {
                 throw HookInstaller.InstallError.missingHookScript
             }
             let home = FileManager.default.homeDirectoryForCurrentUser
             try HookInstaller.install(settingsURL: home.appendingPathComponent(".claude/settings.json"),
                                       hookSource: source,
-                                      hookDestination: home.appendingPathComponent(".claude-bubble/hook.sh"))
+                                      hookDestination: home.appendingPathComponent(".claude-bubble/hook.sh"),
+                                      statusLineSource: statusLine,
+                                      statusLineDestination: home.appendingPathComponent(".claude-bubble/statusline.sh"))
             alert.messageText = "Hooks installed"
-            alert.informativeText = "New Claude Code sessions will report to the bubble; restart running sessions to pick it up. Your previous settings were saved to settings.json.claude-bubble.bak."
+            alert.informativeText = "New Claude Code sessions will report to the bubble; restart running sessions to pick it up. Your status line still runs as before, and now also passes usage to the bubble. Your previous settings were saved to settings.json.claude-bubble.bak."
         } catch {
             alert.alertStyle = .warning
             alert.messageText = "Couldn't install hooks"

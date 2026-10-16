@@ -56,7 +56,7 @@ public enum PipSounds {
 
     /// The pip's horizontal place on the arc, as stereo pan.
     public static func pan(slot: Int, slots: Int) -> Float {
-        let degrees = 90 - (Double(min(slot, 6)) - Double(max(min(slots, 7), 1) - 1) / 2) * PipArc.stepDegrees
+        let degrees = 90 - (Double(min(slot, 6)) - Double(max(min(slots, 7), 1) - 1) / 2) * PipArc.designStepDegrees
         return Float(max(-1, min(1, cos(degrees * .pi / 180) * 1.4)))
     }
 
