@@ -44,4 +44,19 @@ final class PointerFollowTests: XCTestCase {
         XCTAssertFalse(off.followPointer)
         XCTAssertEqual(off.relativeSpot, [0.2, 0.3])
     }
+
+    func testStaysWhileHangingOffItsDisplaysEdge() {
+        // Dragged mostly off a's left edge: the centre is off every screen, but it still belongs to a.
+        let hanging = CGRect(x: -60 - 28, y: 400, width: 120, height: 120)
+        XCTAssertNil(PointerFollow.destination(enabled: true, buttonDown: false, mouse: CGPoint(x: 500, y: 500),
+                                               panelFrame: hanging, displays: [a, b], spot: CGPoint(x: 0.5, y: 0.5)))
+    }
+
+    func testOffEdgeSpotLandsHangingOffTheOtherDisplay() {
+        // A spot past the right edge (the orb was hanging off it) keeps hanging off b's right edge.
+        let spot = CGPoint(x: 1 + 20.0 / 2560, y: 0.5)
+        let o = PointerFollow.destination(enabled: true, buttonDown: false, mouse: CGPoint(x: 3000, y: 400),
+                                          panelFrame: panelOnA, displays: [a, b], spot: spot)
+        XCTAssertEqual(try XCTUnwrap(o).x + 60, b.frame.maxX + 20 * 1440 / 2560, accuracy: 0.5)
+    }
 }

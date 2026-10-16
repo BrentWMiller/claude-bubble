@@ -478,7 +478,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func currentSpot() -> CGPoint? {
         let frame = panel.frame
-        guard let visible = BubblePanel.screen(containing: CGPoint(x: frame.midX, y: frame.midY))?.visibleFrame else { return nil }
+        guard let visible = BubblePanel.screen(nearest: CGPoint(x: frame.midX, y: frame.midY))?.visibleFrame else { return nil }
         return RelativePlacement.spot(of: frame, in: visible)
     }
 

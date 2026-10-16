@@ -94,8 +94,9 @@ final class BubblePanel: NSPanel {
         guard abs(side - frame.width) > 0.5 else { return }
         let centre = CGPoint(x: frame.midX, y: frame.midY)
         var target = CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side)
-        if let visible = Self.screen(containing: centre)?.visibleFrame {
-            target.origin = RelativePlacement.origin(for: RelativePlacement.spot(of: target, in: visible), side: side, in: visible)
+        // Keep it where it was, hanging off an edge if it was; only pull it back within the drag limits.
+        if let screen = Self.screen(nearest: centre) {
+            target.origin = BubblePlacement.clampedOrigin(target.origin, side: side, screen: screen.frame, visible: screen.visibleFrame)
         }
         expectedOrigin = target.origin
         setFrame(target, display: true)
