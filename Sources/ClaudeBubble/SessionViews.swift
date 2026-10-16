@@ -327,20 +327,64 @@ private struct LinkChip: View {
     let link: SessionLink
     @State private var hover = false
 
+    private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
+    private static let red = Color(red: 1, green: 0.42, blue: 0.42)
+    private static let amber = Color(red: 1, green: 0.78, blue: 0.35)
+    private static let violet = Color(red: 0.66, green: 0.55, blue: 1)
+    private static let grey = Color.white.opacity(0.45)
+
     private var icon: String {
         switch link.kind {
         case .issue: "smallcircle.filled.circle"
-        case .pr: "arrow.triangle.pull"
         case .artifact: "doc.richtext"
+        case .pr:
+            switch link.status?.state {
+            case .merged: "arrow.triangle.merge"
+            case .closed: "xmark.circle"
+            case .draft: "pencil.circle"
+            default: "arrow.triangle.pull"
+            }
         }
     }
 
     private var tint: Color {
         switch link.kind {
-        case .issue: Color(red: 0.42, green: 0.85, blue: 0.55)
-        case .pr: Color(red: 0.66, green: 0.55, blue: 1)
+        case .issue: Self.green
         case .artifact: Color(red: 0.95, green: 0.7, blue: 0.45)
+        case .pr:
+            switch link.status?.state {
+            case .merged: Self.violet
+            case .closed, .draft: Self.grey
+            default: Self.violet
+            }
         }
+    }
+
+    /// An open pull request's checks and review, after its number.
+    @ViewBuilder private var status: some View {
+        if let s = link.status, s.state == .open || s.state == .draft {
+            switch s.checks {
+            case .passing: Image(systemName: "checkmark").foregroundStyle(Self.green)
+            case .failing: Image(systemName: "xmark").foregroundStyle(Self.red)
+            case .pending: Circle().fill(Self.amber).frame(width: 5, height: 5)
+            case .none: EmptyView()
+            }
+            switch s.review {
+            case .approved: Image(systemName: "checkmark.seal.fill").foregroundStyle(Self.green)
+            case .changesRequested: Image(systemName: "exclamationmark.bubble.fill").foregroundStyle(Self.amber)
+            case .none: EmptyView()
+            }
+        }
+    }
+
+    private var summary: String {
+        guard let s = link.status else { return link.url.absoluteString }
+        let state = switch s.state { case .open: "Open"; case .draft: "Draft"; case .merged: "Merged"; case .closed: "Closed" }
+        guard s.state == .open || s.state == .draft else { return state }
+        let checks = switch s.checks { case .passing: " · checks passing"; case .failing: " · checks failing"
+                                       case .pending: " · checks running"; case .none: "" }
+        let review = switch s.review { case .approved: " · approved"; case .changesRequested: " · changes requested"; case .none: "" }
+        return state + checks + review
     }
 
     var body: some View {
@@ -353,6 +397,7 @@ private struct LinkChip: View {
                 Text(link.label).font(.system(size: 10.5, weight: .medium, design: .monospaced)).lineLimit(1)
                     .frame(maxWidth: 110, alignment: .leading)
                     .fixedSize(horizontal: true, vertical: false)
+                status.font(.system(size: 8.5, weight: .bold))
             }
             .foregroundStyle(Color.white.opacity(hover ? 0.95 : 0.7))
             .padding(.horizontal, 7)
@@ -364,6 +409,6 @@ private struct LinkChip: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .help(link.url.absoluteString)
+        .help(summary)
     }
 }

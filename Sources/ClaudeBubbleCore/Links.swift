@@ -7,6 +7,8 @@ public struct SessionLink: Equatable, Hashable, Sendable {
     /// What the chip says ("#7211", or an artifact's title).
     public let label: String
     public let url: URL
+    /// A pull request's live status, once fetched.
+    public var status: PRStatus?
 
     public init(kind: Kind, label: String, url: URL) {
         self.kind = kind
