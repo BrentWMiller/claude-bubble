@@ -148,14 +148,15 @@ struct SessionRow: View {
     var entrance: Double = 1
 
     var body: some View {
-        HStack(spacing: 12) {
+        // Top-aligned so the pip and the times sit on the title's line, however tall the row grows (chips).
+        HStack(alignment: .top, spacing: 12) {
             Group {
                 // A pip, coloured like the ones under the orb.
                 let color = session.pipColor(in: palette)
                 Circle().fill(color).frame(width: 9, height: 9)
                     .shadow(color: color.opacity(session.tone == .idle ? 0 : 0.8), radius: 4)
             }
-            .frame(width: 26, height: 26)
+            .frame(width: 26, height: 17)   // the title's line height
             VStack(alignment: .leading, spacing: 2) {
                 Text(entrance < 1 ? ToastDecode.text(session.displayName, progress: entrance, seed: session.id.hashValue & 0xffff,
                                                      tick: Int(CACurrentMediaTime() / 0.045)) : session.displayName)
