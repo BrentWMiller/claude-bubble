@@ -99,8 +99,8 @@ struct SettingsView: View {
                        isOn: Binding(get: { settings.prefs.followPointer }, set: { settings.setFollowPointer($0) }))
             }
             Section("Quiet mode") {
-                Toggle("Quiet during any Focus", isOn: $settings.prefs.quietAnyFocus)
-                Text("For only some Focuses (and screen sharing), add the Claude Bubble filter in System Settings → Focus → a Focus → Focus filters. Do Not Disturb can turn on automatically while sharing your screen.")
+                Toggle("Quiet mode", isOn: $settings.prefs.quiet)
+                Text("Shrinks to a dot, mutes sounds and holds toasts; they play back as a quick catch-up when you turn it off.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

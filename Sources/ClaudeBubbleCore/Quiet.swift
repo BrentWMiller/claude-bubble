@@ -23,16 +23,17 @@ public struct CatchUpItem: Equatable, Sendable {
 }
 
 /// When quiet mode ends, the held toasts play back quickly: all of them if there are up to five, otherwise a
-/// "While you were away" summary and then the five most recent.
+/// "While you were away" summary and then the four most recent (the stack shows five).
 public enum CatchUp {
     public static let spacing = 0.35
-    public static let shown = 5
+    /// Toasts replayed: one fewer than the stack holds when a summary leads, so the summary isn't pushed off.
+    public static let shown = ToastQueue.maxShown - 1
 
     public static func plan(_ held: [HeldToast]) -> [CatchUpItem] {
         guard !held.isEmpty else { return [] }
         var items: [(ToastKind, String, String?)] = []
-        if held.count > shown { items.append((.catchUp, "While you were away", summary(held))) }
-        items += held.suffix(shown).map { ($0.kind, $0.name, $0.text) }
+        if held.count > ToastQueue.maxShown { items.append((.catchUp, "While you were away", summary(held))) }
+        items += held.suffix(items.isEmpty ? ToastQueue.maxShown : shown).map { ($0.kind, $0.name, $0.text) }
         return items.enumerated().map { i, item in
             CatchUpItem(delay: Double(i) * spacing, kind: item.0, name: item.1, text: item.2)
         }

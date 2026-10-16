@@ -13,6 +13,5 @@
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>LSUIElement</key><true/>
-    <key>NSFocusStatusUsageDescription</key><string>Claude Bubble quiets down (a single dot, toasts held for later) while a Focus is on.</string>
 </dict>
 </plist>

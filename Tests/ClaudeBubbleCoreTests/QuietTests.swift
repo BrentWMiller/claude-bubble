@@ -16,13 +16,21 @@ final class QuietTests: XCTestCase {
         XCTAssertEqual(plan.map(\.delay), [0, 0.35, 0.7])
     }
 
-    func testOverFiveSummarisesThenPlaysTheLatestFive() {
+    func testOverFiveSummarisesThenPlaysTheLatestFour() {
         let all = (0..<8).map { held(.finished, "s\($0)") }
         let plan = CatchUp.plan(all)
         XCTAssertEqual(plan.first?.kind, .catchUp)
         XCTAssertEqual(plan.first?.name, "While you were away")
-        XCTAssertEqual(plan.dropFirst().map(\.name), ["s3", "s4", "s5", "s6", "s7"])
-        XCTAssertEqual(plan.map(\.delay), [0, 0.35, 0.7, 1.05, 1.4, 1.75].map { $0 }, accuracy: 1e-9)
+        XCTAssertEqual(plan.dropFirst().map(\.name), ["s4", "s5", "s6", "s7"])
+        XCTAssertEqual(plan.map(\.delay), [0, 0.35, 0.7, 1.05, 1.4], accuracy: 1e-9)
+    }
+
+    func testSummaryStaysOnTheStackThroughTheCatchUp() {
+        let q = ToastQueue()
+        for item in CatchUp.plan((0..<9).map { held(.finished, "s\($0)") }) {
+            q.push(item.kind, name: item.name, text: item.text, now: item.delay)
+        }
+        XCTAssertTrue(q.layout(expanded: false).contains { $0.kind == .catchUp && $0.showing })
     }
 
     func testSummaryWording() {
@@ -63,9 +71,12 @@ final class QuietTests: XCTestCase {
 
     // Preference
 
-    func testAnyFocusDefaultsOff() throws {
-        XCTAssertFalse(BubblePreferences.defaults.quietAnyFocus)
-        XCTAssertFalse(try JSONDecoder().decode(BubblePreferences.self, from: Data(#"{"toasts": true}"#.utf8)).quietAnyFocus)
+    func testQuietDefaultsOffAndIsSaved() throws {
+        XCTAssertFalse(BubblePreferences.defaults.quiet)
+        XCTAssertFalse(try JSONDecoder().decode(BubblePreferences.self, from: Data(#"{"toasts": true}"#.utf8)).quiet)
+        var p = BubblePreferences.defaults
+        p.quiet = true
+        XCTAssertTrue(try JSONDecoder().decode(BubblePreferences.self, from: JSONEncoder().encode(p)).quiet)
     }
 }
 
