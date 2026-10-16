@@ -22,12 +22,16 @@ final class IslandPanel: NSPanel {
 
     var onClick: (() -> Void)?
     var onRightClick: ((NSEvent, NSView) -> Void)?
+    /// Dragging the island around the screen's edges: the pointer (screen space), then the release.
+    var onDragMoved: ((CGPoint) -> Void)?
+    var onDragEnded: (() -> Void)?
 
     init(animator: OrbAnimator, sessions: SessionsModel) {
         // As in the design, the 28pt slot is the orb's whole canvas (halo included); the orb itself is ~17pt.
         let side = IslandLayout.orbSize
         orbView = OrbView(frame: NSRect(x: 0, y: 0, width: side, height: side), animator: animator)
         orbView.allowsDrag = false
+        orbView.passesMouseThrough = true
         orbView.crisp = true
         super.init(contentRect: CGRect(origin: .zero, size: IslandLayout.windowSize),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -40,11 +44,18 @@ final class IslandPanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         ignoresMouseEvents = true
-        let host = IslandHostingView(rootView: IslandView(model: model, sessions: sessions, orb: orbView,
-                                                         onClick: { [weak self] in self?.onClick?() }))
+        let host = IslandHostingView(rootView: IslandView(model: model, sessions: sessions, orb: orbView))
         host.onRightClick = { [weak self] event, view in self?.onRightClick?(event, view) }
-        orbView.onClick = { [weak self] in self?.onClick?() }
-        orbView.onRightClick = { [weak self] event, view in self?.onRightClick?(event, view) }
+        host.onClick = { [weak self] in self?.onClick?() }
+        host.onDragMoved = { [weak self] point in
+            self?.dragging = true
+            self?.onDragMoved?(point)
+        }
+        host.onDragEnded = { [weak self] in
+            self?.dragging = false
+            self?.onDragEnded?()
+            self?.updateMouseCapture()
+        }
         contentView = host
         startMouseCapture()
     }
@@ -72,19 +83,46 @@ final class IslandPanel: NSPanel {
         }
     }
 
+    /// Mid-drag the window moves under the pointer; keep the mouse until the release.
+    private var dragging = false
+
     func updateMouseCapture() {
-        let over = isVisible && pill.contains(NSEvent.mouseLocation)
+        let over = isVisible && (dragging || pill.contains(NSEvent.mouseLocation))
         if ignoresMouseEvents == over { ignoresMouseEvents = !over }
     }
 }
 
+/// Takes the island's mouse itself: a press that doesn't move is a click (focus the terminal), one that moves 3pt
+/// becomes a drag around the screen's edges.
 final class IslandHostingView<Content: View>: NSHostingView<Content> {
     var onRightClick: ((NSEvent, NSView) -> Void)?
+    var onClick: (() -> Void)?
+    var onDragMoved: ((CGPoint) -> Void)?
+    var onDragEnded: (() -> Void)?
+    private var downAt: CGPoint?
+    private var dragging = false
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func rightMouseDown(with event: NSEvent) { onRightClick?(event, self) }
+
     override func mouseDown(with event: NSEvent) {
         // Control-click is a right-click on macOS, as on the orb.
-        if event.modifierFlags.contains(.control) { onRightClick?(event, self) } else { super.mouseDown(with: event) }
+        if event.modifierFlags.contains(.control) { onRightClick?(event, self); return }
+        downAt = NSEvent.mouseLocation
+        dragging = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let start = downAt else { return }
+        let p = NSEvent.mouseLocation
+        if !dragging, hypot(p.x - start.x, p.y - start.y) > 3 { dragging = true }
+        if dragging { onDragMoved?(p) }
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if downAt != nil { dragging ? onDragEnded?() : onClick?() }
+        downAt = nil
+        dragging = false
     }
 }
 
@@ -99,7 +137,6 @@ struct IslandView: View {
     @ObservedObject var model: IslandModel
     @ObservedObject var sessions: SessionsModel
     let orb: OrbView
-    let onClick: () -> Void
 
     private var live: [Session] { SessionStore.sorted(sessions.sessions) }
     private var sideRest: Bool { model.dock.isSide && model.mode == .rest }
@@ -173,7 +210,6 @@ struct IslandView: View {
             .allowsHitTesting(false))
         .shadow(color: .black.opacity(0.55), radius: 15, y: 10)
         .contentShape(shape)
-        .onTapGesture(perform: onClick)
     }
 
     private var glowColor: Color { IslandGlowView.color(state: model.state, done: model.mode == .done, palette: sessions.palette) }
@@ -243,7 +279,7 @@ struct IslandView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 VStack(spacing: 2) {
                     ForEach(Array(live.prefix(IslandLayout.maxRows)), id: \.id) { s in
-                        SessionRow(session: s, now: context.date, palette: sessions.palette).onTapGesture(perform: onClick)
+                        SessionRow(session: s, now: context.date, palette: sessions.palette)
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

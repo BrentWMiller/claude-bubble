@@ -7,6 +7,9 @@ final class OrbView: MTKView {
     var onRightClick: ((NSEvent, NSView) -> Void)?
     /// The island's orb stays put; only the floating orb drags its window.
     var allowsDrag = true
+    /// The island's orb leaves the mouse to the island around it (which handles clicks and dragging).
+    var passesMouseThrough = false
+    override func hitTest(_ point: NSPoint) -> NSView? { passesMouseThrough ? nil : super.hitTest(point) }
     /// Tiny orbs (the island's): finer dots and a softer glow, ring and brightness, as the design's `crisp` does.
     var crisp = false
     private var renderer: OrbRenderer?

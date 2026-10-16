@@ -43,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// The all-done moment, for the island's "All sessions complete".
     private var islandDoneAt: Date?
     private var isIsland: Bool { applied.style == .island }
+    /// While the island is being dragged: the edge and spot it's snapping to (saved on release).
+    private var islandDrag: (dock: IslandDock, along: Double)?
     /// When the focus session's current motion began (bash settles with it).
     private var motionSince: Date?
     private let usageAlerts = UsageAlerts()
@@ -93,6 +95,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.hover.dismiss()
         }
         island.onRightClick = { [weak self] event, view in self?.showOrbMenu(with: event, in: view) }
+        island.onDragMoved = { [weak self] point in self?.dragIsland(to: point) }
+        island.onDragEnded = { [weak self] in self?.endIslandDrag() }
         applyIslandOptions(applied)
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
@@ -263,10 +267,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleItem.title = bubbleHidden ? "Show Bubble" : "Hide Bubble"
     }
 
-    /// The island's window on its display: the pointer's with Follow the Pointer, else the main one.
+    /// The display the island lives on: the pointer's with Follow the Pointer, else the main one.
+    private func islandScreen(mouse: CGPoint) -> NSScreen? {
+        (applied.followPointer ? BubblePanel.screen(nearest: mouse) : nil) ?? NSScreen.screens.first
+    }
+
+    /// The island's window: on its edge and spot (the dragged ones while dragging).
     private func islandWindowFrame(mouse: CGPoint) -> CGRect {
-        let screen = (applied.followPointer ? BubblePanel.screen(nearest: mouse) : nil) ?? NSScreen.screens.first
-        return IslandLayout.windowFrame(dock: applied.islandDock, visible: screen?.visibleFrame ?? island.frame)
+        let dock = islandDrag?.dock ?? applied.islandDock, along = islandDrag?.along ?? applied.islandAlong
+        return IslandLayout.windowFrame(dock: dock, visible: islandScreen(mouse: mouse)?.visibleFrame ?? island.frame, along: along)
+    }
+
+    /// Dragging: snap to the edge nearest the pointer and slide along it, reshaping for that edge as it goes.
+    private func dragIsland(to point: CGPoint) {
+        guard let visible = islandScreen(mouse: point)?.visibleFrame else { return }
+        let target = IslandLayout.nearest(point, visible: visible)
+        islandDrag = target
+        hover.dismiss()
+        if island.model.mode == .hover { island.model.mode = .rest }
+        if island.model.dock != target.dock { island.model.dock = target.dock }
+        let frame = islandWindowFrame(mouse: point)
+        if island.frame != frame { island.setFrame(frame, display: true) }
+    }
+
+    private func endIslandDrag() {
+        guard let target = islandDrag else { return }
+        islandDrag = nil
+        settings.prefs.islandDock = target.dock
+        settings.prefs.islandAlong = target.along
     }
 
     private func applyIslandOptions(_ prefs: BubblePreferences) {
@@ -291,7 +319,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let over = pill(m.mode).contains(mouse)
         let wasOpen = m.mode == .hover
-        let open = hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime())
+        let open = islandDrag == nil
+            && hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime())
         if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
         let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt)
         if m.mode != mode { m.mode = mode }
@@ -307,7 +336,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !bubbleHidden { appearOrb() }
     }
 
-    @objc private func resetPosition() { panel.resetPosition() }
+    @objc private func resetPosition() {
+        if isIsland {
+            settings.prefs.islandDock = .top
+            settings.prefs.islandAlong = 0.5
+        } else {
+            panel.resetPosition()
+        }
+    }
 
     private func focusTerminal() {
         let workspace = NSWorkspace.shared
