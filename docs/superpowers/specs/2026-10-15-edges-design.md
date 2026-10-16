@@ -107,3 +107,13 @@ When the orb is near a screen edge, a thin light runs along that edge. It is bri
   - the falloff cutoff.
 - **Preferences:** the edgeLight default, and older saved settings.
 - **By hand:** dragging the orb to each edge and corner.
+
+## 3. Toasts follow the pips
+
+`ToastLayout.place(orb:around:size:visible:)` (core) puts the toast stack on the same side as the pip arc:
+
+- **Down** (45°–135°): centred below the pips, as before. It flips above the orb when there's no room below.
+- **Up:** above the orb, flipped (newest nearest the orb). It drops below the orb if there's no room above.
+- **Sideways:** out past the pips on that side, with the first toast level with the orb, growing downward.
+
+After that, the frame is pulled fully inside the visible frame, so a toast is never cut off. The orb's toast tug points toward the stack.

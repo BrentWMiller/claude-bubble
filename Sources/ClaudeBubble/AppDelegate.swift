@@ -411,9 +411,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Which way the toast stack lies from the orb (it follows the pips).
+    private var toastPull: SIMD2<Float> = [0, -1]
+
     /// A toast appearing gives the orb a small taffy pull toward the stack.
     private func tugTowardToasts() {
-        animator.pull(towards: toastModel.flipped ? [0, 1] : [0, -1], amplitude: 0.32)
+        animator.pull(towards: toastPull, amplitude: 0.32)
     }
 
     /// Ages the toasts, lays out the stack and places its panel under (or above) the orb.
@@ -424,13 +427,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         let orb = panel.frame
-        let reach = orb.width * 0.3 * 1.49
-        let size = ToastPanel.size
-        let visible = BubblePanel.screen(containing: CGPoint(x: orb.midX, y: orb.midY))?.visibleFrame ?? orb
-        let belowTop = orb.midY - reach
-        let flipped = belowTop - size.height < visible.minY
-        let frame = CGRect(x: orb.midX - size.width / 2, y: flipped ? orb.midY + reach : belowTop - size.height,
-                           width: size.width, height: size.height)
+        let visible = BubblePanel.screen(nearest: CGPoint(x: orb.midX, y: orb.midY))?.visibleFrame ?? orb
+        // Same side as the pips, and always fully on screen.
+        let placement = ToastLayout.place(orb: orb, around: model.pipAround, size: ToastPanel.size, visible: visible)
+        let frame = placement.frame, flipped = placement.flipped
+        toastPull = placement.pull
         // Expanded while the pointer is over the stack (lifetimes pause too).
         let collapsedHeight = toasts.stackHeight(expanded: false)
         let height = toastModel.placements.isEmpty ? collapsedHeight : max(collapsedHeight, toasts.stackHeight(expanded: hoverToasts))

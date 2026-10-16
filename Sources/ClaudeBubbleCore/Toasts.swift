@@ -181,3 +181,45 @@ public enum ToastDecode {
         })
     }
 }
+
+/// Where the toast stack goes: on the same side of the orb as the pips (they turn to stay on screen), then pulled
+/// fully inside the visible frame so nothing is cut off.
+public enum ToastLayout {
+    public struct Placement: Equatable, Sendable {
+        public let frame: CGRect
+        /// The stack sits above the orb: newest nearest the orb, growing upward.
+        public let flipped: Bool
+        /// Which way the orb tugs when a toast appears (toward the stack).
+        public let pull: SIMD2<Float>
+    }
+
+    /// `around` is the pip arc's turn (view degrees, y-down; 90 = down); `orb` and `visible` are in screen space.
+    public static func place(orb: CGRect, around: Double, size: CGSize, visible: CGRect) -> Placement {
+        let radius = orb.width * 0.3
+        let reach = radius * 1.49                    // below the pips when they hang under the orb
+        let beside = radius * PipArc.radiusScale + 14 // past the pips when they're to the side
+        let a = (around.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
+        var frame = CGRect(origin: .zero, size: size)
+        var flipped = false
+        let pull: SIMD2<Float>
+        if a > 45, a <= 135 {
+            frame.origin = CGPoint(x: orb.midX - size.width / 2, y: orb.midY - reach - size.height)
+            pull = [0, -1]
+            if frame.minY < visible.minY { frame.origin.y = orb.midY + reach; flipped = true }
+        } else if a >= 225, a < 315 {
+            frame.origin = CGPoint(x: orb.midX - size.width / 2, y: orb.midY + reach)
+            flipped = true
+            pull = [0, 1]
+            if frame.maxY > visible.maxY { frame.origin.y = orb.midY - reach - size.height; flipped = false }
+        } else {
+            // Beside the orb, the stack's first toast level with it, growing downward.
+            let left = a > 135 && a < 225
+            frame.origin = CGPoint(x: left ? orb.midX - beside - size.width : orb.midX + beside,
+                                   y: orb.midY + 15 - size.height)
+            pull = left ? [-1, 0] : [1, 0]
+        }
+        frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - size.width)
+        frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - size.height)
+        return Placement(frame: frame, flipped: flipped, pull: pull)
+    }
+}
