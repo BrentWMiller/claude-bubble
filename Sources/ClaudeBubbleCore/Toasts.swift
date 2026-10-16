@@ -181,3 +181,48 @@ public enum ToastDecode {
         })
     }
 }
+
+/// Where the toast stack goes: centred under the orb (above it if the bottom would cut it off). If a side would
+/// cut it off, it moves to the opposite side of the orb instead, its first toast level with the orb's centre and
+/// just past the pips. Then it's pulled fully inside the visible frame.
+public enum ToastLayout {
+    public enum Align: Equatable, Sendable { case leading, center, trailing }
+
+    public struct Placement: Equatable, Sendable {
+        public let frame: CGRect
+        /// The stack sits above the orb: newest nearest the orb, growing upward.
+        public let flipped: Bool
+        /// How the toasts sit in the frame: toward the orb when beside it.
+        public let align: Align
+        /// Which way the orb tugs when a toast appears (toward the stack).
+        public let pull: SIMD2<Float>
+    }
+
+    /// The first toast's top inset and height in the stack (see `ToastQueue.layout`, `ToastStackView`).
+    static let firstToastCentre: CGFloat = 6 + 15
+
+    public static func place(orb: CGRect, size: CGSize, visible: CGRect) -> Placement {
+        let radius = orb.width * 0.3
+        let reach = radius * 1.49                         // below the pips when they hang under the orb
+        let beside = radius * PipArc.radiusScale + 12      // past the pips when they're to the side
+        var frame = CGRect(x: orb.midX - size.width / 2, y: orb.midY - reach - size.height,
+                           width: size.width, height: size.height)
+        var flipped = false, align = Align.center
+        var pull: SIMD2<Float> = [0, -1]
+        if frame.maxX > visible.maxX || frame.minX < visible.minX {
+            // A side would be cut off: go to the other side, level with the orb.
+            let left = frame.maxX > visible.maxX
+            frame.origin = CGPoint(x: left ? orb.midX - beside - size.width : orb.midX + beside,
+                                   y: orb.midY + firstToastCentre - size.height)
+            align = left ? .trailing : .leading
+            pull = left ? [-1, 0] : [1, 0]
+        } else if frame.minY < visible.minY {
+            frame.origin.y = orb.midY + reach
+            flipped = true
+            pull = [0, 1]
+        }
+        frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - size.width)
+        frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - size.height)
+        return Placement(frame: frame, flipped: flipped, align: align, pull: pull)
+    }
+}

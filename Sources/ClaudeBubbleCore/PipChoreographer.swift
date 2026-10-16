@@ -238,21 +238,52 @@ public enum PipArc {
     public static let radiusScale: CGFloat = 1.28
     public static let hitTolerance: CGFloat = 7
 
-    public static func position(slot: Int, slots: Int, centre: CGPoint, radius: CGFloat) -> CGPoint {
-        let degrees = 90 - (Double(slot) - Double(slots - 1) / 2) * stepDegrees(radius: radius)
+    /// `around` turns the whole arc around the orb (view degrees, y-down; 90 = hanging straight down).
+    public static func position(slot: Int, slots: Int, centre: CGPoint, radius: CGFloat, around: Double = 90) -> CGPoint {
+        let degrees = around - (Double(slot) - Double(slots - 1) / 2) * stepDegrees(radius: radius)
         let a = degrees * .pi / 180
         return CGPoint(x: centre.x + CGFloat(cos(a)) * radius, y: centre.y + CGFloat(sin(a)) * radius)
     }
 
+    /// Where to turn the arc so every pip is on screen: the angle nearest to straight down (checked every 5°)
+    /// that keeps each slot at least 6pt inside `visible`, else the one with the most slots inside.
+    /// `centre` and `visible` are in screen space (y-up); the result is view degrees like `position`'s `around`.
+    public static func around(centre: CGPoint, radius: CGFloat, slots: Int, visible: CGRect) -> Double {
+        guard slots > 0 else { return 90 }
+        func inside(_ a: Double, margin: CGFloat) -> Int {
+            let inner = visible.insetBy(dx: margin, dy: margin)
+            return (0..<slots).filter { i in
+                let p = position(slot: i, slots: slots, centre: .zero, radius: radius, around: a)
+                return inner.contains(CGPoint(x: centre.x + p.x, y: centre.y - p.y))   // view y-down → screen y-up
+            }.count
+        }
+        func offDown(_ a: Double) -> Double { let d = abs((a - 90).truncatingRemainder(dividingBy: 360)); return min(d, 360 - d) }
+        let candidates = stride(from: 90.0, to: 450, by: 5).map { $0.truncatingRemainder(dividingBy: 360) }
+        // A comfortable 16pt margin if any angle allows it; deep in a corner, settle for less.
+        for margin: CGFloat in [16, 8, 4, 0] {
+            let clear = candidates.filter { inside($0, margin: margin) == slots }
+            guard let best = clear.min(by: { offDown($0) < offDown($1) }) else { continue }
+            guard best != 90 else { return 90 }
+            // Turned: go a little further than the bare minimum, so the pips sit comfortably on screen.
+            let away = (best - 90 + 540).truncatingRemainder(dividingBy: 360) - 180
+            let further = (best + (away > 0 ? 12 : -12) + 360).truncatingRemainder(dividingBy: 360)
+            return inside(further, margin: margin) == slots ? further : best
+        }
+        return candidates.max { a, b in
+            let ia = inside(a, margin: 0), ib = inside(b, margin: 0)
+            return ia != ib ? ia < ib : offDown(a) > offDown(b)
+        } ?? 90
+    }
+
     /// The session whose visible pip is nearest `point`, within half the pip spacing (at most 7pt), if any.
-    public static func hit(_ point: CGPoint, frame: PipsFrame, centre: CGPoint, radius: CGFloat) -> String? {
+    public static func hit(_ point: CGPoint, frame: PipsFrame, centre: CGPoint, radius: CGFloat, around: Double = 90) -> String? {
         guard frame.visible, !frame.merged else { return nil }
         let spacing = radius * CGFloat(stepDegrees(radius: radius) * .pi / 180)
         let tolerance = min(hitTolerance, spacing / 2)
         var best: (id: String, distance: CGFloat)?
         for pip in frame.pips {
             guard let slot = pip.slot else { continue }
-            let p = position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
+            let p = position(slot: slot, slots: frame.slots, centre: centre, radius: radius, around: around)
             let d = hypot(p.x - point.x, p.y - point.y)
             if d <= tolerance, d < (best?.distance ?? .infinity) { best = (pip.id, d) }
         }

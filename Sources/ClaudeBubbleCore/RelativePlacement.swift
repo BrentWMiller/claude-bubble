@@ -33,9 +33,16 @@ public enum PointerFollow {
     /// the orb across displays isn't hijacked.
     public static func destination(enabled: Bool, buttonDown: Bool, mouse: CGPoint, panelFrame: CGRect,
                                    displays: [Display], spot: CGPoint?) -> CGPoint? {
+        let centre = CGPoint(x: panelFrame.midX, y: panelFrame.midY)
+        // An orb hanging off its display's edge (centre just past it) still belongs to that display.
+        let slack = panelFrame.width * 0.3
+        let home = displays.first { $0.frame.contains(centre) }
+            ?? displays.first { $0.frame.insetBy(dx: -slack, dy: -slack).contains(centre) }
         guard enabled, !buttonDown,
-              let target = displays.first(where: { $0.frame.contains(mouse) }),
-              !target.frame.contains(CGPoint(x: panelFrame.midX, y: panelFrame.midY)) else { return nil }
-        return RelativePlacement.origin(for: spot ?? defaultSpot, side: panelFrame.width, in: target.visible)
+              let target = displays.first(where: { $0.frame.contains(mouse) }), target != home else { return nil }
+        // The spot may sit past an edge (the orb was hanging off it): it lands hanging off the same edge.
+        let s = spot ?? defaultSpot, v = target.visible, side = panelFrame.width
+        let raw = CGPoint(x: v.minX + s.x * v.width - side / 2, y: v.minY + s.y * v.height - side / 2)
+        return BubblePlacement.clampedOrigin(raw, side: side, screen: target.frame, visible: v)
     }
 }

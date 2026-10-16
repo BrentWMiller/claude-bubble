@@ -34,15 +34,17 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var toasts: Bool
     /// Usage (5-hour window) on the orb, the hover card, and as toasts.
     public var usage: Bool
+    /// A light along the screen edge when the orb is near it.
+    public var edgeLight: Bool
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
         diameter: OrbSize.defaultDiameter, opacity: 1, followPointer: false, relativeSpot: nil,
-        interaction: .attention, sounds: true, completionSound: .bloom, toasts: true, usage: true)
+        interaction: .attention, sounds: true, completionSound: .bloom, toasts: true, usage: true, edgeLight: true)
 
     public init(palette: OrbPalette, presetName: String, customized: Bool, diameter: Double, opacity: Double,
                 followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction, sounds: Bool,
-                completionSound: CompletionSound, toasts: Bool, usage: Bool = true) {
+                completionSound: CompletionSound, toasts: Bool, usage: Bool = true, edgeLight: Bool = true) {
         self.palette = palette
         self.presetName = presetName
         self.customized = customized
@@ -55,6 +57,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         self.completionSound = completionSound
         self.toasts = toasts
         self.usage = usage
+        self.edgeLight = edgeLight
     }
 
     /// Missing keys (settings saved by an older version) take their defaults instead of resetting everything.
@@ -73,6 +76,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         completionSound = (try? c.decodeIfPresent(CompletionSound.self, forKey: .completionSound)) ?? d.completionSound
         toasts = try c.decodeIfPresent(Bool.self, forKey: .toasts) ?? d.toasts
         usage = try c.decodeIfPresent(Bool.self, forKey: .usage) ?? d.usage
+        edgeLight = try c.decodeIfPresent(Bool.self, forKey: .edgeLight) ?? d.edgeLight
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {

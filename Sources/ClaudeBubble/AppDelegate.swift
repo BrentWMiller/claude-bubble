@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import ClaudeBubbleCore
 import ServiceManagement
+import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let settings = SettingsModel()
@@ -37,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var toastPanel: ToastPanel!
     private var soundLimiter = SoundRateLimiter()
     private let layerTracker = LayerTracker()
+    private let edgeLight = EdgeLightController()
     /// When the focus session's current motion began (bash settles with it).
     private var motionSince: Date?
     private let usageAlerts = UsageAlerts()
@@ -171,6 +173,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyState()
         updateMotion()
         refreshUsage()
+    }
+
+    /// Turns the pip arc around the orb so every pip stays on screen, easing the shortest way round.
+    private func turnPips() {
+        let frame = panel.frame
+        let centre = CGPoint(x: frame.midX, y: frame.midY)
+        guard let visible = BubblePanel.screen(nearest: centre)?.visibleFrame else { return }
+        let radius = frame.width * 0.3 * PipArc.radiusScale
+        let target = PipArc.around(centre: centre, radius: radius, slots: max(model.pips.slots, 2), visible: visible)
+        let current = model.pipAround
+        let diff = (target - current + 540).truncatingRemainder(dividingBy: 360) - 180
+        guard abs(diff) > 0.05 else { return }
+        let next = abs(diff) < 0.5 ? target : current + diff * (1 - exp(-0.05 / 0.12))
+        // The easing here is the animation: the pips' own springs would lag behind (and the hit test with them).
+        var quiet = Transaction()
+        quiet.disablesAnimations = true
+        withTransaction(quiet) { model.pipAround = (next + 360).truncatingRemainder(dividingBy: 360) }
     }
 
     /// The orb's motion follows the most recently changed working session; layers fire when its counters go up.
@@ -319,12 +338,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if frame.visible, model.present, !bubbleHidden,
            let id = events.reversed().compactMap({ if case let .spawned(id) = $0 { id } else { nil } }).first,
            let slot = frame.pips.first(where: { $0.id == id })?.slot {
-            let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
+            let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius, around: model.pipAround)
             animator.pull(towards: SIMD2(Float(p.x - centre.x), Float(centre.y - p.y)))   // view is y-down
         }
         // The session list can overlap the pip arc; when the pointer is in the list, the list wins.
         let overList = listPanel.isShown && listPanel.frame.contains(mouse)
-        let hit = bubbleHidden || !model.present || overList ? nil : PipArc.hit(local, frame: frame, centre: centre, radius: radius)
+        let hit = bubbleHidden || !model.present || overList ? nil : PipArc.hit(local, frame: frame, centre: centre, radius: radius, around: model.pipAround)
         if hit != model.hoveredPip {
             model.hoveredPip = hit
             applyState()
@@ -338,8 +357,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if pipCard.isVisible { pipCard.hide() }
             return
         }
-        let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius)
-        pipCard.show(session, under: CGPoint(x: panel.frame.minX + p.x, y: panel.frame.maxY - p.y))
+        let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius, around: model.pipAround)
+        pipCard.show(session, under: CGPoint(x: panel.frame.minX + p.x, y: panel.frame.maxY - p.y),
+                     away: CGVector(dx: p.x - centre.x, dy: centre.y - p.y))   // view is y-down
     }
 
     // MARK: Usage
@@ -391,9 +411,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Which way the toast stack lies from the orb (it follows the pips).
+    private var toastPull: SIMD2<Float> = [0, -1]
+
     /// A toast appearing gives the orb a small taffy pull toward the stack.
     private func tugTowardToasts() {
-        animator.pull(towards: toastModel.flipped ? [0, 1] : [0, -1], amplitude: 0.32)
+        animator.pull(towards: toastPull, amplitude: 0.32)
     }
 
     /// Ages the toasts, lays out the stack and places its panel under (or above) the orb.
@@ -404,13 +427,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         let orb = panel.frame
-        let reach = orb.width * 0.3 * 1.49
-        let size = ToastPanel.size
-        let visible = BubblePanel.screen(containing: CGPoint(x: orb.midX, y: orb.midY))?.visibleFrame ?? orb
-        let belowTop = orb.midY - reach
-        let flipped = belowTop - size.height < visible.minY
-        let frame = CGRect(x: orb.midX - size.width / 2, y: flipped ? orb.midY + reach : belowTop - size.height,
-                           width: size.width, height: size.height)
+        let visible = BubblePanel.screen(nearest: CGPoint(x: orb.midX, y: orb.midY))?.visibleFrame ?? orb
+        // Under the orb, or opposite whichever side would be cut off; always fully on screen.
+        let placement = ToastLayout.place(orb: orb, size: ToastPanel.size, visible: visible)
+        let frame = placement.frame, flipped = placement.flipped
+        toastPull = placement.pull
+        if toastModel.align != placement.align { toastModel.align = placement.align }
         // Expanded while the pointer is over the stack (lifetimes pause too).
         let collapsedHeight = toasts.stackHeight(expanded: false)
         let height = toastModel.placements.isEmpty ? collapsedHeight : max(collapsedHeight, toasts.stackHeight(expanded: hoverToasts))
@@ -458,7 +480,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func currentSpot() -> CGPoint? {
         let frame = panel.frame
-        guard let visible = BubblePanel.screen(containing: CGPoint(x: frame.midX, y: frame.midY))?.visibleFrame else { return nil }
+        guard let visible = BubblePanel.screen(nearest: CGPoint(x: frame.midX, y: frame.midY))?.visibleFrame else { return nil }
         return RelativePlacement.spot(of: frame, in: visible)
     }
 
@@ -500,6 +522,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let mouse = NSEvent.mouseLocation
         followPointer(to: mouse)
         animator.motionElapsed = motionSince.map { Date().timeIntervalSince($0) } ?? 0
+        turnPips()
+        let orbScreen = BubblePanel.screen(nearest: CGPoint(x: panel.frame.midX, y: panel.frame.midY))
+        let shown = animator.state
+        let c = applied.palette[shown].swatch
+        // Edges shared with another display aren't the edge of the desktop: no light there.
+        let shared = orbScreen.map { s in EdgeLight.sharedEdges(of: s.frame, among: NSScreen.screens.filter { $0 != s }.map(\.frame)) } ?? []
+        edgeLight.update(orb: applied.edgeLight && !bubbleHidden && model.present ? panel : nil, screen: orbScreen?.visibleFrame,
+                         shared: shared,
+                         color: Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)), state: shown,
+                         opacity: applied.opacity, dt: 0.05)
         updatePips(mouse: mouse)
         updateToasts(mouse: mouse, now: CACurrentMediaTime())
         let centre = CGPoint(x: panel.frame.midX, y: panel.frame.midY)
@@ -565,6 +597,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let toastItem = item("Toasts", #selector(toggleToasts))
         toastItem.state = prefs.toasts ? .on : .off
+        let edgeItem = item("Edge Light", #selector(toggleEdgeLight))
+        edgeItem.state = prefs.edgeLight ? .on : .off
         let usageItem = item("Usage", #selector(toggleUsage))
         usageItem.state = prefs.usage ? .on : .off
         let soundItem = item("Sounds", #selector(toggleSounds))
@@ -579,7 +613,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
         return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
-                submenu("Interaction", interactions), toastItem, usageItem, soundItem, submenu("Completion Sound", completions), follow]
+                submenu("Interaction", interactions), toastItem, usageItem, edgeItem, soundItem, submenu("Completion Sound", completions), follow]
     }
 
     private func submenu(_ title: String, _ menu: NSMenu) -> NSMenuItem {
@@ -645,6 +679,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleToasts() {
         settings.prefs.toasts.toggle()
+    }
+
+    @objc private func toggleEdgeLight() {
+        settings.prefs.edgeLight.toggle()
     }
 
     @objc private func toggleUsage() {

@@ -53,14 +53,14 @@ struct ArcPipsView: View {
             ZStack {
                 ForEach(frame.pips, id: \.id) { pip in
                     PipDot(pip: pip, frame: frame, centre: centre, radius: radius,
-                           color: pipColor(pip),
+                           around: model.pipAround, color: pipColor(pip),
                            hovered: model.hoveredPip == pip.id)
                 }
                 if frame.overflow > 0 {
                     Text("+\(frame.overflow)")
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.7))
-                        .position(PipArc.position(slot: frame.slots - 1, slots: frame.slots, centre: centre, radius: radius))
+                        .position(PipArc.position(slot: frame.slots - 1, slots: frame.slots, centre: centre, radius: radius, around: model.pipAround))
                         .opacity(frame.merged ? 0 : 1)
                         .animation(.easeOut(duration: 0.3), value: frame.merged)
                 }
@@ -83,11 +83,12 @@ private struct PipDot: View {
     let frame: PipsFrame
     let centre: CGPoint
     let radius: CGFloat
+    let around: Double
     let color: Color
     let hovered: Bool
 
     var body: some View {
-        let slotPoint = pip.slot.map { PipArc.position(slot: $0, slots: frame.slots, centre: centre, radius: radius) } ?? centre
+        let slotPoint = pip.slot.map { PipArc.position(slot: $0, slots: frame.slots, centre: centre, radius: radius, around: around) } ?? centre
         // Spawn (design: Pip Sounds): hidden at the centre while the rim stretches toward the slot; at the snap it
         // appears just inside the slot as a droplet stretched along the pull, then springs round into the slot.
         let angle = atan2(slotPoint.y - centre.y, slotPoint.x - centre.x)
