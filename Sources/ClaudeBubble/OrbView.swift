@@ -5,6 +5,10 @@ import MetalKit
 final class OrbView: MTKView {
     var onClick: (() -> Void)?
     var onRightClick: ((NSEvent, NSView) -> Void)?
+    /// The island's orb stays put; only the floating orb drags its window.
+    var allowsDrag = true
+    /// Tiny orbs (the island's): finer dots and a softer glow, ring and brightness, as the design's `crisp` does.
+    var crisp = false
     private var renderer: OrbRenderer?
     private var pendingClick: NSEvent?
 
@@ -42,7 +46,7 @@ final class OrbView: MTKView {
     private var dragStart: (mouse: CGPoint, origin: CGPoint)?
 
     override func mouseDragged(with event: NSEvent) {
-        guard let window else { return }
+        guard let window, allowsDrag else { return }
         if let down = pendingClick {
             let dx = event.locationInWindow.x - down.locationInWindow.x
             let dy = event.locationInWindow.y - down.locationInWindow.y
@@ -118,11 +122,14 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
               let enc = cmd.makeRenderCommandEncoder(descriptor: pass) else { return }
 
         let dpr = Float(min(view.window?.backingScaleFactor ?? 2, 2))
-        let pointSize = max(1, Float(view.bounds.width) / 200) * dpr * 1.6
+        let px = Float(view.bounds.width)
+        let crisp = (view as? OrbView)?.crisp ?? false
+        let cr: Float = crisp && px < 120 ? px / 120 : 1
+        let pointSize = (crisp ? max(0.42, min(1, px / 200)) : max(1, px / 200)) * dpr * 1.6
         var u = OrbUniforms(
             c1: SIMD4(f.params.c1, 0), c2: SIMD4(f.params.c2, 0), c3: SIMD4(f.params.c3, 0), halo: SIMD4(f.params.halo, 0),
-            a: [f.phase, f.scale, f.glow, f.ring],
-            b: [f.params.glitch, f.params.wave, f.params.bright, pointSize],
+            a: [f.phase, f.scale, f.glow * (0.35 + 0.65 * cr), f.ring * (0.6 + 0.4 * cr)],
+            b: [f.params.glitch, f.params.wave, f.params.bright * (0.75 + 0.25 * cr), pointSize],
             c: [Float(view.drawableSize.width), Float(view.drawableSize.height), f.shakeX, 0],
             d: [f.pointer.x, f.pointer.y, f.attention, f.completion],
             e: [f.pop, f.pull, f.pullAngle, 0],

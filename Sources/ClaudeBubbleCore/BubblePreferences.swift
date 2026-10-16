@@ -36,11 +36,17 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var usage: Bool
     /// A light along the screen edge when the orb is near it.
     public var edgeLight: Bool
+    /// The floating orb, or a pill docked to a screen edge.
+    public var style: BubbleStyle
+    public var islandDock: IslandDock
+    public var islandRest: IslandRest
+    public var islandGlow: IslandGlow
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
         diameter: OrbSize.defaultDiameter, opacity: 1, followPointer: false, relativeSpot: nil,
         interaction: .attention, sounds: true, completionSound: .bloom, toasts: true, usage: true, edgeLight: true)
+        .with(style: .orb, dock: .top, rest: .live, glow: .waves)
 
     public init(palette: OrbPalette, presetName: String, customized: Bool, diameter: Double, opacity: Double,
                 followPointer: Bool, relativeSpot: [Double]?, interaction: PointerInteraction, sounds: Bool,
@@ -58,6 +64,19 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         self.toasts = toasts
         self.usage = usage
         self.edgeLight = edgeLight
+        style = .orb
+        islandDock = .top
+        islandRest = .live
+        islandGlow = .waves
+    }
+
+    func with(style: BubbleStyle, dock: IslandDock, rest: IslandRest, glow: IslandGlow) -> BubblePreferences {
+        var p = self
+        p.style = style
+        p.islandDock = dock
+        p.islandRest = rest
+        p.islandGlow = glow
+        return p
     }
 
     /// Missing keys (settings saved by an older version) take their defaults instead of resetting everything.
@@ -77,6 +96,10 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         toasts = try c.decodeIfPresent(Bool.self, forKey: .toasts) ?? d.toasts
         usage = try c.decodeIfPresent(Bool.self, forKey: .usage) ?? d.usage
         edgeLight = try c.decodeIfPresent(Bool.self, forKey: .edgeLight) ?? d.edgeLight
+        style = (try? c.decodeIfPresent(BubbleStyle.self, forKey: .style)) ?? d.style
+        islandDock = (try? c.decodeIfPresent(IslandDock.self, forKey: .islandDock)) ?? d.islandDock
+        islandRest = (try? c.decodeIfPresent(IslandRest.self, forKey: .islandRest)) ?? d.islandRest
+        islandGlow = (try? c.decodeIfPresent(IslandGlow.self, forKey: .islandGlow)) ?? d.islandGlow
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {
