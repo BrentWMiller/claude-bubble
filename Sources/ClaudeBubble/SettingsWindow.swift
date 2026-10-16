@@ -98,6 +98,11 @@ struct SettingsView: View {
                 Toggle("Follow the pointer to other displays",
                        isOn: Binding(get: { settings.prefs.followPointer }, set: { settings.setFollowPointer($0) }))
             }
+            Section("Quiet mode") {
+                Toggle("Quiet during any Focus", isOn: $settings.prefs.quietAnyFocus)
+                Text("For only some Focuses (and screen sharing), add the Claude Bubble filter in System Settings → Focus → a Focus → Focus filters. Do Not Disturb can turn on automatically while sharing your screen.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         // A grouped Form scrolls, so it has no natural height; without this the window collapses to its title bar.

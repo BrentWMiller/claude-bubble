@@ -18,4 +18,6 @@ final class SessionsModel: ObservableObject {
     @Published var hoveredPip: String?
     /// How far the pip arc is turned around the orb so the pips stay on screen (view degrees; 90 = down).
     @Published var pipAround: Double = 90
+    /// Quiet mode: the pips step aside with the orb shrunk to a dot.
+    @Published var quiet = false
 }

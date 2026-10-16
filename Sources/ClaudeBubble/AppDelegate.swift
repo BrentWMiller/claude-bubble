@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var isIsland: Bool { applied.style == .island }
     /// While the island is being dragged: the edge and spot it's snapping to (saved on release).
     private var islandDrag: (dock: IslandDock, along: Double)?
+    /// Quiet mode (a Focus, a screen share, or the toggle): the bubble shrinks to a dot and toasts wait.
+    private var quiet = false
+    private var heldToasts: [HeldToast] = []
     /// When the focus session's current motion began (bash settles with it).
     private var motionSince: Date?
     private let usageAlerts = UsageAlerts()
@@ -71,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applied = settings.prefs
         model.palette = applied.palette
         animator.interaction = applied.interaction
-        sounds.enabled = applied.sounds
+        sounds.enabled = applied.sounds && !quiet
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
         panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
@@ -98,6 +101,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         island.onDragMoved = { [weak self] point in self?.dragIsland(to: point) }
         island.onDragEnded = { [weak self] in self?.endIslandDrag() }
         applyIslandOptions(applied)
+        QuietController.shared.onChange = { [weak self] on in self?.setQuiet(on) }
+        if applied.quietAnyFocus { QuietController.shared.followAnyFocus(true) }
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
         // re-anchor it (it may need to flip above/below or come back on screen).
@@ -322,7 +327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let open = islandDrag == nil
             && hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime())
         if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
-        let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt)
+        let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt, quiet: quiet)
         if m.mode != mode { m.mode = mode }
         if m.state != animator.state { m.state = animator.state }
         // Only publish when something actually expires (the whole island re-renders on every change).
@@ -404,7 +409,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
         animator.interaction = prefs.interaction
-        sounds.enabled = prefs.sounds
+        sounds.enabled = prefs.sounds && !quiet
+        if prefs.quietAnyFocus != applied.quietAnyFocus {
+            QuietController.shared.followAnyFocus(prefs.quietAnyFocus) { [weak self] allowed in
+                guard !allowed, let self else { return }
+                self.settings.prefs.quietAnyFocus = false
+                NSApp.activate(ignoringOtherApps: true)
+                let alert = NSAlert()
+                alert.messageText = "Focus status isn't available"
+                alert.informativeText = "macOS didn't let Claude Bubble read your Focus status. You can still quiet it for chosen Focuses: System Settings → Focus → (a Focus) → Focus filters → Claude Bubble."
+                alert.runModal()
+            }
+        }
         let usageChanged = prefs.usage != applied.usage
         let styleChanged = prefs.style != applied.style
         let paletteChanged = prefs.palette != applied.palette
@@ -509,8 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if reading != model.usage { model.usage = reading }
         animator.usageLeft = reading?.left(at: now)
         for alert in usageAlerts.update(reading, now: now) where applied.toasts && !bubbleHidden {
-            toasts.push(alert.kind, name: "Usage", text: alert.text, now: CACurrentMediaTime())
-            tugTowardToasts()
+            pushToast(alert.kind, name: "Usage", text: alert.text)
         }
     }
 
@@ -520,14 +535,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let names = Dictionary(model.sessions.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
         let reviews = Set(model.sessions.filter(\.reviewReady).map(\.id))
         for toast in ToastQueue.toasts(for: events, previous: previous, names: names, reviews: reviews) {
-            toasts.push(toast.kind, name: toast.name, now: now)
-            if toast.kind != .started { tugTowardToasts() }   // a new pip already has its own pull
+            pushToast(toast.kind, name: toast.name)
         }
         if events.contains(.allDone) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
                 guard let self, self.applied.toasts else { return }
-                self.toasts.push(.allDone, name: "All sessions", now: CACurrentMediaTime())
-                self.tugTowardToasts()
+                self.pushToast(.allDone, name: "All sessions")
+            }
+        }
+    }
+
+    /// Shows a toast, or holds it for the catch-up while quiet.
+    private func pushToast(_ kind: ToastKind, name: String, text: String? = nil) {
+        if quiet {
+            heldToasts.append(HeldToast(kind: kind, name: name, text: text))
+            if heldToasts.count > 50 { heldToasts.removeFirst() }
+            return
+        }
+        toasts.push(kind, name: name, text: text, now: CACurrentMediaTime())
+        if kind != .started { tugTowardToasts() }   // a new pip already has its own pull
+    }
+
+    private func setQuiet(_ on: Bool) {
+        guard on != quiet else { return }
+        quiet = on
+        animator.quiet = on
+        model.quiet = on
+        sounds.enabled = applied.sounds && !on
+        if on {
+            if listPanel.isShown { listPanel.popOut() }
+            if pipCard.isVisible { pipCard.hide() }
+            return
+        }
+        // Back: play what was held, quickly.
+        let plan = CatchUp.plan(heldToasts)
+        heldToasts = []
+        for item in plan {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4 + item.delay) { [weak self] in
+                guard let self, !self.quiet, self.applied.toasts, !self.bubbleHidden else { return }
+                self.pushToast(item.kind, name: item.name, text: item.text)
             }
         }
     }
@@ -670,7 +716,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let c = applied.palette[shown].swatch
         // Edges shared with another display aren't the edge of the desktop: no light there.
         let shared = orbScreen.map { s in EdgeLight.sharedEdges(of: s.frame, among: NSScreen.screens.filter { $0 != s }.map(\.frame)) } ?? []
-        edgeLight.update(orb: applied.edgeLight && !bubbleHidden && model.present ? panel : nil, screen: orbScreen?.visibleFrame,
+        edgeLight.update(orb: applied.edgeLight && !bubbleHidden && model.present && !quiet ? panel : nil, screen: orbScreen?.visibleFrame,
                          shared: shared,
                          color: Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)), state: shown,
                          opacity: applied.opacity, dt: 0.05)
@@ -739,6 +785,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let toastItem = item("Toasts", #selector(toggleToasts))
         toastItem.state = prefs.toasts ? .on : .off
+        let quietItem = item("Quiet Mode", #selector(toggleQuiet))
+        quietItem.state = quiet ? .on : .off
         let edgeItem = item("Edge Light", #selector(toggleEdgeLight))
         edgeItem.state = prefs.edgeLight ? .on : .off
         let usageItem = item("Usage", #selector(toggleUsage))
@@ -769,7 +817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
         let styleItems = [submenu("Style", styles)] + (prefs.style == .island ? [submenu("Island Dock", docks)] : [])
-        return styleItems + [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
+        return styleItems + [quietItem, submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
                 submenu("Interaction", interactions), toastItem, usageItem, edgeItem, soundItem, submenu("Completion Sound", completions), follow]
     }
 
@@ -836,6 +884,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleToasts() {
         settings.prefs.toasts.toggle()
+    }
+
+    /// The manual switch; while a Focus keeps it quiet, turning it off only clears the manual part.
+    @objc private func toggleQuiet() {
+        QuietController.shared.manual = !quiet
     }
 
     @objc private func pickStyle(_ sender: NSMenuItem) {
