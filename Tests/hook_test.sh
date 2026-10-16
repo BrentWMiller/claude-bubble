@@ -197,6 +197,25 @@ check '[ "$(count_of m subagents)" = 0 ]' "fresh start clears subagents"
 send '{"hook_event_name":"SubagentStart","session_id":"n","agent_id":"x"}'; expect n working "subagent event on a new session -> working"
 send '{"hook_event_name":"SessionEnd","session_id":"m"}'; send '{"hook_event_name":"SessionEnd","session_id":"n"}'
 
+# Review fixes: parallel tools, denials, subagents cleared at the end of a turn, details kept
+send '{"hook_event_name":"SessionStart","session_id":"p","cwd":"/tmp"}'
+send '{"hook_event_name":"UserPromptSubmit","session_id":"p"}'
+send '{"hook_event_name":"PreToolUse","session_id":"p","tool_name":"Bash","tool_use_id":"t1"}'
+send '{"hook_event_name":"PreToolUse","session_id":"p","tool_name":"Read","tool_use_id":"t2"}'; expect_field p activity read "parallel Read shows"
+send '{"hook_event_name":"PostToolUse","session_id":"p","tool_name":"Read","tool_use_id":"t2"}'; expect_field p activity bash "back to the Bash still running"
+send '{"hook_event_name":"PostToolUse","session_id":"p","tool_name":"Bash","tool_use_id":"t1"}'; expect_field p activity generating "all tools done -> generating"
+send '{"hook_event_name":"PreToolUse","session_id":"p","tool_name":"Bash","tool_use_id":"t3"}'
+send '{"hook_event_name":"PermissionDenied","session_id":"p","tool_name":"Bash","tool_use_id":"t3"}'; expect_field p activity generating "denied tool -> generating"
+send '{"hook_event_name":"SubagentStart","session_id":"p","agent_id":"s1"}'
+send '{"hook_event_name":"Stop","session_id":"p"}'
+check '[ "$(count_of p subagents)" = 0 ]' "end of turn clears subagents"
+send '{"hook_event_name":"UserPromptSubmit","session_id":"p"}'
+send '{"hook_event_name":"PreToolUse","session_id":"p","tool_name":"Bash","tool_use_id":"t4"}'
+send '{"hook_event_name":"UserPromptSubmit","session_id":"p"}'; expect_field p activity generating "a new prompt forgets tools left in flight"
+send '{"hook_event_name":"Elicitation","session_id":"p"}'
+send '{"hook_event_name":"SubagentStart","session_id":"p","agent_id":"s2"}'; expect_field p detail "Input requested" "subagent event keeps the needs detail"
+send '{"hook_event_name":"SessionEnd","session_id":"p"}'
+
 out=$(printf 'not json' | "$HOOK"; echo "exit=$?"); check '[ "$out" = "exit=0" ]' "garbage stdin exits 0 silently"
 out=$(printf '' | "$HOOK"; echo "exit=$?");         check '[ "$out" = "exit=0" ]' "empty stdin exits 0 silently"
 send '{"hook_event_name":"Stop","session_id":"../evil"}'; check '[ ! -e "$CLAUDE_BUBBLE_DIR/evil.json" ]' "path-like session id rejected"

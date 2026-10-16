@@ -141,7 +141,10 @@ final class SimulatorModel: ObservableObject {
     /// As real-looking sessions, for the rest of the app.
     var asSessions: [Session] {
         sessions.map {
-            var s = Session(id: "sim-\($0.id)", state: $0.state, updatedAt: $0.changed, project: $0.name,
+            // Never older than a minute (simulated sessions mustn't go stale), but still ordered by their last
+            // change, which picks the session the orb's motion follows.
+            let updated = max($0.changed, Date().addingTimeInterval(-60))
+            var s = Session(id: "sim-\($0.id)", state: $0.state, updatedAt: updated, project: $0.name,
                             detail: SimulatorStory.detail(for: $0.state), stateSince: $0.since, title: $0.name, reviewReady: $0.review)
             s.activity = SessionActivity(motion: $0.motion, since: $0.motionSince, subagents: $0.subagents,
                                          ticks: $0.ticks, fails: $0.fails, skills: $0.skills)

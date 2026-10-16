@@ -82,4 +82,15 @@ final class MotionAnimatorTests: XCTestCase {
         a.motionElapsed = 0   // a new command: back to a boil at once
         XCTAssertLessThan(a.step(dt: 0.02).settle, 0.05)
     }
+
+    func testLayersOnlyPlayWhileWorking() {
+        let a = animator(.needs)
+        a.subagents = 3
+        a.tick(); a.fail(); a.skill()
+        let f = run(a, seconds: 0.3)
+        XCTAssertEqual(f.sub, 0, accuracy: 0.001)
+        XCTAssertEqual(f.tickAges, SIMD3(-1, -1, -1))
+        XCTAssertEqual(f.failAge, -1)
+        XCTAssertEqual(f.skillAge, -1)
+    }
 }

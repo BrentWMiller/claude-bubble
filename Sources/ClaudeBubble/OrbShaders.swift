@@ -121,7 +121,7 @@ float2 wkm(float m, float3 q, float pa, float wv0, float settle) {
     } else if (m < 9.5) {                // web · Drifting ripple: the source wanders around the face
         wv = rpl(q, float3(sin(pa * .3) * .8, cos(pa * .23) * .5, .7), pa); wa = .08;
     } else if (m < 12.5) {               // search · Radar: a meridian sweeps with a fading wake
-        float h = fract(pa * .25 - atan2(q.z, q.x) / 6.2832);
+        float h = fract(pa * (1.5 / 6.2832) - atan2(q.z, q.x) / 6.2832);   // 300 whole turns per phase wrap
         wv = exp(-h * 7.) * 1.6 + exp(-pow(h / .015, 2.)) * .6 - .05; wa = .05;
     } else if (m < 17.5) {               // read · Converge: rings flow inward to the front point
         float an = angTo(q, float3(.3, .35, .89));
@@ -172,7 +172,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
         if (wg > 0.) {
             float3 sd = float3(sin(fk * 2.4 + ph * (.06 + fk * .01)) * .85, cos(fk * 1.7 + .6) * .6, .55);
             float an = angTo(q, sd);
-            ly += pow(max(sin(an * 5. - (ph * (.55 + fk * .04) + fk * 1.3) * 2.2), 0.), 2.) * .75 * exp(-an * .6) * wg / (1. + .4 * fk);
+            ly += pow(max(sin(an * 5. - ph * (1.21 + fk * .09) - fk * 2.86), 0.), 2.) * .75 * exp(-an * .6) * wg / (1. + .4 * fk);
         }
     }
     for (int k = 0; k < 3; k++) {

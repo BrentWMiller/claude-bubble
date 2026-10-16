@@ -128,6 +128,7 @@ public final class OrbAnimator {
 
     /// A tool call finished: a small ring. Bursts get quieter (down to 30%), and at most three show at once.
     public func tick() {
+        guard state == .working else { return }
         ticks.removeAll { time - $0.at >= 0.8 }
         tickHistory.removeAll { time - $0 >= 1.5 }
         tickHistory.append(time)
@@ -137,12 +138,14 @@ public final class OrbAnimator {
 
     /// A tool call failed: a dent and a small jolt.
     public func fail() {
+        guard state == .working else { return }
         failAt = time
         shake = max(shake, 0.3)
     }
 
     /// A skill or plan started: a sweep of light and a quick spin.
     public func skill() {
+        guard state == .working else { return }
         skillAt = time
     }
 
@@ -191,7 +194,8 @@ public final class OrbAnimator {
         let target = Float(1 - exp(-max(motionElapsed, 0) / 6))
         // A new command drops straight back to a boil; otherwise ease.
         settle = target < settle - 0.3 ? target : settle + (target - settle) * (1 - powf(0.2, dt))
-        sub += (Float(min(max(subagents, 0), 6)) - sub) * (1 - powf(0.06, dt))
+        // Layers belong to the working look (not a forced state or a pip preview).
+        sub += (shown == .working ? Float(min(max(subagents, 0), 6)) - sub : -sub) * (1 - powf(0.06, dt))
         if let s = skillAt {
             let age = Float(time - s)
             if age < 1.4 { phase += dt * 1.2 * sinf(.pi * min(1, age / 1.4)) }
@@ -203,7 +207,8 @@ public final class OrbAnimator {
         usageWarm += (tint.warm - usageWarm) * tintK
         usageCritical += (tint.critical - usageCritical) * tintK
         lowUsage += ((usageLeft.map { $0 <= 10 } ?? false ? 1 : 0) - lowUsage) * (1 - expf(-dt / 0.4))
-        // Every shader phase multiplier is a multiple of 0.05, so wrapping at 400π keeps floats precise without a visible seam.
+        // Wrapping at 400π keeps floats precise without a visible seam, as long as every shader sin(k·phase) has k a
+        // multiple of 0.005 and every fract(k·phase) has k·400π a whole number.
         phase = (phase + dt * (0.2 + current.energy * 1.5) * (1 - 0.6 * lowUsage)).truncatingRemainder(dividingBy: 400 * .pi)
         shake *= powf(0.02, dt)
         if presenceTarget > 0 {

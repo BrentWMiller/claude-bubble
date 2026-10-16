@@ -242,6 +242,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 NSLog("ClaudeBubble: \(installed) refresh failed: \(error)")
             }
         }
+        // A newer hook may listen to more events: add them to settings that already run the bubble's hook.
+        let settingsURL = home.appendingPathComponent(".claude/settings.json").resolvingSymlinksInPath()
+        let command = "\"\(home.appendingPathComponent(".claude-bubble/hook.sh").path)\""
+        guard let data = try? Data(contentsOf: settingsURL),
+              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let refreshed = HookInstaller.refreshSubscriptions(settings: settings, command: command),
+              let out = try? JSONSerialization.data(withJSONObject: refreshed, options: [.prettyPrinted, .withoutEscapingSlashes]) else { return }
+        do {
+            try out.write(to: settingsURL, options: .atomic)
+            NSLog("ClaudeBubble: subscribed the hook to new events")
+        } catch {
+            NSLog("ClaudeBubble: hook subscription refresh failed: \(error)")
+        }
     }
 
     @objc private func openSettings() {

@@ -147,6 +147,9 @@ elif state == 'working':
         detail = prev_detail or 'Working'
 else:
     detail = 'Completed' if prompted else 'Idle'
+# Subagent and compaction events say nothing new about the session: keep its status line.
+if keeps_state and prev_detail:
+    detail = prev_detail
 
 # What the orb's surface shows while working (mirrors Motion.forTool in the app).
 def motion_for(name):
@@ -163,13 +166,25 @@ def motion_for(name):
 # Tool events from inside a subagent don't move the main orb's motion (the main agent is waiting on them).
 from_subagent = bool(data.get('agent_id')) and not keeps_state
 activity = str(prev.get('activity') or 'generating')
+# The main agent's tool calls still running ([tool_use_id, motion], oldest first): parallel calls end in any
+# order, and the orb goes back to generating only once none are left.
+turn_over = fresh_start or event in ('UserPromptSubmit', 'Stop', 'StopFailure')
+in_flight = [] if turn_over else [x for x in prev.get('in_flight', []) if isinstance(x, list) and len(x) == 2]
+use_id = str(data.get('tool_use_id') or '')
 if fresh_start:
     activity = 'generating'
 elif not from_subagent:
-    if event in ('UserPromptSubmit', 'PostToolUse', 'PostToolUseFailure', 'PostCompact'):
+    if event in ('UserPromptSubmit', 'PostCompact'):
         activity = 'generating'
     elif event == 'PreToolUse':
         activity = motion_for(tool)
+        in_flight = [x for x in in_flight if x[0] != use_id][-19:] + [[use_id, activity]]
+    elif event in ('PostToolUse', 'PostToolUseFailure', 'PermissionDenied'):
+        if any(x[0] == use_id for x in in_flight):
+            in_flight = [x for x in in_flight if x[0] != use_id]
+        elif in_flight:
+            in_flight.pop()
+        activity = str(in_flight[-1][1]) if in_flight else 'generating'
     elif event == 'PreCompact':
         activity = 'compacting'
     elif event == 'SessionStart' and data.get('source') == 'compact':
@@ -184,7 +199,8 @@ def counter(name):
 ticks = counter('ticks') + (event == 'PostToolUse')
 fails = counter('fails') + (event == 'PostToolUseFailure')
 skills = counter('skills') + (event == 'PreToolUse' and tool in ('Skill', 'EnterPlanMode', 'ExitPlanMode'))
-subagents = [] if fresh_start else [str(x) for x in prev.get('subagents', []) if isinstance(x, str)]
+# Cleared when a turn ends too: an interrupt can leave a SubagentStop that never comes.
+subagents = [] if fresh_start or event in ('Stop', 'StopFailure') else [str(x) for x in prev.get('subagents', []) if isinstance(x, str)]
 agent = str(data.get('agent_id') or '')
 if event == 'SubagentStart' and agent and agent not in subagents:
     subagents.append(agent)
@@ -203,7 +219,8 @@ os.makedirs(d, exist_ok=True)
 record = {'state': state, 'event': event, 'cwd': cwd, 'updated_at': now, 'started_at': started,
           'pending': sorted(pending), 'prompted': prompted, 'project': project, 'detail': detail,
           'state_since': state_since, 'pid': pid, 'tool_ids': tool_ids, 'activity': activity,
-          'activity_since': activity_since, 'ticks': ticks, 'fails': fails, 'skills': skills, 'subagents': subagents}
+          'activity_since': activity_since, 'ticks': ticks, 'fails': fails, 'skills': skills, 'subagents': subagents,
+          'in_flight': in_flight}
 fd, tmp = tempfile.mkstemp(dir=d, prefix='.tmp-')
 try:
     with os.fdopen(fd, 'w') as f:

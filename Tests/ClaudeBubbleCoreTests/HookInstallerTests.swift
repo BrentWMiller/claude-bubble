@@ -195,4 +195,12 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertEqual(out.settings["statusLine"] as? String, "weird")
         XCTAssertNil(out.inner)
     }
+
+    func testRefreshAddsMissingEventsOnlyWhenInstalled() {
+        let old: [String: Any] = ["hooks": ["Stop": [["matcher": "", "hooks": [["type": "command", "command": cmd]]]]]]
+        let refreshed = HookInstaller.refreshSubscriptions(settings: old, command: cmd)
+        XCTAssertEqual(commands(refreshed ?? [:], "SubagentStart"), [cmd])
+        XCTAssertNil(HookInstaller.refreshSubscriptions(settings: refreshed!, command: cmd), "nothing missing: no write")
+        XCTAssertNil(HookInstaller.refreshSubscriptions(settings: ["model": "opus"], command: cmd), "never installs on its own")
+    }
 }
