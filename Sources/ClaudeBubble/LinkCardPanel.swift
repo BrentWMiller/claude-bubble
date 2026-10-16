@@ -78,7 +78,7 @@ final class LinkCardController {
         p.ignoresMouseEvents = true
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         let h = NSHostingView(rootView: Content(model: model))
-        h.sizingOptions = []   // sized by hand from fittingSize
+        h.sizingOptions = [.intrinsicContentSize]   // fittingSize needs it; no min/max constraints (costly per frame)
         p.contentView = h
         // The card grows when it finishes loading: re-measure once SwiftUI has the new content, keeping it on the chip.
         loaded = LinkPreviewFetcher.shared.objectWillChange.sink { [weak self] _ in

@@ -14,7 +14,7 @@ final class SessionListPanel: NSPanel {
         let motion = CardMotionModel()
         self.motion = motion
         host = FirstMouseHostingView(rootView: SessionListView(model: model, motion: motion, onSelect: onSelect))
-        host.sizingOptions = []   // sized by hand from fittingSize
+        host.sizingOptions = [.intrinsicContentSize]   // fittingSize needs it; no min/max constraints (costly per frame)
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         isFloatingPanel = true
         level = .floating
