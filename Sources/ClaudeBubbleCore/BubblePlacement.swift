@@ -6,12 +6,23 @@ public enum BubblePlacement {
         CGPoint(x: visibleFrame.midX - size / 2, y: visibleFrame.minY + 56)
     }
 
-    /// The orb may hang off the left, right and bottom of a screen until its centre is 0.6 of a radius past the edge
-    /// (four fifths of its width off, a fifth still showing to grab); at the top it stays wholly below the menu bar.
+    /// The orb may hang almost wholly off the left, right and bottom of a screen: its centre can go 0.8 of a radius
+    /// past an edge (a tenth of its width still showing to grab). Past a corner the limit is 0.5 of a radius from
+    /// the corner, so the pips still fit on screen. At the top it stays wholly below the menu bar.
     public static func clampedOrigin(_ origin: CGPoint, side: CGFloat, screen: CGRect, visible: CGRect) -> CGPoint {
-        let radius = side * 0.3, over = radius * 0.6
-        let cx = min(max(origin.x + side / 2, screen.minX - over), screen.maxX + over)
-        let cy = min(max(origin.y + side / 2, screen.minY - over), visible.maxY - radius)
+        let radius = side * 0.3
+        let edge = radius * 0.8, corner = radius * 0.5
+        let top = visible.maxY - radius
+        var cx = min(max(origin.x + side / 2, screen.minX - edge), screen.maxX + edge)
+        var cy = min(max(origin.y + side / 2, screen.minY - edge), top)
+        // Past two edges at once: keep within `corner` of that corner.
+        let px = cx < screen.minX ? screen.minX : cx > screen.maxX ? screen.maxX : cx
+        let py = cy < screen.minY ? screen.minY : cy
+        let dx = cx - px, dy = cy - py, d = hypot(dx, dy)
+        if dx != 0, dy != 0, d > corner {
+            cx = px + dx / d * corner
+            cy = py + dy / d * corner
+        }
         return CGPoint(x: cx - side / 2, y: cy - side / 2)
     }
 

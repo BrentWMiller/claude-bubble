@@ -110,15 +110,19 @@ final class EdgesTests: XCTestCase {
 
     // Further off screen, and pips further on
 
-    func testDragClampLetsFourFifthsOfTheOrbOffScreen() {
+    func testDragClampLetsAlmostAllOfTheOrbOffScreen() {
         let side: CGFloat = 120, radius = side * 0.3   // 36
         let visible = CGRect(x: 0, y: 80, width: 1000, height: 690)
-        // Far off the bottom-right: the centre stops 0.6 of a radius past the edges, so a fifth of the width shows.
-        let o = BubblePlacement.clampedOrigin(CGPoint(x: 2000, y: -500), side: side, screen: screen, visible: visible)
-        XCTAssertEqual(o.x + side / 2, screen.maxX + radius * 0.6, accuracy: 0.001)
-        XCTAssertEqual(o.y + side / 2, screen.minY - radius * 0.6, accuracy: 0.001)
-        let showing = screen.maxX - (o.x + side / 2 - radius)
-        XCTAssertEqual(showing / (2 * radius), 0.2, accuracy: 0.001)
+        func centre(_ o: CGPoint) -> CGPoint { CGPoint(x: o.x + side / 2, y: o.y + side / 2) }
+        // Off the right: the centre stops 0.8 of a radius past the edge, so a tenth of the width shows.
+        let right = centre(BubblePlacement.clampedOrigin(CGPoint(x: 2000, y: 300), side: side, screen: screen, visible: visible))
+        XCTAssertEqual(right.x, screen.maxX + radius * 0.8, accuracy: 0.001)
+        XCTAssertEqual((screen.maxX - (right.x - radius)) / (2 * radius), 0.1, accuracy: 0.001)
+        let bottom = centre(BubblePlacement.clampedOrigin(CGPoint(x: 300, y: -900), side: side, screen: screen, visible: visible))
+        XCTAssertEqual(bottom.y, screen.minY - radius * 0.8, accuracy: 0.001)
+        // In a corner the limit is measured from the corner, so the pips still fit on screen.
+        let corner = centre(BubblePlacement.clampedOrigin(CGPoint(x: 3000, y: -3000), side: side, screen: screen, visible: visible))
+        XCTAssertEqual(hypot(corner.x - screen.maxX, corner.y - screen.minY), radius * 0.5, accuracy: 0.01)
         // The top keeps the whole orb below the menu bar.
         let top = BubblePlacement.clampedOrigin(CGPoint(x: 400, y: 2000), side: side, screen: screen, visible: visible)
         XCTAssertEqual(top.y + side / 2, visible.maxY - radius)
@@ -129,7 +133,7 @@ final class EdgesTests: XCTestCase {
 
     func testSavedSpotPartlyOffScreenIsKept() {
         let side: CGFloat = 120
-        let saved = CGPoint(x: 1000 + 21.6 - 60, y: -21.6 - 60)   // centre 0.6 radius past the bottom-right corner
+        let saved = CGPoint(x: 1000 + 28.8 - 60, y: 300)   // centre 0.8 radius past the right edge
         XCTAssertEqual(BubblePlacement.origin(saved: saved, size: side, screenFrames: [screen], mainVisibleFrame: screen), saved)
     }
 
@@ -151,11 +155,12 @@ final class EdgesTests: XCTestCase {
     }
 
     func testDeepCornerStillShowsThePips() {
-        // The orb 0.6 radius past both edges of the bottom-right corner (orb radius = arc radius / 1.28).
-        let orbR = r / 1.28
-        let c = CGPoint(x: 1000 + orbR * 0.6, y: -orbR * 0.6)
-        let a = PipArc.around(centre: c, radius: r, slots: 4, visible: screen)
-        XCTAssertTrue(slots(c, 4, around: a).allSatisfy { screen.contains($0) }, "every pip on screen")
-        XCTAssertTrue(slots(c, 4, around: a).allSatisfy { $0.x < 1000 && $0.y > 0 })
+        // The orb as deep in the bottom-right corner as dragging allows (orb radius = arc radius / 1.28).
+        let orbR = r / 1.28, d = orbR * 0.5 / 2.squareRoot()
+        let c = CGPoint(x: 1000 + d, y: -d)
+        for n in [2, 4, 5] {
+            let a = PipArc.around(centre: c, radius: r, slots: n, visible: screen)
+            XCTAssertTrue(slots(c, n, around: a).allSatisfy { screen.contains($0) }, "every pip on screen (\(n))")
+        }
     }
 }

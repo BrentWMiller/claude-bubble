@@ -38,7 +38,8 @@ The pip arc keeps its radius, its 11° step and its order. The whole arc rotates
 ## 1b. Dragging partly off screen
 
 - **Our own drag** (not the system's) moves the orb.
-  - **Left, right and bottom:** its centre may go 0.6 of an orb radius past the screen's edges, so four fifths of its width can be off screen.
+  - **Left, right and bottom:** its centre may go 0.8 of an orb radius past an edge, so nine tenths of its width can be off screen.
+  - **Corners:** the centre stays within 0.5 of a radius of the corner, so the pips still fit on screen.
   - **Top:** the whole orb stays below the menu bar.
 - **Saved position:** kept on relaunch while the orb's centre is within an orb radius of a screen.
 
