@@ -39,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var soundLimiter = SoundRateLimiter()
     private let layerTracker = LayerTracker()
     private let edgeLight = EdgeLightController()
+    private var island: IslandPanel!
+    /// The all-done moment, for the island's "All sessions complete".
+    private var islandDoneAt: Date?
+    private var isIsland: Bool { applied.style == .island }
     /// When the focus session's current motion began (bash settles with it).
     private var motionSince: Date?
     private let usageAlerts = UsageAlerts()
@@ -83,6 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         listPanel.bubble = panel
         toastPanel = ToastPanel(model: toastModel)
         toastPanel.bubble = panel
+        island = IslandPanel(animator: animator, sessions: model)
+        island.onClick = { [weak self] in self?.focusTerminal() }
+        island.onRightClick = { [weak self] event, view in self?.showOrbMenu(with: event, in: view) }
+        applyIslandOptions(applied)
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
         // re-anchor it (it may need to flip above/below or come back on screen).
@@ -204,6 +212,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let events = layerTracker.update(counts, focus: focus?.id)
         for _ in 0..<min(events.ticks, 3) { animator.tick() }
+        if isIsland, events.ticks > 0, let island { island.model.ticks.append(CACurrentMediaTime()) }
         if events.fails > 0 { animator.fail() }
         if events.skills > 0 { animator.skill() }
     }
@@ -224,10 +233,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for it in debugItems { it.state = (it.representedObject as? String) == selected ? .on : .off }
     }
 
+    /// Shows the orb or the island (whichever the style is), or neither while hidden. Only one renders the orb.
     private func updateVisibility() {
-        if bubbleHidden { panel.orderOut(nil) } else { panel.orderFrontRegardless() }
-        panel.setRendering(!bubbleHidden)
+        let showOrb = !bubbleHidden && !isIsland, showIsland = !bubbleHidden && isIsland
+        if showOrb { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
+        panel.setRendering(showOrb)
+        if let island {
+            if showIsland { island.orderFrontRegardless() } else { island.orderOut(nil) }
+            island.setRendering(showIsland)
+        }
+        // Toasts hang from whichever is showing.
+        let parent: NSWindow = isIsland ? island : panel
+        if toastPanel.bubble !== parent {
+            toastPanel.orderOut(nil)
+            toastPanel.bubble = parent
+        }
+        if isIsland {
+            if listPanel.isShown { listPanel.popOut() }
+            if pipCard.isVisible { pipCard.hide() }
+        }
         toggleItem.title = bubbleHidden ? "Show Bubble" : "Hide Bubble"
+    }
+
+    private func applyIslandOptions(_ prefs: BubblePreferences) {
+        let m = island.model
+        if m.dock != prefs.islandDock { m.dock = prefs.islandDock }
+        if m.rest != prefs.islandRest { m.rest = prefs.islandRest }
+        if m.glow != prefs.islandGlow { m.glow = prefs.islandGlow }
+    }
+
+    /// Places the island on its display and picks its mode: hover, needs, error, done or rest.
+    private func updateIsland(mouse: CGPoint) {
+        guard !bubbleHidden else { return }
+        let screen = (applied.followPointer ? NSScreen.screens.first { $0.frame.contains(mouse) } : nil) ?? NSScreen.screens.first
+        guard let visible = screen?.visibleFrame else { return }
+        let window = IslandLayout.windowFrame(dock: applied.islandDock, visible: visible)
+        if island.frame != window { island.setFrame(window, display: true) }
+        let m = island.model
+        func pill(_ mode: IslandMode) -> CGRect {
+            IslandLayout.pillRect(size: IslandLayout.size(mode: mode, dock: m.dock, rest: m.rest, pips: model.sessions.count,
+                                                          rows: model.sessions.count),
+                                  dock: m.dock, window: window)
+        }
+        let over = pill(m.mode).contains(mouse)
+        let wasOpen = m.mode == .hover
+        let open = hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime())
+        if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
+        let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt)
+        if m.mode != mode { m.mode = mode }
+        if m.state != animator.state { m.state = animator.state }
+        m.ticks.removeAll { CACurrentMediaTime() - $0 > 0.6 }
+        island.updateMouseCapture(pill: pill(mode))
     }
 
     @objc private func toggleBubble() {
@@ -299,9 +355,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         animator.interaction = prefs.interaction
         sounds.enabled = prefs.sounds
         let usageChanged = prefs.usage != applied.usage
+        let styleChanged = prefs.style != applied.style
         let paletteChanged = prefs.palette != applied.palette
         applied = prefs
         if paletteChanged { applyState() }   // menu-bar icon color
+        applyIslandOptions(prefs)
+        if styleChanged {
+            updateVisibility()
+            if !bubbleHidden { appearOrb() }
+        }
         if usageChanged {
             // Turning usage back on never announces thresholds crossed while it was off.
             usageAlerts.reset()
@@ -316,6 +378,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                           now: now)
         if events.contains(.ringPop) { animator.ringPop() }
         if events.contains(.allDone), forcedState == nil { animator.celebrate(from: .idle) }
+        if events.contains(.allDone) { islandDoneAt = Date() }
         let previous = model.pips
         let frame = choreographer.frame(now: now)
         if frame != model.pips { model.pips = frame }
@@ -330,6 +393,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
 
+        // The pip arc, its hover, the pull toward a new pip and the pip card belong to the floating orb.
+        guard !isIsland else {
+            if pipCard.isVisible { pipCard.hide() }
+            if model.hoveredPip != nil { model.hoveredPip = nil; applyState() }
+            return
+        }
         let side = panel.frame.width
         let local = CGPoint(x: mouse.x - panel.frame.minX, y: panel.frame.maxY - mouse.y)   // y-down, like the view
         let centre = CGPoint(x: side / 2, y: side / 2)
@@ -426,10 +495,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if !toasts.isEmpty { toasts.tick(now: now, hovering: false) }
             return
         }
-        let orb = panel.frame
-        let visible = BubblePanel.screen(nearest: CGPoint(x: orb.midX, y: orb.midY))?.visibleFrame ?? orb
-        // Under the orb, or opposite whichever side would be cut off; always fully on screen.
-        let placement = ToastLayout.place(orb: orb, size: ToastPanel.size, visible: visible)
+        let placement: ToastLayout.Placement
+        if isIsland {
+            // Off the island's open side.
+            let m = island.model
+            let pill = IslandLayout.pillRect(size: IslandLayout.size(mode: m.mode, dock: m.dock, rest: m.rest,
+                                                                     pips: model.sessions.count, rows: model.sessions.count),
+                                             dock: m.dock, window: island.frame)
+            let visible = NSScreen.screens.first { $0.frame.intersects(island.frame) }?.visibleFrame ?? island.frame
+            placement = ToastLayout.placeIsland(pill: pill, dock: m.dock, size: ToastPanel.size, visible: visible)
+        } else {
+            let orb = panel.frame
+            let visible = BubblePanel.screen(nearest: CGPoint(x: orb.midX, y: orb.midY))?.visibleFrame ?? orb
+            // Under the orb, or opposite whichever side would be cut off; always fully on screen.
+            placement = ToastLayout.place(orb: orb, size: ToastPanel.size, visible: visible)
+        }
         let frame = placement.frame, flipped = placement.flipped
         toastPull = placement.pull
         if toastModel.align != placement.align { toastModel.align = placement.align }
@@ -444,7 +524,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if placements != toastModel.placements { toastModel.placements = placements }
         if flipped != toastModel.flipped { toastModel.flipped = flipped }
         // The hover list already shows every session; toasts step aside while it's open.
-        if listPanel.isShown || toasts.isEmpty {
+        if listPanel.isShown || (isIsland && island.model.mode == .hover) || toasts.isEmpty {
             if toastPanel.isVisible { toastPanel.orderOut(nil) }
         } else {
             toastPanel.show(at: frame)
@@ -520,8 +600,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func updateHover() {
         let mouse = NSEvent.mouseLocation
-        followPointer(to: mouse)
         animator.motionElapsed = motionSince.map { Date().timeIntervalSince($0) } ?? 0
+        if isIsland {
+            // The island: no floating orb, pips, edge light, pointer attention or hover card.
+            edgeLight.update(orb: nil, screen: nil, shared: [], color: .clear, state: .idle, opacity: 1, dt: 0.05)
+            animator.setPointer(offset: .zero, closeness: 0)
+            updatePips(mouse: mouse)
+            updateIsland(mouse: mouse)
+            updateToasts(mouse: mouse, now: CACurrentMediaTime())
+            return
+        }
+        followPointer(to: mouse)
         turnPips()
         let orbScreen = BubblePanel.screen(nearest: CGPoint(x: panel.frame.midX, y: panel.frame.midY))
         let shown = animator.state
@@ -610,9 +699,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             it.state = prefs.completionSound == option ? .on : .off
             completions.addItem(it)
         }
+        let styles = NSMenu()
+        for style in BubbleStyle.allCases {
+            let it = item(style == .orb ? "Orb" : "Island", #selector(pickStyle(_:)))
+            it.representedObject = style.rawValue
+            it.state = prefs.style == style ? .on : .off
+            styles.addItem(it)
+        }
+        let docks = NSMenu()
+        for dock in IslandDock.allCases {
+            let it = item(dock.rawValue.capitalized, #selector(pickDock(_:)))
+            it.representedObject = dock.rawValue
+            it.state = prefs.islandDock == dock ? .on : .off
+            docks.addItem(it)
+        }
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
-        return [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
+        let styleItems = [submenu("Style", styles)] + (prefs.style == .island ? [submenu("Island Dock", docks)] : [])
+        return styleItems + [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
                 submenu("Interaction", interactions), toastItem, usageItem, edgeItem, soundItem, submenu("Completion Sound", completions), follow]
     }
 
@@ -679,6 +783,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleToasts() {
         settings.prefs.toasts.toggle()
+    }
+
+    @objc private func pickStyle(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let style = BubbleStyle(rawValue: raw) { settings.prefs.style = style }
+    }
+
+    @objc private func pickDock(_ sender: NSMenuItem) {
+        if let raw = sender.representedObject as? String, let dock = IslandDock(rawValue: raw) { settings.prefs.islandDock = dock }
     }
 
     @objc private func toggleEdgeLight() {

@@ -5,6 +5,8 @@ import MetalKit
 final class OrbView: MTKView {
     var onClick: (() -> Void)?
     var onRightClick: ((NSEvent, NSView) -> Void)?
+    /// The island's orb stays put; only the floating orb drags its window.
+    var allowsDrag = true
     private var renderer: OrbRenderer?
     private var pendingClick: NSEvent?
 
@@ -42,7 +44,7 @@ final class OrbView: MTKView {
     private var dragStart: (mouse: CGPoint, origin: CGPoint)?
 
     override func mouseDragged(with event: NSEvent) {
-        guard let window else { return }
+        guard let window, allowsDrag else { return }
         if let down = pendingClick {
             let dx = event.locationInWindow.x - down.locationInWindow.x
             let dy = event.locationInWindow.y - down.locationInWindow.y

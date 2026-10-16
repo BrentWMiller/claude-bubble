@@ -7,7 +7,7 @@ final class SettingsWindowController: NSWindowController {
         let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(settings: settings, preview: preview)))
         window.title = "Claude Bubble Settings"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 440, height: 600))
+        window.setContentSize(NSSize(width: 440, height: 680))
         window.isReleasedWhenClosed = false
         window.center()
         self.init(window: window)
@@ -71,6 +71,26 @@ struct SettingsView: View {
                         .help("Preview")
                 }
             }
+            Section("Style") {
+                Picker("Style", selection: $settings.prefs.style) {
+                    Text("Orb").tag(BubbleStyle.orb)
+                    Text("Island").tag(BubbleStyle.island)
+                }
+                .pickerStyle(.segmented)
+                if settings.prefs.style == .island {
+                    Picker("Dock", selection: $settings.prefs.islandDock) {
+                        ForEach(IslandDock.allCases, id: \.self) { Text($0.rawValue.capitalized).tag($0) }
+                    }
+                    Picker("At rest", selection: $settings.prefs.islandRest) {
+                        Text("Live activity").tag(IslandRest.live)
+                        Text("Compact").tag(IslandRest.compact)
+                    }
+                    Picker("Glow", selection: $settings.prefs.islandGlow) {
+                        Text("Waves + inner").tag(IslandGlow.waves)
+                        Text("None").tag(IslandGlow.none)
+                    }
+                }
+            }
             Section("Display") {
                 Toggle("Show toasts", isOn: $settings.prefs.toasts)
                 Toggle("Show usage", isOn: $settings.prefs.usage)
@@ -81,7 +101,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         // A grouped Form scrolls, so it has no natural height; without this the window collapses to its title bar.
-        .frame(width: 440, height: 600)
+        .frame(width: 440, height: 680)
     }
 
     private func color(for state: BubbleState) -> Binding<Color> {
