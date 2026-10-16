@@ -112,7 +112,11 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             b: [f.params.glitch, f.params.wave, f.params.bright, pointSize],
             c: [Float(view.drawableSize.width), Float(view.drawableSize.height), f.shakeX, 0],
             d: [f.pointer.x, f.pointer.y, f.attention, f.completion],
-            e: [f.pop, f.pull, f.pullAngle, 0]
+            e: [f.pop, f.pull, f.pullAngle, 0],
+            f: [f.workA, f.workB, f.workMix, f.settle],
+            g: [f.sub, f.failAge, f.skillAge, 0],
+            h: SIMD4(f.tickAges, 0),
+            i: SIMD4(f.tickAmps, 0)
         )
         let len = MemoryLayout<OrbUniforms>.stride
 

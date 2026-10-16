@@ -11,6 +11,10 @@ struct Uniforms {
     float4 c;   // resX, resY, shiftX, unused
     float4 d;   // pointer offset x, y (radii, ≤ 1), attention, completion time (s; < 0 = not playing)
     float4 e;   // ring pop time (s; < 0 = off), spawn pull amount, pull angle (radians, y-up), unused
+    float4 f;   // work motion from, to (design WORK modes), blend 0…1, bash settle 0…1
+    float4 g;   // subagents (eased), fail age (s; < 0 = off), skill age (s; < 0 = off), unused
+    float4 h;   // three tool-complete tick ages (s; < 0 = none), unused
+    float4 i;   // three tick amplitudes, unused
 };
 
 struct QuadOut { float4 position [[position]]; };
@@ -98,6 +102,46 @@ struct PointOut {
 
 float hs(float3 v) { return fract(sin(dot(v, float3(12.9898, 78.233, 37.719))) * 43758.5453); }
 
+// smoothstep that also runs downhill (edge0 > edge1), as the design's GLSL relies on.
+float ss(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0., 1.); return t * t * (3. - 2. * t); }
+float angTo(float3 q, float3 d) { return acos(clamp(dot(q, normalize(d)), -1., 1.)); }
+float rpl(float3 q, float3 s, float pa) { float an = angTo(q, s); return pow(max(sin(an * 7. - pa * 3.5), 0.), 3.) * 1.7 * exp(-an * .45); }
+float bn(float3 b, float pa) {
+    return sin(b.x + pa * 1.1) * sin(b.y * 1.2 - pa * .8) * sin(b.z * .9 + pa * .95)
+         + .5 * sin(b.x * 2.1 - pa * 1.5 + b.z * 1.4) * sin(b.y * 1.9 + pa);
+}
+
+// Work motions (design: Orb States, wkm in orbParticles.js). Returns (wave, amplitude); mode 0 keeps the rolling wave.
+float2 wkm(float m, float3 q, float pa, float wv0, float settle) {
+    if (m < .5) return float2(wv0, .07);
+    float wv, wa;
+    if (m < 2.5) {                       // edit · Emit: rings push outward from the front point
+        float an = angTo(q, float3(.3, .35, .89));
+        wv = pow(max(sin(an * 7. - pa * 3.5), 0.), 3.) * 1.7 * exp(-an * .45); wa = .08;
+    } else if (m < 9.5) {                // web · Drifting ripple: the source wanders around the face
+        wv = rpl(q, float3(sin(pa * .3) * .8, cos(pa * .23) * .5, .7), pa); wa = .08;
+    } else if (m < 12.5) {               // search · Radar: a meridian sweeps with a fading wake
+        float h = fract(pa * (1.5 / 6.2832) - atan2(q.z, q.x) / 6.2832);   // 300 whole turns per phase wrap
+        wv = exp(-h * 7.) * 1.6 + exp(-pow(h / .015, 2.)) * .6 - .05; wa = .05;
+    } else if (m < 17.5) {               // read · Converge: rings flow inward to the front point
+        float an = angTo(q, float3(.3, .35, .89));
+        wv = pow(max(sin(an * 7. + pa * 3.), 0.), 3.) * 1.7 * ss(2.6, .15, an); wa = -.05;
+    } else if (m < 23.5) {               // mcp · Link: bulges toward one side, pulses travel into it
+        float an = angTo(q, float3(0., .96, .28));
+        wv = ss(.75, 0., an) * 1.1 + pow(max(sin(an * 9. + pa * 4.), 0.), 4.) * ss(1.6, .25, an) * 1.5; wa = .13;
+    } else if (m < 24.5) {               // compacting · Fold: bands slide to the equator and sink
+        wv = pow(.5 + .5 * sin(abs(q.y) * 8. + pa * 2.3), 3.) * 1.15 - .15; wa = -.075;
+    } else if (m < 25.5) {               // waiting · Still: the base nearly stops; subagent ripples carry it
+        wv = .35 * sin(dot(q, normalize(float3(.55, .8, .25))) * 2. - pa * .5); wa = .03;
+    } else {                             // bash · Boil → simmer, by how long the command has run
+        float bo = bn(q * 2.6, pa * .9) * 1.5;
+        float3 b = q * 3.; b.y -= pa * .7;
+        float si = pow(max(bn(b, pa * .6), 0.), 1.5) * 1.6 - .1;
+        wv = mix(bo, si, settle) * (1. + .25 * (1. - settle)); wa = mix(.1, .07, settle);
+    }
+    return float2(wv, wa);
+}
+
 float3x3 ry(float a) { float c = cos(a), s = sin(a); return float3x3(float3(c, 0, -s), float3(0, 1, 0), float3(s, 0, c)); }
 float3x3 rx(float a) { float c = cos(a), s = sin(a); return float3x3(float3(1, 0, 0), float3(0, c, s), float3(0, -s, c)); }
 
@@ -109,11 +153,42 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float3 C1 = u.c1.xyz, C2 = u.c2.xyz, C3 = u.c3.xyz;
 
     float3 p = pos;
-    float tw = wave * .9 * sin(p.y * 3.2 + ph * 1.3);
+    float workA = u.f.x, workB = u.f.y, workM = u.f.z;
+    // The twist belongs to the rolling wave only, so it blends out with it.
+    float tw = wave * .9 * sin(p.y * 3.2 + ph * 1.3) * mix(step(workA, .5), step(workB, .5), workM);
     p = ry(ph * .35 + tw) * p;
     float dd = dot(p, normalize(float3(.3, -.2, .9))) - .55;
-    float wv = sin(dot(p, float3(.55, .8, .25)) * 7. - ph * 2.6) * exp(-dd * dd * 5.);
-    p *= 1. + wave * .07 * wv;
+    float wv0 = sin(dot(p, float3(.55, .8, .25)) * 7. - ph * 2.6) * exp(-dd * dd * 5.);
+    float3 q = normalize(p);
+    float2 wk = wkm(workA, q, ph, wv0, u.f.w);
+    if (workM > .999) wk = wkm(workB, q, ph, wv0, u.f.w);
+    else if (workM > .001) wk = mix(wk, wkm(workB, q, ph, wv0, u.f.w), workM);
+    float wv = wk.x * (1. - clamp(min(u.g.x, 3.) * .18, 0., .65));   // subagents duck the base motion
+    // Layers (design: Orb States): subagent interference, tool-complete ticks, a failed tool's dent, a skill's sweep.
+    float ly = 0.;
+    float fan = angTo(q, float3(.3, .35, .89));
+    for (int k = 0; k < 6; k++) {
+        float fk = float(k), wg = clamp(u.g.x - fk, 0., 1.);
+        if (wg > 0.) {
+            float3 sd = float3(sin(fk * 2.4 + ph * (.06 + fk * .01)) * .85, cos(fk * 1.7 + .6) * .6, .55);
+            float an = angTo(q, sd);
+            ly += pow(max(sin(an * 5. - ph * (1.21 + fk * .09) - fk * 2.86), 0.), 2.) * .75 * exp(-an * .6) * wg / (1. + .4 * fk);
+        }
+    }
+    for (int k = 0; k < 3; k++) {
+        float ag = u.h[k];
+        if (ag >= 0. && ag < .8) ly += exp(-pow((fan - ag * 2.8) / .1, 2.)) * 1.6 * u.i[k] * exp(-ag * 4.);
+    }
+    float fa = u.g.y;
+    if (fa >= 0. && fa < 1.2) { float dn = distance(q, normalize(float3(-.45, .25, .86))); ly -= exp(-dn * dn / .04) * 2.6 * exp(-fa * 3.5); }
+    float sk = u.g.z;
+    if (sk >= 0. && sk < 1.6) {
+        float sa = ss(0., 1.4, sk) * 3.1416;
+        float3 sn = normalize(float3(cos(sa), .35, sin(sa)));
+        ly += exp(-pow(dot(q, sn) / .1, 2.)) * 1.3 * ss(0., .25, sk) * (1. - ss(1., 1.6, sk));
+    }
+    p *= 1. + wave * (wk.y * wv + .1 * ly);
+    wv += ly;
     float gh = fract(sin(dot(pos + floor(ph * 9.), float3(12.9898, 78.233, 37.719))) * 43758.5453);
     float band = step(.82, fract(sin(floor((pos.y + ph * .3) * 9.) * 91.7) * 437.5));
     p *= 1. + glitch * (gh * .1 + band * .12);
@@ -205,4 +280,9 @@ struct OrbUniforms {
     var c: SIMD4<Float>
     var d: SIMD4<Float>
     var e: SIMD4<Float>
+    /// Defaults: the rolling wave, no layers playing.
+    var f: SIMD4<Float> = [0, 0, 1, 0]
+    var g: SIMD4<Float> = [0, -1, -1, 0]
+    var h: SIMD4<Float> = [-1, -1, -1, 0]
+    var i: SIMD4<Float> = .zero
 }

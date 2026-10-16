@@ -5,7 +5,7 @@ public enum HookInstaller {
     public static let events = [
         "SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
         "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Elicitation", "ElicitationResult",
-        "Notification", "Stop", "StopFailure"
+        "Notification", "Stop", "StopFailure", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"
     ]
 
     public enum InstallError: LocalizedError {
@@ -36,6 +36,19 @@ public enum HookInstaller {
         }
         settings["hooks"] = hooks
         return settings
+    }
+
+    /// For settings that already run `command`: adds any events this version subscribes to that they lack.
+    /// Returns nil when nothing needs writing (or the hook was never installed, which this never does on its own).
+    public static func refreshSubscriptions(settings: [String: Any], command: String) -> [String: Any]? {
+        let hooks = settings["hooks"] as? [String: Any] ?? [:]
+        func subscribed(_ event: String) -> Bool {
+            (hooks[event] as? [Any] ?? []).contains { group in
+                ((group as? [String: Any])?["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == command }
+            }
+        }
+        guard events.contains(where: subscribed), !events.allSatisfy(subscribed) else { return nil }
+        return merge(settings: settings, command: command)
     }
 
     /// Points Claude Code's status line at the bubble's wrapper. Returns the command it replaced (the wrapper runs

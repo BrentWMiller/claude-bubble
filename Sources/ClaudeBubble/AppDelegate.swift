@@ -36,6 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let toastModel = ToastModel()
     private var toastPanel: ToastPanel!
     private var soundLimiter = SoundRateLimiter()
+    private let layerTracker = LayerTracker()
+    /// When the focus session's current motion began (bash settles with it).
+    private var motionSince: Date?
     private let usageAlerts = UsageAlerts()
     /// What the status line wrapper last saved; re-read every 5s.
     private var realUsage: UsageReading?
@@ -163,7 +166,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             liveState = watchedState
         }
         applyState()
+        updateMotion()
         refreshUsage()
+    }
+
+    /// The orb's motion follows the most recently changed working session; layers fire when its counters go up.
+    private func updateMotion() {
+        let focus = SessionStore.motionFocus(model.sessions)
+        let activity = focus?.activity ?? SessionActivity()
+        animator.motion = activity.motion
+        animator.subagents = activity.subagents
+        motionSince = focus == nil ? nil : activity.since
+        let counts = model.sessions.map {
+            LayerCounts(id: $0.id, ticks: $0.activity.ticks, fails: $0.activity.fails, skills: $0.activity.skills)
+        }
+        let events = layerTracker.update(counts, focus: focus?.id)
+        for _ in 0..<min(events.ticks, 3) { animator.tick() }
+        if events.fails > 0 { animator.fail() }
+        if events.skills > 0 { animator.skill() }
     }
 
     /// Hovering a pip previews that session's state on the orb (previews never celebrate).
@@ -221,6 +241,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             } catch {
                 NSLog("ClaudeBubble: \(installed) refresh failed: \(error)")
             }
+        }
+        // A newer hook may listen to more events: add them to settings that already run the bubble's hook.
+        let settingsURL = home.appendingPathComponent(".claude/settings.json").resolvingSymlinksInPath()
+        let command = "\"\(home.appendingPathComponent(".claude-bubble/hook.sh").path)\""
+        guard let data = try? Data(contentsOf: settingsURL),
+              let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let refreshed = HookInstaller.refreshSubscriptions(settings: settings, command: command),
+              let out = try? JSONSerialization.data(withJSONObject: refreshed, options: [.prettyPrinted, .withoutEscapingSlashes]) else { return }
+        do {
+            try out.write(to: settingsURL, options: .atomic)
+            NSLog("ClaudeBubble: subscribed the hook to new events")
+        } catch {
+            NSLog("ClaudeBubble: hook subscription refresh failed: \(error)")
         }
     }
 
@@ -463,6 +496,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateHover() {
         let mouse = NSEvent.mouseLocation
         followPointer(to: mouse)
+        animator.motionElapsed = motionSince.map { Date().timeIntervalSince($0) } ?? 0
         updatePips(mouse: mouse)
         updateToasts(mouse: mouse, now: CACurrentMediaTime())
         let centre = CGPoint(x: panel.frame.midX, y: panel.frame.midY)

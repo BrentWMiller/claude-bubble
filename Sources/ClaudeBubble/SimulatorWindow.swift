@@ -10,7 +10,7 @@ final class SimulatorWindowController: NSWindowController, NSWindowDelegate {
         let window = NSWindow(contentViewController: NSHostingController(rootView: SimulatorView(sim: simulator, palette: palette)))
         window.title = "Session Simulator"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 400, height: 580))
+        window.setContentSize(NSSize(width: 460, height: 680))
         window.isReleasedWhenClosed = false
         window.center()
         super.init(window: window)
@@ -58,13 +58,14 @@ struct SimulatorView: View {
             usage
             HStack {
                 Button("Play story") { sim.playStory() }.keyboardShortcut(.defaultAction)
+                Button("Play session") { sim.playSession() }.help("A scripted session: every motion and layer, a permission wait, an error, and usage running down then resetting")
                 Button("Reset") { sim.reset() }
                 Spacer()
                 Text("The orb shows these while open").font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(16)
-        .frame(width: 400, height: 580)
+        .frame(width: 460, height: 680)
     }
 
     private var usage: some View {
@@ -105,8 +106,37 @@ struct SimulatorView: View {
                 }
             }
             .controlSize(.small)
+            // The orb's motion and layers (shown while this session is working and the most recent to change).
+            HStack(spacing: 6) {
+                Picker("", selection: Binding(get: { s.motion }, set: { sim.setMotion(s.id, $0) })) {
+                    ForEach(Motion.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .labelsHidden()
+                .frame(width: 120)
+                Button("Tick") { sim.fire(s.id, .tick) }
+                Button("Fail") { sim.fire(s.id, .fail) }
+                Button("Skill") { sim.fire(s.id, .skill) }
+                Stepper("Subagents \(s.subagents)", value: Binding(get: { s.subagents }, set: { sim.setSubagents(s.id, $0) }), in: 0...6)
+            }
+            .controlSize(.small)
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
+    }
+}
+
+extension Motion {
+    var label: String {
+        switch self {
+        case .generating: "Generating"
+        case .read: "Read"
+        case .search: "Search"
+        case .edit: "Edit / Write"
+        case .bash: "Bash"
+        case .web: "Web"
+        case .mcp: "MCP tool"
+        case .compacting: "Compacting"
+        case .waiting: "Waiting"
+        }
     }
 }

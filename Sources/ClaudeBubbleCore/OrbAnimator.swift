@@ -20,6 +20,20 @@ public struct OrbFrame: Sendable {
     public var pull: Float = 0
     /// Direction of the pull (radians, y-up).
     public var pullAngle: Float = 0
+    /// Work motions (design: Orb States): blending from `workA` to `workB` by `workMix` (shader mode numbers).
+    public var workA: Float = 0
+    public var workB: Float = 0
+    public var workMix: Float = 1
+    /// Bash: 0 at a full boil, toward 1 as the command settles to a simmer.
+    public var settle: Float = 0
+    /// Subagents running (eased), for the interference layer.
+    public var sub: Float = 0
+    /// Seconds since a tool failed / a skill started, or -1.
+    public var failAge: Float = -1
+    public var skillAge: Float = -1
+    /// Up to three tool-complete ticks: their ages (-1 = none) and amplitudes.
+    public var tickAges = SIMD3<Float>(-1, -1, -1)
+    public var tickAmps = SIMD3<Float>(0, 0, 0)
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
@@ -45,6 +59,18 @@ public final class OrbAnimator {
     private var lowUsage: Float = 0
     /// 1 while the orb wears working/idle colours, eased like the colours so state changes hand off smoothly.
     private var tintGate: Float = 1
+    /// What Claude is doing (used while working); the director paces the changes.
+    public var motion: Motion = .generating
+    /// Seconds the current motion has run (bash settles with it).
+    public var motionElapsed: Double = 0
+    public var subagents = 0
+    private let director = MotionDirector()
+    private var settle: Float = 0
+    private var sub: Float = 0
+    private var ticks: [(at: Double, amp: Float)] = []
+    private var tickHistory: [Double] = []
+    private var failAt: Double?
+    private var skillAt: Double?
     private var pointerTarget: (offset: SIMD2<Float>, closeness: Float) = (.zero, 0)
     private var pointerOffset = SIMD2<Float>(0, 0)
     private var pointerVelocity = SIMD2<Float>(0, 0)
@@ -100,6 +126,29 @@ public final class OrbAnimator {
         pointerTarget = (offset, min(max(closeness, 0), 1))
     }
 
+    /// A tool call finished: a small ring. Bursts get quieter (down to 30%), and at most three show at once.
+    public func tick() {
+        guard state == .working else { return }
+        ticks.removeAll { time - $0.at >= 0.8 }
+        tickHistory.removeAll { time - $0 >= 1.5 }
+        tickHistory.append(time)
+        ticks.append((time, max(0.3, 1 / (1 + 0.35 * Float(tickHistory.count - 1)))))
+        if ticks.count > 3 { ticks.removeFirst() }
+    }
+
+    /// A tool call failed: a dent and a small jolt.
+    public func fail() {
+        guard state == .working else { return }
+        failAt = time
+        shake = max(shake, 0.3)
+    }
+
+    /// A skill or plan started: a sweep of light and a quick spin.
+    public func skill() {
+        guard state == .working else { return }
+        skillAt = time
+    }
+
     public var isVanished: Bool { presenceTarget == 0 && presence <= 0.001 }
 
     /// One session finished while others are still busy: a single chromatic ring and a sheen.
@@ -141,6 +190,16 @@ public final class OrbAnimator {
         let shown: BubbleState = (completionTime.map { $0 < 0.42 } ?? false) ? heldState : state
         current = current.approached(.target(for: shown, palette: palette), k: k)
         tintGate += ((shown == .working || shown == .idle ? 1 : 0) - tintGate) * k
+        director.update(want: shown == .working ? motion : .generating, now: time)
+        let target = Float(1 - exp(-max(motionElapsed, 0) / 6))
+        // A new command drops straight back to a boil; otherwise ease.
+        settle = target < settle - 0.3 ? target : settle + (target - settle) * (1 - powf(0.2, dt))
+        // Layers belong to the working look (not a forced state or a pip preview).
+        sub += (shown == .working ? Float(min(max(subagents, 0), 6)) - sub : -sub) * (1 - powf(0.06, dt))
+        if let s = skillAt {
+            let age = Float(time - s)
+            if age < 1.4 { phase += dt * 1.2 * sinf(.pi * min(1, age / 1.4)) }
+        }
         bounceVelocity += (-bounce * 220 - bounceVelocity * 14) * dt
         bounce += bounceVelocity * dt
         let tint = usageLeft.map(UsageTint.amounts(left:)) ?? (warm: 0, critical: 0)
@@ -148,7 +207,8 @@ public final class OrbAnimator {
         usageWarm += (tint.warm - usageWarm) * tintK
         usageCritical += (tint.critical - usageCritical) * tintK
         lowUsage += ((usageLeft.map { $0 <= 10 } ?? false ? 1 : 0) - lowUsage) * (1 - expf(-dt / 0.4))
-        // Every shader phase multiplier is a multiple of 0.05, so wrapping at 400π keeps floats precise without a visible seam.
+        // Wrapping at 400π keeps floats precise without a visible seam, as long as every shader sin(k·phase) has k a
+        // multiple of 0.005 and every fract(k·phase) has k·400π a whole number.
         phase = (phase + dt * (0.2 + current.energy * 1.5) * (1 - 0.6 * lowUsage)).truncatingRemainder(dividingBy: 400 * .pi)
         shake *= powf(0.02, dt)
         if presenceTarget > 0 {
@@ -232,9 +292,23 @@ public final class OrbAnimator {
             output.c3 += (g.c3 - output.c3) * w
             output.halo += (g.halo - output.halo) * w
         }
-        return OrbFrame(params: output, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
-                        pointer: pointerOffset, attention: attention, completion: completion, pop: pop,
-                        pull: pull, pullAngle: pullAngle)
+        var frame = OrbFrame(params: output, phase: phase, scale: scale, glow: glow, ring: ring, shakeX: shakeX,
+                             pointer: pointerOffset, attention: attention, completion: completion, pop: pop,
+                             pull: pull, pullAngle: pullAngle)
+        let work = director.frame(now: time)
+        frame.workA = work.from.shaderMode
+        frame.workB = work.to.shaderMode
+        frame.workMix = work.mix
+        frame.settle = settle
+        frame.sub = sub
+        if let f = failAt { if time - f < 1.2 { frame.failAge = Float(time - f) } else { failAt = nil } }
+        if let s = skillAt { if time - s < 1.6 { frame.skillAge = Float(time - s) } else { skillAt = nil } }
+        ticks.removeAll { time - $0.at >= 0.8 }
+        for (i, t) in ticks.enumerated() {
+            frame.tickAges[i] = Float(time - t.at)
+            frame.tickAmps[i] = t.amp
+        }
+        return frame
     }
 
     static func smoothstep(_ a: Float, _ b: Float, _ x: Float) -> Float {

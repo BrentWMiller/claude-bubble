@@ -25,7 +25,7 @@ final class HookInstallerTests: XCTestCase {
     func testSubscribesToEveryEventTheHookMaps() {
         let mapped: Set = ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse",
                            "PostToolUseFailure", "PermissionDenied", "PermissionRequest", "Elicitation", "ElicitationResult",
-                           "Notification", "Stop", "StopFailure"]
+                           "Notification", "Stop", "StopFailure", "SubagentStart", "SubagentStop", "PreCompact", "PostCompact"]
         XCTAssertEqual(Set(HookInstaller.events), mapped)
     }
 
@@ -194,5 +194,13 @@ final class HookInstallerTests: XCTestCase {
         let out = HookInstaller.wrapStatusLine(settings: ["statusLine": "weird"], wrapper: wrapper)
         XCTAssertEqual(out.settings["statusLine"] as? String, "weird")
         XCTAssertNil(out.inner)
+    }
+
+    func testRefreshAddsMissingEventsOnlyWhenInstalled() {
+        let old: [String: Any] = ["hooks": ["Stop": [["matcher": "", "hooks": [["type": "command", "command": cmd]]]]]]
+        let refreshed = HookInstaller.refreshSubscriptions(settings: old, command: cmd)
+        XCTAssertEqual(commands(refreshed ?? [:], "SubagentStart"), [cmd])
+        XCTAssertNil(HookInstaller.refreshSubscriptions(settings: refreshed!, command: cmd), "nothing missing: no write")
+        XCTAssertNil(HookInstaller.refreshSubscriptions(settings: ["model": "opus"], command: cmd), "never installs on its own")
     }
 }
