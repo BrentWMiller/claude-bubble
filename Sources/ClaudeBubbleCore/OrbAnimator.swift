@@ -61,6 +61,9 @@ public final class OrbAnimator {
     private var tintGate: Float = 1
     /// What Claude is doing (used while working); the director paces the changes.
     public var motion: Motion = .generating
+    /// Quiet mode: the orb eases down to a small dot with a calmer glow.
+    public var quiet = false
+    private var quietness: Float = 0
     /// Seconds the current motion has run (bash settles with it).
     public var motionElapsed: Double = 0
     public var subagents = 0
@@ -227,8 +230,9 @@ public final class OrbAnimator {
         pointerOffset += pointerVelocity * dt
 
         let here = max(0, presence)
-        var scale = current.scale * (1 + bounce) * here * (1 - 0.12 * lowUsage)
-        var glow = current.glow * min(here, 1) * (1 + 0.6 * flash) * (1 - 0.4 * lowUsage)
+        quietness += ((quiet ? 1 : 0) - quietness) * (1 - expf(-dt / 0.25))
+        var scale = current.scale * (1 + bounce) * here * (1 - 0.12 * lowUsage) * (1 - 0.72 * quietness)
+        var glow = current.glow * min(here, 1) * (1 + 0.6 * flash) * (1 - 0.4 * lowUsage) * (1 - 0.5 * quietness)
         var ring = current.ring * (1 + 0.4 * flash)
         switch state {
         case .idle:

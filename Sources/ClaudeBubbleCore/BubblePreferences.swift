@@ -43,6 +43,8 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var islandGlow: IslandGlow
     /// Where along its edge the island sits (0…1; dragging sets it).
     public var islandAlong: Double
+    /// Quiet mode: the bubble shrinks to a dot, toasts wait for a catch-up and sounds are muted.
+    public var quiet: Bool
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
@@ -71,6 +73,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandRest = .live
         islandGlow = .waves
         islandAlong = 0.5
+        quiet = false
     }
 
     func with(style: BubbleStyle, dock: IslandDock, rest: IslandRest, glow: IslandGlow) -> BubblePreferences {
@@ -104,6 +107,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandRest = (try? c.decodeIfPresent(IslandRest.self, forKey: .islandRest)) ?? d.islandRest
         islandGlow = (try? c.decodeIfPresent(IslandGlow.self, forKey: .islandGlow)) ?? d.islandGlow
         islandAlong = (try? c.decodeIfPresent(Double.self, forKey: .islandAlong)) ?? d.islandAlong
+        quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? d.quiet
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {

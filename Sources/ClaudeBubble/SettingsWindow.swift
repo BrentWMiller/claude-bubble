@@ -98,6 +98,11 @@ struct SettingsView: View {
                 Toggle("Follow the pointer to other displays",
                        isOn: Binding(get: { settings.prefs.followPointer }, set: { settings.setFollowPointer($0) }))
             }
+            Section("Quiet mode") {
+                Toggle("Quiet mode", isOn: $settings.prefs.quiet)
+                Text("Shrinks to a dot, mutes sounds and holds toasts; they play back as a quick catch-up when you turn it off.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         // A grouped Form scrolls, so it has no natural height; without this the window collapses to its title bar.

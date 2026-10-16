@@ -66,7 +66,7 @@ struct ArcPipsView: View {
                 }
             }
         }
-        .opacity(model.present && model.pips.visible ? 1 : 0)
+        .opacity(model.present && model.pips.visible && !model.quiet ? 1 : 0)
         .animation(model.present ? .spring(response: 0.45, dampingFraction: 0.5) : .easeIn(duration: 0.15), value: model.present)
     }
 

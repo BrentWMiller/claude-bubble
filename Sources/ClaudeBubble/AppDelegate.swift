@@ -45,6 +45,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var isIsland: Bool { applied.style == .island }
     /// While the island is being dragged: the edge and spot it's snapping to (saved on release).
     private var islandDrag: (dock: IslandDock, along: Double)?
+    /// Quiet mode (a Focus, a screen share, or the toggle): the bubble shrinks to a dot and toasts wait.
+    private var quiet = false
+    private var heldToasts: [HeldToast] = []
     /// When the focus session's current motion began (bash settles with it).
     private var motionSince: Date?
     private let usageAlerts = UsageAlerts()
@@ -71,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applied = settings.prefs
         model.palette = applied.palette
         animator.interaction = applied.interaction
-        sounds.enabled = applied.sounds
+        sounds.enabled = applied.sounds && !quiet
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
         panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
@@ -122,6 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // DispatchQueue (not RunLoop.main) so a dragged slider updates live, even in event-tracking mode.
         simulatorSubscription = simulator.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] in self?.syncSessions() }
+        setQuiet(applied.quiet)   // once the panels exist
         watcher.start()
         startUsagePolling()
         updateVisibility()
@@ -322,8 +326,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let open = islandDrag == nil
             && hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime())
         if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
-        let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt)
+        let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt, quiet: quiet)
         if m.mode != mode { m.mode = mode }
+        // Peeking at the session panel while quiet shows the orb at its normal size.
+        animator.quiet = quiet && mode != .hover
         if m.state != animator.state { m.state = animator.state }
         // Only publish when something actually expires (the whole island re-renders on every change).
         if m.ticks.contains(where: { CACurrentMediaTime() - $0 > 0.6 }) { m.ticks.removeAll { CACurrentMediaTime() - $0 > 0.6 } }
@@ -404,7 +410,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
         animator.interaction = prefs.interaction
-        sounds.enabled = prefs.sounds
+        sounds.enabled = prefs.sounds && !quiet
+        if prefs.quiet != quiet { setQuiet(prefs.quiet) }
         let usageChanged = prefs.usage != applied.usage
         let styleChanged = prefs.style != applied.style
         let paletteChanged = prefs.palette != applied.palette
@@ -428,8 +435,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = CACurrentMediaTime()
         let events = choreographer.update(model.sessions.map { PipInput(id: $0.id, state: $0.state, review: $0.reviewReady) },
                                           now: now)
-        if events.contains(.ringPop) { animator.ringPop() }
-        if events.contains(.allDone), forcedState == nil { animator.celebrate(from: .idle) }
+        if events.contains(.ringPop), !quiet { animator.ringPop() }
+        if events.contains(.allDone), forcedState == nil, !quiet { animator.celebrate(from: .idle) }
         if events.contains(.allDone) { islandDoneAt = Date() }
         let previous = model.pips
         let frame = choreographer.frame(now: now)
@@ -456,7 +463,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let centre = CGPoint(x: side / 2, y: side / 2)
         let radius = side * 0.3 * PipArc.radiusScale
         // The orb's rim stretches toward the newest pip's slot, then the pip snaps off.
-        if frame.visible, model.present, !bubbleHidden,
+        if frame.visible, model.present, !bubbleHidden, !quiet,
            let id = events.reversed().compactMap({ if case let .spawned(id) = $0 { id } else { nil } }).first,
            let slot = frame.pips.first(where: { $0.id == id })?.slot {
             let p = PipArc.position(slot: slot, slots: frame.slots, centre: centre, radius: radius, around: model.pipAround)
@@ -464,7 +471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // The session list can overlap the pip arc; when the pointer is in the list, the list wins.
         let overList = listPanel.isShown && listPanel.frame.contains(mouse)
-        let hit = bubbleHidden || !model.present || overList ? nil : PipArc.hit(local, frame: frame, centre: centre, radius: radius, around: model.pipAround)
+        let hit = bubbleHidden || quiet || !model.present || overList ? nil : PipArc.hit(local, frame: frame, centre: centre, radius: radius, around: model.pipAround)
         if hit != model.hoveredPip {
             model.hoveredPip = hit
             applyState()
@@ -509,8 +516,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if reading != model.usage { model.usage = reading }
         animator.usageLeft = reading?.left(at: now)
         for alert in usageAlerts.update(reading, now: now) where applied.toasts && !bubbleHidden {
-            toasts.push(alert.kind, name: "Usage", text: alert.text, now: CACurrentMediaTime())
-            tugTowardToasts()
+            pushToast(alert.kind, name: "Usage", text: alert.text)
         }
     }
 
@@ -520,14 +526,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let names = Dictionary(model.sessions.map { ($0.id, $0.displayName) }, uniquingKeysWith: { a, _ in a })
         let reviews = Set(model.sessions.filter(\.reviewReady).map(\.id))
         for toast in ToastQueue.toasts(for: events, previous: previous, names: names, reviews: reviews) {
-            toasts.push(toast.kind, name: toast.name, now: now)
-            if toast.kind != .started { tugTowardToasts() }   // a new pip already has its own pull
+            pushToast(toast.kind, name: toast.name)
         }
         if events.contains(.allDone) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
                 guard let self, self.applied.toasts else { return }
-                self.toasts.push(.allDone, name: "All sessions", now: CACurrentMediaTime())
-                self.tugTowardToasts()
+                self.pushToast(.allDone, name: "All sessions")
+            }
+        }
+    }
+
+    /// Shows a toast, or holds it for the catch-up while quiet.
+    private func pushToast(_ kind: ToastKind, name: String, text: String? = nil) {
+        if quiet {
+            heldToasts.append(HeldToast(kind: kind, name: name, text: text))
+            if heldToasts.count > 500 { heldToasts.removeFirst() }
+            return
+        }
+        toasts.push(kind, name: name, text: text, now: CACurrentMediaTime())
+        if kind != .started { tugTowardToasts() }   // a new pip already has its own pull
+    }
+
+    private func setQuiet(_ on: Bool) {
+        guard on != quiet else { return }
+        quiet = on
+        animator.quiet = on
+        model.quiet = on
+        sounds.enabled = applied.sounds && !on
+        if on {
+            hover.dismiss()
+            if listPanel.isShown { listPanel.popOut() }
+            if pipCard.isVisible { pipCard.hide() }
+            return
+        }
+        // Back: play what was held, quickly.
+        let plan = CatchUp.plan(heldToasts)
+        heldToasts = []
+        for item in plan {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4 + item.delay) { [weak self] in
+                // If quiet comes back mid catch-up, pushToast holds these again rather than dropping them.
+                guard let self, self.applied.toasts, !self.bubbleHidden else { return }
+                self.pushToast(item.kind, name: item.name, text: item.text)
             }
         }
     }
@@ -670,7 +709,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let c = applied.palette[shown].swatch
         // Edges shared with another display aren't the edge of the desktop: no light there.
         let shared = orbScreen.map { s in EdgeLight.sharedEdges(of: s.frame, among: NSScreen.screens.filter { $0 != s }.map(\.frame)) } ?? []
-        edgeLight.update(orb: applied.edgeLight && !bubbleHidden && model.present ? panel : nil, screen: orbScreen?.visibleFrame,
+        edgeLight.update(orb: applied.edgeLight && !bubbleHidden && model.present && !quiet ? panel : nil, screen: orbScreen?.visibleFrame,
                          shared: shared,
                          color: Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)), state: shown,
                          opacity: applied.opacity, dt: 0.05)
@@ -739,6 +778,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let toastItem = item("Toasts", #selector(toggleToasts))
         toastItem.state = prefs.toasts ? .on : .off
+        let quietItem = item("Quiet Mode", #selector(toggleQuiet))
+        quietItem.state = quiet ? .on : .off
         let edgeItem = item("Edge Light", #selector(toggleEdgeLight))
         edgeItem.state = prefs.edgeLight ? .on : .off
         let usageItem = item("Usage", #selector(toggleUsage))
@@ -769,7 +810,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
         let styleItems = [submenu("Style", styles)] + (prefs.style == .island ? [submenu("Island Dock", docks)] : [])
-        return styleItems + [submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
+        return styleItems + [quietItem, submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
                 submenu("Interaction", interactions), toastItem, usageItem, edgeItem, soundItem, submenu("Completion Sound", completions), follow]
     }
 
@@ -836,6 +877,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleToasts() {
         settings.prefs.toasts.toggle()
+    }
+
+    @objc private func toggleQuiet() {
+        settings.prefs.quiet.toggle()
     }
 
     @objc private func pickStyle(_ sender: NSMenuItem) {

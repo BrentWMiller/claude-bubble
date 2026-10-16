@@ -22,13 +22,16 @@ public enum IslandMode: Equatable, Sendable {
     case error(String)
     case done
     case hover
+    /// Quiet mode (a Focus, a screen share, or the toggle): a single dot.
+    case quiet
 
     public static let errorShown: TimeInterval = 3.5
     public static let doneShown: TimeInterval = 4.5
 
     /// `doneAt` is the all-done moment (the pips' merge), if any.
-    public static func choose(sessions: [Session], now: Date, hovering: Bool, doneAt: Date?) -> IslandMode {
+    public static func choose(sessions: [Session], now: Date, hovering: Bool, doneAt: Date?, quiet: Bool = false) -> IslandMode {
         if hovering { return .hover }
+        if quiet { return .quiet }
         let recent = sessions.sorted { $0.stateSince > $1.stateSince }
         if let s = recent.first(where: { $0.state == .needs }) { return .needs(s.id) }
         if let s = recent.first(where: { $0.state == .error && now.timeIntervalSince($0.stateSince) < errorShown }) {
@@ -55,6 +58,8 @@ public enum IslandLayout {
 
     public static func shownRows(_ count: Int) -> Int { min(count, maxRows) }
     public static let cornerRadius: CGFloat = 22
+    /// Quiet mode's dot.
+    public static let quietDot: CGFloat = 16
     /// The bar's padding: tight against the docked edge, roomier on the open side.
     public static let dockedInset: CGFloat = 4
     public static let openInset: CGFloat = 8
@@ -65,6 +70,7 @@ public enum IslandLayout {
     public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int,
                             footer: Bool = true) -> CGSize {
         switch mode {
+        case .quiet: return CGSize(width: quietDot, height: quietDot)
         case .hover:
             let shown = CGFloat(max(shownRows(rows), 1))
             let more = rows > maxRows ? moreHeight : 0
