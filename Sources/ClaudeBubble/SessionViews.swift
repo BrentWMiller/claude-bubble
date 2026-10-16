@@ -331,9 +331,9 @@ private struct LinkChip: View {
     let link: SessionLink
     let compact: Bool
     @State private var hover = false
-    @State private var showCard = false
     @State private var cardTimer: Timer?
-    @ObservedObject private var previews = LinkPreviewFetcher.shared
+    @State private var owner = UUID()
+    @State private var place = ScreenFrameReader.Box()
 
     private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
     private static let red = Color(red: 1, green: 0.42, blue: 0.42)
@@ -432,6 +432,7 @@ private struct LinkChip: View {
             .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(hover ? 0.12 : 0.06)))
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.white.opacity(hover ? 0.22 : 0.12), lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .background(ScreenFrameReader(box: place))
         }
         .buttonStyle(.plain)
         .onHover { inside in
@@ -441,18 +442,17 @@ private struct LinkChip: View {
             guard link.kind != .artifact, LinkPreviewFetcher.available else { return }
             if inside {
                 // A short dwell, so sweeping across chips doesn't flash cards (or run gh).
-                cardTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { _ in
-                    previews.load(link)
-                    showCard = true
+                cardTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { [link, icon, tint, statusText, owner, place] _ in
+                    guard let rect = ScreenFrameReader.screenRect(place) else { return }
+                    LinkPreviewFetcher.shared.load(link)
+                    LinkCardController.shared.show(link, icon: icon, tint: tint, status: statusText, from: rect, owner: owner)
                 }
             } else {
-                showCard = false
+                LinkCardController.shared.hide(owner: owner)
             }
         }
+        .onDisappear { cardTimer?.invalidate() }
         .help(LinkPreviewFetcher.available && link.kind != .artifact ? "" : summary)
-        .popover(isPresented: $showCard, arrowEdge: .top) {
-            LinkPreviewCard(link: link, preview: previews.preview(for: link.url), icon: icon, tint: tint, status: statusText)
-        }
     }
 }
 
