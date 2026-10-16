@@ -83,13 +83,17 @@ final class PaletteTests: XCTestCase {
         XCTAssertEqual(back, p)
     }
 
-    func testAnimatorEasesToANewPalette() {
+    func testAnimatorFansToANewPalette() {
         let a = OrbAnimator(state: .working)
         a.palette = .blue
-        _ = a.step(dt: 1.0 / 60)
-        XCTAssertNotEqual(a.current.c1, OrbPalette.agentsView.working.c1)
-        XCTAssertNotEqual(a.current.c1, OrbPalette.blue.working.c1)
-        for _ in 0..<120 { _ = a.step(dt: 1.0 / 60) }
+        let f = a.step(dt: 1.0 / 60)
+        // The new colours are live at once; the shader fans them in over the old ones.
+        XCTAssertEqual(a.current.c1, OrbPalette.blue.working.c1)
+        XCTAssertEqual(f.fanFrom.c1, OrbPalette.agentsView.working.c1)
+        XCTAssertGreaterThanOrEqual(f.fan, 0)
+        var last = f
+        for _ in 0..<120 { last = a.step(dt: 1.0 / 60) }
+        XCTAssertEqual(last.fan, -1, "settled")
         XCTAssertEqual(a.current.c1.x, OrbPalette.blue.working.c1.x, accuracy: 0.01)
     }
 
