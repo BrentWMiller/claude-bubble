@@ -63,4 +63,33 @@ final class PRStatusTests: XCTestCase {
         XCTAssertEqual(out.first?.reviewReady, true)
         XCTAssertNil(out.first?.links.first?.status)
     }
+
+    // Polling schedule
+
+    let open = PRStatus(state: .open, checks: .passing, review: .none)
+    let running = PRStatus(state: .open, checks: .pending, review: .none)
+    let merged = PRStatus(state: .merged, checks: .passing, review: .approved)
+
+    func every(_ s: PRStatus?, fetched: Bool = true, looking: Bool = false, idle: TimeInterval = 60) -> TimeInterval? {
+        PRPolling.interval(status: s, fetched: fetched, looking: looking, sessionIdle: idle)
+    }
+
+    func testBackgroundSchedule() {
+        XCTAssertEqual(every(nil, fetched: false), 0, "first look at once")
+        XCTAssertEqual(every(running), 120)
+        XCTAssertEqual(every(open), 600)
+        XCTAssertNil(every(merged), "merged or closed: stop")
+        XCTAssertEqual(every(nil, fetched: true), 600, "a failed fetch retries slowly")
+    }
+
+    func testQuietSessionsWaitUntilSomeoneLooks() {
+        XCTAssertNil(every(running, idle: 3 * 3600))
+        XCTAssertEqual(every(running, looking: true, idle: 3 * 3600), 30)
+    }
+
+    func testLookingKeepsItFresh() {
+        XCTAssertEqual(every(open, looking: true), 30)
+        XCTAssertEqual(every(running, looking: true), 30)
+        XCTAssertNil(every(merged, looking: true), "a merged PR doesn't change")
+    }
 }

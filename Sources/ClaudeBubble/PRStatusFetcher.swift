@@ -1,8 +1,8 @@
 import ClaudeBubbleCore
 import Foundation
 
-/// Fetches each pull request's live status with the GitHub CLI (`gh`), off the main thread: about every 30s while its
-/// checks are running, every 90s otherwise, and rarely once it's merged or closed. Without `gh`, it does nothing.
+/// Fetches each pull request's live status with the GitHub CLI (`gh`), off the main thread, on `PRPolling`'s schedule:
+/// slowly in the background, fresh whenever the session list is opened. Without `gh`, it does nothing.
 final class PRStatusFetcher {
     private struct Entry { let status: PRStatus?; let fetchedAt: Date }
     private let queue = DispatchQueue(label: "ClaudeBubble.pr-status", qos: .utility)
@@ -18,25 +18,26 @@ final class PRStatusFetcher {
         queue.sync { entries.compactMapValues(\.status) }
     }
 
-    func refresh(_ sessions: [Session]) {
+    /// `looking`: the session list (or island panel) just opened.
+    func refresh(_ sessions: [Session], looking: Bool = false) {
         guard let gh = Self.gh else { return }
-        let urls = Set(sessions.flatMap { $0.links.filter { $0.kind == .pr }.map(\.url) })
-        guard !urls.isEmpty else { return }
+        // Each PR, with how long its most recently active session has been quiet.
+        var idle: [URL: TimeInterval] = [:]
+        for s in sessions {
+            let quiet = Date().timeIntervalSince(s.updatedAt)
+            for l in s.links where l.kind == .pr { idle[l.url] = min(idle[l.url] ?? .infinity, quiet) }
+        }
+        guard !idle.isEmpty else { return }
         queue.async { [weak self] in
             guard let self, !self.fetching else { return }
             self.fetching = true
             defer { self.fetching = false }
             var changed = false
             let now = Date()
-            for url in urls {
+            for (url, quiet) in idle {
                 let e = self.entries[url]
-                let every: TimeInterval = switch e?.status {
-                case nil: e == nil ? 0 : 120   // never fetched, or the last fetch failed
-                case let s? where s.state == .merged || s.state == .closed: 1800
-                case let s? where s.checks == .pending: 30
-                default: 90
-                }
-                guard now.timeIntervalSince(e?.fetchedAt ?? .distantPast) >= every else { continue }
+                guard let every = PRPolling.interval(status: e?.status, fetched: e != nil, looking: looking, sessionIdle: quiet),
+                      now.timeIntervalSince(e?.fetchedAt ?? .distantPast) >= every else { continue }
                 let status = Self.fetch(url, gh: gh)
                 self.entries[url] = Entry(status: status ?? e?.status, fetchedAt: now)
                 if status != nil, status != e?.status { changed = true }

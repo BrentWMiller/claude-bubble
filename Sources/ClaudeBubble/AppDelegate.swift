@@ -381,6 +381,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let open = islandDrag == nil
             && hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime())
         if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
+        if open, !wasOpen { prStatus.refresh(model.sessions, looking: true) }
         let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt, quiet: quiet)
         if m.mode != mode { m.mode = mode }
         // Peeking at the session panel while quiet shows the orb at its normal size.
@@ -802,6 +803,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                 now: CACurrentMediaTime())
         if open, CACurrentMediaTime() - lastTodayRefresh > (listPanel.isShown ? 30 : 0) { refreshToday() }
         if open, !listPanel.isShown {
+            prStatus.refresh(model.sessions, looking: true)   // what you see is current
             listPanel.show(near: panel.frame)
         } else if !open, listPanel.isShown {
             listPanel.popOut()
