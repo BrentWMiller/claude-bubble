@@ -26,4 +26,15 @@ final class SimulatorStoryTests: XCTestCase {
         XCTAssertEqual(SimulatorStory.detail(for: .working), "Running tests")
         XCTAssertEqual(SimulatorStory.detail(for: .idle), "Completed")
     }
+
+    func testScriptedSessionFollowsTheDesign() {
+        let steps = SimulatorStory.session
+        XCTAssertEqual(steps.map(\.duration).reduce(0, +), 39.3, accuracy: 0.01)
+        XCTAssertEqual(steps.first?.motion, .generating)
+        XCTAssertNil(steps.last?.motion, "ends finished")
+        XCTAssertEqual(steps.filter(\.skill).count, 1)
+        XCTAssertEqual(steps.compactMap(\.endsPrevious).filter { $0 == .failed }.count, 1, "the first test run fails")
+        XCTAssertEqual(steps.compactMap(\.endsPrevious).count, 12, "every tool step ends with a tick or a fail")
+        XCTAssertEqual(steps.first { $0.motion == .waiting }?.subagents, 3)
+    }
 }

@@ -43,6 +43,39 @@ public enum SimulatorStory {
         return sessions
     }
 
+    /// One step of the Orb States design's scripted session.
+    public struct SessionStep: Equatable, Sendable {
+        public enum ToolEnd: Equatable, Sendable { case done, failed }
+        /// nil = the session finished (idle).
+        public let motion: Motion?
+        public let duration: Double
+        /// A skill or plan starts with this step.
+        public let skill: Bool
+        public let subagents: Int
+        /// How the previous step's tool call ended (nil when the previous step wasn't a tool).
+        public let endsPrevious: ToolEnd?
+    }
+
+    /// The Orb States design's script (motion, seconds, skill, subagents, whether that step's tool fails).
+    private static let script: [(Motion?, Double, Bool, Int, Bool)] = [
+        (.generating, 2.2, false, 0, false), (.generating, 1.8, true, 0, false),
+        (.read, 0.35, false, 0, false), (.read, 0.5, false, 0, false), (.read, 0.4, false, 0, false),
+        (.search, 0.25, false, 0, false), (.search, 0.3, false, 0, false), (.read, 0.9, false, 0, false),
+        (.edit, 0.8, false, 0, false), (.bash, 1.6, false, 0, true), (.generating, 1.4, false, 0, false),
+        (.edit, 0.6, false, 0, false), (.bash, 5, false, 0, false), (.web, 3, false, 0, false),
+        (.mcp, 2.5, false, 0, false), (.generating, 1.2, false, 0, false), (.waiting, 7, false, 3, false),
+        (.compacting, 4, false, 0, false), (.generating, 2.5, false, 0, false), (nil, 3, false, 0, false)
+    ]
+
+    public static let session: [SessionStep] = script.indices.map { i in
+        let (motion, duration, skill, subagents, _) = script[i]
+        var ends: SessionStep.ToolEnd?
+        if i > 0, let prior = script[i - 1].0, ![.generating, .compacting, .waiting].contains(prior) {
+            ends = script[i - 1].4 ? .failed : .done
+        }
+        return SessionStep(motion: motion, duration: duration, skill: skill, subagents: subagents, endsPrevious: ends)
+    }
+
     /// The status line simulated sessions show.
     public static func detail(for state: BubbleState) -> String {
         switch state {

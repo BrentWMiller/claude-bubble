@@ -43,14 +43,17 @@ enum OrbSnapshot {
 
     private static let shared = Renderer()
 
-    static func render(state: BubbleState, size: Int, palette: OrbPalette = .agentsView) -> CGImage? {
+    /// `prepare` can set up the animator (a motion, layers) before the frame is taken; `steps` is how long it runs.
+    static func render(state: BubbleState, size: Int, palette: OrbPalette = .agentsView, steps: Int = 90,
+                       prepare: ((OrbAnimator) -> Void)? = nil) -> CGImage? {
         guard let r = shared else { return nil }
         let device = r.device, queue = r.queue, quad = r.quad, dots = r.dots, points = r.points
 
         // Let the wave settle into a pleasing frame.
         let animator = OrbAnimator(state: state, palette: palette, random: { 0.35 })
+        prepare?(animator)
         var f = animator.step(dt: 0.016)
-        for _ in 0..<90 { f = animator.step(dt: 0.016) }
+        for _ in 0..<steps { f = animator.step(dt: 0.016) }
 
         let td = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .bgra8Unorm, width: size, height: size, mipmapped: false)
         td.usage = .renderTarget
@@ -68,7 +71,11 @@ enum OrbSnapshot {
             b: [f.params.glitch, f.params.wave, f.params.bright, max(1, Float(size) / 400) * 3.2],
             c: [Float(size), Float(size), 0, 0],
             d: [0, 0, 0, -1],
-            e: [-1, 0, 0, 0]
+            e: [-1, 0, 0, 0],
+            f: [f.workA, f.workB, f.workMix, f.settle],
+            g: [f.sub, f.failAge, f.skillAge, 0],
+            h: SIMD4(f.tickAges, 0),
+            i: SIMD4(f.tickAmps, 0)
         )
         guard let cmd = queue.makeCommandBuffer(), let enc = cmd.makeRenderCommandEncoder(descriptor: pass) else { return nil }
         let len = MemoryLayout<OrbUniforms>.stride
