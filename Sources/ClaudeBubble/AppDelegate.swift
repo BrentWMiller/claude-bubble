@@ -342,7 +342,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func updateIsland(mouse: CGPoint) {
         guard !bubbleHidden else { return }
         let window = islandWindowFrame(mouse: mouse)
-        if island.frame != window { island.setFrame(window, display: true) }
+        if island.frame != window, !island.isSwapping {
+            // Onto another display: fade across. Same display (a dock or menu-bar change): just place it.
+            let screenOf = { (r: CGRect) in NSScreen.screens.first { $0.frame.contains(CGPoint(x: r.midX, y: r.midY)) } }
+            if island.isVisible, islandDrag == nil, let from = screenOf(island.frame), let to = screenOf(window), from != to {
+                island.swap(to: window, dock: applied.islandDock, opacity: applied.opacity)
+            } else {
+                island.setFrame(window, display: true)
+            }
+        }
         let m = island.model
         func pill(_ mode: IslandMode) -> CGRect {
             IslandLayout.pillRect(size: IslandLayout.size(mode: mode, dock: m.dock, rest: m.rest, pips: model.sessions.count,

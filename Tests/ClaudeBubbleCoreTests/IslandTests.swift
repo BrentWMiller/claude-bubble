@@ -195,4 +195,11 @@ final class IslandTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(IslandLayout.windowSize.height,
                                     IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 9, rows: 9).height + 30)
     }
+
+    func testANeighbouringDisplaysMenuBarDoesntCount() {
+        // Two displays side by side: the right one's menu bar starts exactly where the left one ends.
+        let left = CGRect(x: -1029, y: 1117, width: 1920, height: 1080)
+        let rightBar = CGRect(x: 891, y: 2167, width: 1920, height: 30)
+        XCTAssertEqual(IslandLayout.top(of: left, menuBars: [rightBar]), left.maxY)
+    }
 }

@@ -94,6 +94,39 @@ final class IslandPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 
+    /// AppKit keeps windows below the menu bar strip of every display, even where it's hidden (full screen); the
+    /// island places itself (under a showing menu bar, else at the very top), so leave its frame alone.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+
+    /// Moving to another display: fade out, jump, then fade in sliding from the docked edge (not a jump cut).
+    private(set) var isSwapping = false
+    func swap(to frame: CGRect, dock: IslandDock, opacity: Double) {
+        guard !isSwapping else { return }
+        isSwapping = true
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.16
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            guard let self else { return }
+            let slide: CGFloat = 14
+            var start = frame
+            switch dock {
+            case .top: start.origin.y += slide
+            case .bottom: start.origin.y -= slide
+            case .left: start.origin.x -= slide
+            case .right: start.origin.x += slide
+            }
+            self.setFrame(start, display: true)
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.32
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.2, 0.9, 0.3, 1.05)
+                self.animator().alphaValue = opacity
+                self.animator().setFrame(frame, display: true)
+            }, completionHandler: { [weak self] in self?.isSwapping = false })
+        })
+    }
+
     func setRendering(_ on: Bool) { orbView.isPaused = !on }
 
     /// Where the pill is on screen (kept current by the app); only it takes the mouse.
