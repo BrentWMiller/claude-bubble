@@ -284,8 +284,11 @@ struct IslandView: View {
                 if model.glow == .waves {
                     IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
                                    edge: !sideRest)
+                    if hasDetail { scrim }
                 }
                 content
+                    // A soft dark halo behind every letter, so text stays legible over the brightest glow.
+                    .shadow(color: .black.opacity(model.glow == .waves ? 0.9 : 0), radius: 2.5)
             }
             // Always in the hierarchy (one Metal view), just hidden while quiet.
             OrbHost(view: orb)
@@ -301,6 +304,27 @@ struct IslandView: View {
             .allowsHitTesting(false))
         .shadow(color: .black.opacity(0.55), radius: 15, y: 10)
         .contentShape(shape)
+    }
+
+    /// Showing text beyond the bar: the session list, or a needs-you or error message.
+    private var hasDetail: Bool {
+        switch model.mode {
+        case .hover, .needs, .error: true
+        default: false
+        }
+    }
+
+    /// Darkens the glow behind the text so it stays readable, fading in from the bar so the glow still blooms there.
+    private var scrim: some View {
+        let bar = IslandLayout.barHeight, fade: CGFloat = 26
+        let h = max(size.height, 1)
+        let start = min(1, (bar - 8) / h), full = min(1, (bar + fade) / h)
+        let stops: [Gradient.Stop] = [.init(color: .clear, location: 0), .init(color: .clear, location: start),
+                                      .init(color: .black.opacity(0.7), location: full), .init(color: .black.opacity(0.7), location: 1)]
+        return LinearGradient(stops: stops, startPoint: model.dock == .bottom ? .bottom : .top,
+                              endPoint: model.dock == .bottom ? .top : .bottom)
+            .allowsHitTesting(false)
+            .transition(.opacity)
     }
 
     private var glowColor: Color { IslandGlowView.color(state: model.state, done: model.mode == .done, palette: sessions.palette) }

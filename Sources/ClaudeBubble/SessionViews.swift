@@ -357,6 +357,7 @@ private struct LinkChip: View {
             .foregroundStyle(Color.white.opacity(hover ? 0.95 : 0.7))
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
+            .background(Capsule().fill(Color.black.opacity(0.55)))
             .background(Capsule().fill(Color.white.opacity(hover ? 0.14 : 0.07)))
             .overlay(Capsule().stroke(tint.opacity(hover ? 0.5 : 0.2), lineWidth: 1))
             .contentShape(Capsule())
