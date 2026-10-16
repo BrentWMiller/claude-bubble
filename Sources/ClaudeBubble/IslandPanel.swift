@@ -126,6 +126,15 @@ struct IslandView: View {
         }
     }
 
+    private var dockedEdge: Edge.Set {
+        switch model.dock {
+        case .top: .top
+        case .bottom: .bottom
+        case .left: .leading
+        case .right: .trailing
+        }
+    }
+
     private var shape: UnevenRoundedRectangle {
         let r = IslandLayout.cornerRadius
         switch model.dock {
@@ -157,6 +166,10 @@ struct IslandView: View {
         }
         .clipShape(shape)
         .overlay(model.glow == .waves ? IslandRim(shape: shape, color: glowColor, state: model.state) : nil)
+        // A faint outline so the island stands out against dark windows; none on the docked edge, which meets the screen's.
+        .overlay(shape.strokeBorder(Color.white.opacity(0.13), lineWidth: 1)
+            .mask(Rectangle().padding(dockedEdge, 1))
+            .allowsHitTesting(false))
         .shadow(color: .black.opacity(0.55), radius: 15, y: 10)
         .contentShape(shape)
         .onTapGesture(perform: onClick)
