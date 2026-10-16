@@ -11,7 +11,7 @@ final class PRStatusFetcher {
     /// Called on the main thread when a status changed.
     var onChange: (() -> Void)?
 
-    private static let gh: String? = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+    static let gh: String? = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
         .first { FileManager.default.isExecutableFile(atPath: $0) }
 
     var statuses: [URL: PRStatus] {

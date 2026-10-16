@@ -331,6 +331,9 @@ private struct LinkChip: View {
     let link: SessionLink
     let compact: Bool
     @State private var hover = false
+    @State private var showCard = false
+    @State private var cardTimer: Timer?
+    @ObservedObject private var previews = LinkPreviewFetcher.shared
 
     private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
     private static let red = Color(red: 1, green: 0.42, blue: 0.42)
@@ -431,7 +434,123 @@ private struct LinkChip: View {
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
         }
         .buttonStyle(.plain)
-        .onHover { hover = $0 }
-        .help(summary)
+        .onHover { inside in
+            hover = inside
+            cardTimer?.invalidate()
+            cardTimer = nil
+            guard link.kind != .artifact, LinkPreviewFetcher.available else { return }
+            if inside {
+                // A short dwell, so sweeping across chips doesn't flash cards (or run gh).
+                cardTimer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: false) { _ in
+                    previews.load(link)
+                    showCard = true
+                }
+            } else {
+                showCard = false
+            }
+        }
+        .help(LinkPreviewFetcher.available && link.kind != .artifact ? "" : summary)
+        .popover(isPresented: $showCard, arrowEdge: .top) {
+            LinkPreviewCard(link: link, preview: previews.preview(for: link.url), icon: icon, tint: tint, status: statusText)
+        }
+    }
+}
+
+/// A pull request's or issue's hover card: title, then size, checks and review (or labels, assignees, comments).
+struct LinkPreviewCard: View {
+    let link: SessionLink
+    let preview: LinkPreview?
+    let icon: String
+    let tint: Color
+    let status: (String, Color)?
+
+    private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
+    private static let red = Color(red: 1, green: 0.42, blue: 0.42)
+    private static let amber = Color(red: 1, green: 0.78, blue: 0.35)
+    private static let dim = Color.white.opacity(0.5)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
+                Text(link.label).font(.system(size: 11, weight: .medium, design: .monospaced)).foregroundStyle(.white)
+                if let (text, color) = status {
+                    Text("·").foregroundStyle(Self.dim)
+                    Text(text).font(.system(size: 11, weight: .medium)).foregroundStyle(color)
+                }
+            }
+            if let p = preview {
+                Text(p.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                details(p)
+            } else {
+                // Loading: the title's place, shimmering.
+                TimelineView(.animation) { t in
+                    let a = 0.08 + 0.06 * sin(t.date.timeIntervalSinceReferenceDate * 4)
+                    VStack(alignment: .leading, spacing: 5) {
+                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(a)).frame(width: 220, height: 12)
+                        RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(a)).frame(width: 140, height: 10)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(width: 280, alignment: .leading)
+        .background(Color(white: 0.09))
+        .environment(\.colorScheme, .dark)
+    }
+
+    @ViewBuilder private func details(_ p: LinkPreview) -> some View {
+        let meta = [
+            p.additions.map { "+\($0)" }, p.deletions.map { "−\($0)" },
+            p.changedFiles.map { "\($0) file\($0 == 1 ? "" : "s")" }, p.additions == nil ? nil : p.author.map { "by \($0)" },
+        ].compactMap { $0 }
+        if !meta.isEmpty {
+            Text(meta.joined(separator: " · ")).font(.system(size: 11, design: .monospaced)).foregroundStyle(Self.dim)
+        }
+        if !p.failed.isEmpty {
+            let shown = p.failed.prefix(3)
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(shown.enumerated()), id: \.offset) { _, name in
+                    Label(name, systemImage: "xmark").foregroundStyle(Self.red)
+                }
+                if p.failed.count > shown.count { Text("+\(p.failed.count - shown.count) more failed").foregroundStyle(Self.red) }
+            }
+            .font(.system(size: 11, weight: .medium)).lineLimit(1)
+        }
+        if p.passed + p.running > 0 {
+            HStack(spacing: 10) {
+                if p.passed > 0 { Label("\(p.passed) passed", systemImage: "checkmark").foregroundStyle(Self.green) }
+                if p.running > 0 { Label("\(p.running) running", systemImage: "circle.dotted").foregroundStyle(Self.amber) }
+            }
+            .font(.system(size: 11, weight: .medium))
+        }
+        if let review = p.review {
+            Text(review).font(.system(size: 11, weight: .medium))
+                .foregroundStyle(review.hasPrefix("Approved") ? Self.green : review.hasPrefix("Changes") ? Self.amber : Self.dim)
+        }
+        if !p.labels.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(p.labels.prefix(4), id: \.name) { l in
+                    HStack(spacing: 4) {
+                        Circle().fill(Color(hex: l.color)).frame(width: 7, height: 7)
+                        Text(l.name).font(.system(size: 11)).foregroundStyle(Color.white.opacity(0.75)).lineLimit(1)
+                    }
+                }
+            }
+        }
+        let people = [p.author.map { "by \($0)" }, p.assignees.isEmpty ? nil : "→ " + p.assignees.joined(separator: ", "),
+                      p.comments.map { "\($0) comment\($0 == 1 ? "" : "s")" }].compactMap { $0 }
+        if p.additions == nil, !people.isEmpty {
+            Text(people.joined(separator: " · ")).font(.system(size: 11)).foregroundStyle(Self.dim)
+        }
+    }
+}
+
+private extension Color {
+    /// GitHub's "d73a4a" label colours.
+    init(hex: String) {
+        let v = UInt32(hex, radix: 16) ?? 0x888888
+        self.init(red: Double((v >> 16) & 0xff) / 255, green: Double((v >> 8) & 0xff) / 255, blue: Double(v & 0xff) / 255)
     }
 }
