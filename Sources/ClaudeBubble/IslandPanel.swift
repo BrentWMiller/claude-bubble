@@ -19,7 +19,15 @@ final class IslandModel: ObservableObject {
     @Published var fanFrom: IslandColorKey?
     @Published var fanStart: Double = 0
     /// Off while the island is hidden: the Metal glow stops drawing.
-    @Published var rendering = true
+    private(set) var rendering = true
+    /// The Metal glow layers, paused and resumed with the island. Set directly: SwiftUI doesn't update the views of
+    /// a hidden window, so a published flag never reached them (the glow kept drawing behind the orb).
+    let glowLayers = NSHashTable<GlowMetalView>.weakObjects()
+
+    func setRendering(_ on: Bool) {
+        rendering = on
+        for view in glowLayers.allObjects where view.isPaused == on { view.isPaused = !on }
+    }
 
     static let fanDuration = 1.4
 
@@ -136,7 +144,7 @@ final class IslandPanel: NSPanel {
 
     func setRendering(_ on: Bool) {
         orbView.isPaused = !on
-        if model.rendering != on { model.rendering = on }
+        model.setRendering(on)
     }
 
     /// Where the pill is on screen (kept current by the app); only it takes the mouse.
