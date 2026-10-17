@@ -245,7 +245,7 @@ final class GlowRenderer: NSObject, MTKViewDelegate {
         let r0 = max(Double(size.width) * 0.9, 160)
         let front = fan.progress < 1 ? fan.progress * (r0 * 1.15 + 20) : 1e9
         let amp = (idle ? 0.45 : 1) * (1 + 0.6 * kick) * 1.8
-        let tt = now * (idle ? 0.5 : fast ? 1.6 : 1.1)
+        let tt = now * IslandGlowView.waveSpeed(idle: idle, fast: fast)
         let scale = view.drawableSize.width / size.width
         let R = Float(IslandLayout.cornerRadius)
         let radii: SIMD4<Float> = switch model.dock {

@@ -498,6 +498,11 @@ struct IslandGlowView: View {
 
     static let doneColor = Color(red: 0.47, green: 0.9, blue: 0.67)
 
+    /// How fast the dot-wave rolls (the design's speeds, slowed to 60%: calmer on a desktop you look at all day).
+    static func waveSpeed(idle: Bool, fast: Bool) -> Double {
+        (idle ? 0.5 : fast ? 1.6 : 1.1) * 0.6
+    }
+
     static func color(state: BubbleState, done: Bool, palette: OrbPalette) -> Color {
         if done { return doneColor }
         return state.color(in: palette)
@@ -575,7 +580,7 @@ struct IslandGlowView: View {
         let fast = model.state == .needs || model.state == .error
         // Brighter than the design's numbers: on a real desktop the wave read too faint next to the prototype.
         let amp = (idle ? 0.45 : 1) * (1 + 0.6 * kick) * 1.8
-        let tt = time * (idle ? 0.5 : fast ? 1.6 : 1.1)
+        let tt = time * Self.waveSpeed(idle: idle, fast: fast)
         let oz = Double(IslandLayout.orbSize)
         let ox = Double(orbCentre.x), oy = Double(orbCentre.y)
         let r0 = max(Double(size.width) * 0.9, 160)
