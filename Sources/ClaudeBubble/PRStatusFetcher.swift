@@ -8,6 +8,10 @@ final class PRStatusFetcher {
     private let queue = DispatchQueue(label: "ClaudeBubble.pr-status", qos: .utility)
     private var entries: [URL: Entry] = [:]
     private var fetching = false
+    /// The statuses as of the last fetch: the main thread reads these rather than wait for the queue (which can be
+    /// busy running `gh` for one link after another).
+    private let shownLock = NSLock()
+    private var shown: [URL: PRStatus] = [:]
     /// Called on the main thread when a status changed.
     var onChange: (() -> Void)?
 
@@ -59,7 +63,7 @@ final class PRStatusFetcher {
     }
 
     var statuses: [URL: PRStatus] {
-        queue.sync { entries.compactMapValues(\.status) }
+        shownLock.withLock { shown }
     }
 
     /// `looking`: the session list (or island panel) just opened.
@@ -90,7 +94,11 @@ final class PRStatusFetcher {
                 self.entries[url] = Entry(status: status ?? e?.status, fetchedAt: now)
                 if status != nil, status != e?.status { changed = true }
             }
-            if changed { DispatchQueue.main.async { self.onChange?() } }
+            if changed {
+                let statuses = self.entries.compactMapValues(\.status)
+                self.shownLock.withLock { self.shown = statuses }
+                DispatchQueue.main.async { self.onChange?() }
+            }
         }
     }
 
