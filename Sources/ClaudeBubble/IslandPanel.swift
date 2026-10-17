@@ -18,6 +18,8 @@ final class IslandModel: ObservableObject {
     @Published var colorKey = IslandColorKey(state: .idle, done: false)
     @Published var fanFrom: IslandColorKey?
     @Published var fanStart: Double = 0
+    /// Off while the island is hidden: the Metal glow stops drawing.
+    @Published var rendering = true
 
     static let fanDuration = 1.4
 
@@ -132,7 +134,10 @@ final class IslandPanel: NSPanel {
         })
     }
 
-    func setRendering(_ on: Bool) { orbView.isPaused = !on }
+    func setRendering(_ on: Bool) {
+        orbView.isPaused = !on
+        if model.rendering != on { model.rendering = on }
+    }
 
     /// Where the pill is on screen (kept current by the app); only it takes the mouse.
     var pill: CGRect = .zero { didSet { updateMouseCapture() } }
@@ -288,8 +293,12 @@ struct IslandView: View {
                     .transition(.opacity)
             } else {
                 if model.glow == .waves {
-                    IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
-                                   edge: !sideRest)
+                    if snapshot {
+                        IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
+                                       edge: !sideRest)
+                    } else {
+                        GlowHost(kind: .glow, model: model, palette: sessions.palette, orbCentre: orbCentre, edge: !sideRest)
+                    }
                     if hasDetail { scrim }
                 }
                 content
@@ -310,13 +319,18 @@ struct IslandView: View {
                 .opacity(quiet ? 0 : 1)
         }
         .clipShape(shape)
-        .overlay(model.glow == .waves ? IslandRim(shape: shape, model: model, palette: sessions.palette) : nil)
+        .overlay(model.glow == .waves ? rim : nil)
         // A faint outline so the island stands out against dark windows; none on the docked edge, which meets the screen's.
         .overlay(shape.strokeBorder(Color.white.opacity(0.13), lineWidth: 1)
             .mask(Rectangle().padding(dockedEdge, 1))
             .allowsHitTesting(false))
         .shadow(color: .black.opacity(0.55), radius: 15, y: 10)
         .contentShape(shape)
+    }
+
+    @ViewBuilder private var rim: some View {
+        if snapshot { IslandRim(shape: shape, model: model, palette: sessions.palette) }
+        else { GlowHost(kind: .rim, model: model, palette: sessions.palette).allowsHitTesting(false) }
     }
 
     /// Showing text beyond the bar: the session list, or a needs-you or error message.
