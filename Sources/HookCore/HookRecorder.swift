@@ -54,6 +54,16 @@ public enum HookRecorder {
         let keepsState = ["SubagentStart", "SubagentStop", "PreCompact", "PostCompact"].contains(event)
         if state == nil && !keepsState { return .ignore }
         if keepsState { state = nonEmpty(prev["state"]) ?? "working" }
+        // Compacting is work even when the user starts it (/compact) on an idle session: show it, and put back the
+        // state and status line from before once it's done. A new turn in between owns the state from then on.
+        var beforeCompact = (prev["before_compact"] as? [Any])?.map { str($0) } ?? []
+        if beforeCompact.count != 2 || ["UserPromptSubmit", "Stop", "StopFailure"].contains(event) { beforeCompact = [] }
+        if event == "PreCompact" {
+            if beforeCompact.isEmpty { beforeCompact = [state ?? "working", str(prev["detail"])] }
+            state = "working"
+        } else if event == "PostCompact", !beforeCompact.isEmpty {
+            state = beforeCompact[0]
+        }
 
         // Auto-compact and resume fire SessionStart mid-session: keep the current state and replay window.
         let source = data["source"].map { str($0) } ?? "startup"
@@ -144,6 +154,12 @@ public enum HookRecorder {
         }
         // Subagent and compaction events say nothing new about the session: keep its status line.
         if keepsState && !prevDetail.isEmpty { detail = prevDetail }
+        if event == "PreCompact" {
+            detail = "Compacting"
+        } else if event == "PostCompact", !beforeCompact.isEmpty {
+            if !beforeCompact[1].isEmpty { detail = beforeCompact[1] }
+            beforeCompact = []
+        }
 
         // Tool events from inside a subagent don't move the main orb's motion (the main agent is waiting on them).
         let fromSubagent = truthy(data["agent_id"]) && !keepsState
@@ -209,7 +225,7 @@ public enum HookRecorder {
             "pending": pending.sorted(), "prompted": prompted, "project": project, "detail": detail,
             "state_since": stateSince, "pid": Int(pid), "tool_ids": toolIDs, "activity": activity,
             "activity_since": activitySince, "ticks": ticks, "fails": fails, "skills": skills, "subagents": running,
-            "in_flight": inFlight, "transcript": transcript,
+            "in_flight": inFlight, "transcript": transcript, "before_compact": beforeCompact,
         ])
     }
 
