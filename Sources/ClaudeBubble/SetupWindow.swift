@@ -201,6 +201,9 @@ private struct DemoBanner: View {
     @ObservedObject var sim: SimulatorModel
     let palette: OrbPalette
     let island: Bool
+    /// The island's own glow (pixel dots, dot-wave, edge light), fed the demo's state as the app feeds the island.
+    @StateObject private var glow = IslandModel()
+    @State private var lastTicks = 0
 
     private var lead: SimulatorModel.Sim? { sim.sessions.first }
     private var state: BubbleState { lead?.state ?? .idle }
@@ -276,12 +279,16 @@ private struct DemoBanner: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 14)
             .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.35))
-                    // The state's colour glowing in from the left, breathing.
-                    RadialGradient(colors: [color.opacity(0.22 + 0.08 * pulse), .clear], center: .leading, startRadius: 0, endRadius: 260)
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                GeometryReader { g in
+                    ZStack {
+                        Color.black
+                        IslandGlowView(model: glow, palette: palette, orbCentre: CGPoint(x: 26, y: g.size.height / 2),
+                                       waves: true, edge: false)
+                        // Keeps the text readable over the brightest glow, as the island's scrim does.
+                        LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.55)], startPoint: .leading, endPoint: .trailing)
+                    }
                 }
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             }
             .overlay {
                 // A light sweeping round the border.
@@ -291,6 +298,24 @@ private struct DemoBanner: View {
             }
             .animation(.easeInOut(duration: 0.6), value: state)
         }
+        .onAppear { follow() }
+        .onChange(of: sim.sessions) { follow() }
+    }
+
+    /// The island's glow follows the demo as the app makes the island follow the orb: its state and pace, the colour
+    /// fanning over on a change, and a brighter wave for each tool that finishes.
+    private func follow() {
+        glow.glow = .waves
+        if glow.state != state { glow.state = state }
+        let key = IslandColorKey(state: state, done: state == .idle && lead != nil)
+        if key != glow.colorKey {
+            glow.fanFrom = glow.colorKey
+            glow.fanStart = CACurrentMediaTime()
+            glow.colorKey = key
+        }
+        let ticks = lead?.ticks ?? 0
+        if ticks > lastTicks { glow.ticks = glow.ticks.filter { CACurrentMediaTime() - $0 < 0.6 } + [CACurrentMediaTime()] }
+        lastTicks = ticks
     }
 
     static func clock(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
