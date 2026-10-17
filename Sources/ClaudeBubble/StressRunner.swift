@@ -16,6 +16,9 @@ final class StressRunner: ObservableObject {
     @Published var writesFiles = true
     @Published private(set) var running = false
     @Published private(set) var report: PerfReport?
+    /// How long the current (or last) run has gone.
+    @Published private(set) var elapsed: TimeInterval = 0
+    private var startedAt = Date()
 
     private let simulator: SimulatorModel
     private let directory: URL
@@ -40,6 +43,9 @@ final class StressRunner: ObservableObject {
     func start() {
         guard !running else { return }
         running = true
+        startedAt = Date()
+        elapsed = 0
+        report = nil
         PerfMeter.shared.recording = true
         let count = sessions, subs = subagents, files = writesFiles, interval = 1 / max(rate, 0.5)
         let made = (0..<count).map { i in
@@ -84,7 +90,11 @@ final class StressRunner: ObservableObject {
         beat.resume()
         heartbeat = beat
 
-        let tick = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.report = PerfMeter.shared.report() }
+        let tick = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.report = PerfMeter.shared.report()
+            self.elapsed = Date().timeIntervalSince(self.startedAt)
+        }
         RunLoop.main.add(tick, forMode: .common)
         readout = tick
     }
@@ -92,6 +102,7 @@ final class StressRunner: ObservableObject {
     func stop() {
         guard running else { return }
         running = false
+        elapsed = Date().timeIntervalSince(startedAt)
         events?.cancel()
         heartbeat?.cancel()
         readout?.invalidate()
@@ -114,9 +125,15 @@ final class StressRunner: ObservableObject {
     /// The settings and the last readout, for pasting into a note or an issue.
     func copyReport() {
         let head = "Claude Bubble stress test: \(sessions) sessions × \(subagents) subagents, \(Int(rate)) events/s, "
-            + (writesFiles ? "real files" : "in memory")
+            + (writesFiles ? "real files" : "in memory") + ", ran \(Self.duration(elapsed))"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(head + "\n" + (report?.text ?? "(no readout yet)"), forType: .string)
+    }
+
+    /// "1:05".
+    static func duration(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds)
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 
     /// Stress sessions left behind (a crash mid-run); the app also drops them once their pid is gone.

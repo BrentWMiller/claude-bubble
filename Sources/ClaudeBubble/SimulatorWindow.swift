@@ -100,6 +100,12 @@ struct SimulatorView: View {
                 }
                 Button("Copy report") { stress.copyReport() }.disabled(stress.report == nil)
                 Spacer()
+                if stress.running || stress.elapsed > 0 {
+                    Text(StressRunner.duration(stress.elapsed))
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(stress.running ? .primary : .secondary)
+                        .help("Run time")
+                }
                 if stress.running { ProgressView().controlSize(.small) }
             }
             Text(stress.report?.text ?? "Start a run to measure the main thread's work, stalls, frame rates, CPU and memory.")
