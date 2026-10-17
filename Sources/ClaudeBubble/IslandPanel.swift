@@ -430,7 +430,8 @@ struct IslandView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 VStack(spacing: 2) {
                     ForEach(Array(live.prefix(IslandLayout.maxRows)), id: \.id) { s in
-                        SessionRow(session: s, now: context.date, palette: sessions.palette)
+                        SessionRow(session: s, now: context.date, palette: sessions.palette,
+                                   pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) })
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

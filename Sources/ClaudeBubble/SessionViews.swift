@@ -148,6 +148,10 @@ struct SessionRow: View {
     let palette: OrbPalette
     /// 0 → 1 as the row cascades in (text decodes like a toast); 1 when settled.
     var entrance: Double = 1
+    var pinned = false
+    /// Pins or unpins the session (no pin button without it).
+    var onPin: (() -> Void)?
+    @State private var hover = false
 
     var body: some View {
         // Top-aligned so the pip and the times sit on the title's line, however tall the row grows (chips).
@@ -177,9 +181,27 @@ struct SessionRow: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
-                Text(ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(Color.white.opacity(0.4))
+                HStack(spacing: 6) {
+                    // Shown on hover, and always once pinned.
+                    if let onPin, pinned || hover {
+                        Button {
+                            ChipClick.handled = true   // the island's click goes to the pin, not the terminal
+                            onPin()
+                        } label: {
+                            Image(systemName: pinned ? "pin.fill" : "pin")
+                                .font(.system(size: 10, weight: .semibold))
+                                .rotationEffect(.degrees(45))
+                                .foregroundStyle(Color.white.opacity(pinned ? 0.75 : 0.4))
+                                .frame(width: 14, height: 14)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(pinned ? "Unpin" : "Pin to the top")
+                    }
+                    Text(ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.4))
+                }
                 if let tokens = session.tokens {
                     Text(TokenFormat.string(tokens))
                         .font(.system(size: 10, design: .monospaced))
@@ -191,6 +213,7 @@ struct SessionRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
+        .onHover { hover = $0 }
         .opacity(entrance)
         .offset(x: (1 - entrance) * 6)
     }
@@ -238,7 +261,8 @@ struct SessionListView: View {
         VStack(spacing: 2) {
             ForEach(Array(model.sorted.enumerated()), id: \.element.id) { index, session in
                 SessionRow(session: session, now: now,
-                           palette: model.palette, entrance: CardMotion.row(index, age: age))
+                           palette: model.palette, entrance: CardMotion.row(index, age: age),
+                           pinned: model.pinned.contains(session.id), onPin: { model.togglePin(session.id) })
                     .onTapGesture { onSelect(session) }
             }
             if model.today != nil || model.usage != nil {

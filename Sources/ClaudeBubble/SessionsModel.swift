@@ -5,12 +5,29 @@ import Combine
 /// Live sessions, plus the current palette, shared by the pips and the hover list.
 final class SessionsModel: ObservableObject {
     @Published var sessions: [Session] = [] {
-        didSet {
-            sorted = SessionStore.sorted(sessions)
-            byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            linkedRows = sorted.prefix(IslandLayout.maxRows).filter { !$0.links.isEmpty }.count
-            pipInputs = sessions.map { PipInput(id: $0.id, state: $0.state, review: $0.reviewReady) }
+        didSet { resort() }
+    }
+    /// Sessions you pinned (by id): they lead the island and the list. Kept across restarts.
+    @Published private(set) var pinned: Set<String> = Set(UserDefaults.standard.stringArray(forKey: SessionsModel.pinnedKey) ?? []) {
+        didSet { resort() }
+    }
+    static let pinnedKey = "pinnedSessions"
+
+    func togglePin(_ id: String) {
+        if pinned.contains(id) {
+            pinned.remove(id)
+        } else {
+            // Pins of sessions that have ended go when a new one is added (an ended session never comes back).
+            pinned = pinned.filter { byID[$0] != nil }.union([id])
         }
+        UserDefaults.standard.set(Array(pinned), forKey: Self.pinnedKey)
+    }
+
+    private func resort() {
+        sorted = SessionStore.sorted(sessions, pinned: pinned)
+        byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        linkedRows = sorted.prefix(IslandLayout.maxRows).filter { !$0.links.isEmpty }.count
+        pipInputs = sessions.map { PipInput(id: $0.id, state: $0.state, review: $0.reviewReady) }
     }
     /// `sessions`, most urgent first (sorted once per change, not per view per frame).
     private(set) var sorted: [Session] = []
