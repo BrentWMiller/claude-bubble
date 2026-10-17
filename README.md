@@ -24,14 +24,14 @@ The orb floats wherever you put it, with a pip for each session under it and a t
 
 <p align="center"><img src="docs/images/orb.png" width="360" alt="The orb asking for attention, with three session pips and a toast"></p>
 
-Or dock it as an island at any edge of the screen. At rest it shows what's happening, it grows to tell you when
-something needs you, and hovering opens every session.
+Or dock it as an island at any edge of the screen. It shows what's happening at rest, grows to tell you when
+something needs you or fails, and celebrates when everything's done.
 
-<p align="center">
-  <img src="docs/images/island-rest.png" width="440" alt="The island at rest, showing what a session is doing"><br>
-  <img src="docs/images/island-needs.png" width="440" alt="The island asking for a permission"><br>
-  <img src="docs/images/island-open.png" width="440" alt="The island opened into the session list">
-</p>
+<p align="center"><img src="docs/images/dock-states.png" width="548" alt="The island in each state: working, needs you, error, done"></p>
+
+Hover it to open every session.
+
+<p align="center"><img src="docs/images/island-open.png" width="440" alt="The island opened into the session list"></p>
 
 ## Install
 
