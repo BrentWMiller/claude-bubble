@@ -22,6 +22,9 @@ final class SimulatorModel: ObservableObject {
     }
 
     @Published private(set) var sessions: [Sim] = []
+    /// When the scripted session last started playing (nil when it isn't).
+    @Published private(set) var storyStarted: Date?
+    static let storyLength = SimulatorStory.session.reduce(0) { $0 + $1.duration }
     @Published var isOpen = false
     /// Stands in for the real usage reading while on.
     @Published var usageActive = false { didSet { if usageActive && !oldValue { windowEnds = Date().addingTimeInterval(72 * 60) } } }
@@ -78,6 +81,7 @@ final class SimulatorModel: ObservableObject {
     /// passing test run, a web fetch, an MCP call, subagents, compaction, and the finish.
     func playSession() {
         reset()
+        storyStarted = Date()
         usageActive = true
         let id = add("auth-refactor", state: .working)
         var t = 0.0
@@ -104,6 +108,7 @@ final class SimulatorModel: ObservableObject {
     }
 
     func reset() {
+        storyStarted = nil
         storyWork.forEach { $0.cancel() }
         storyWork = []
         sessions = []

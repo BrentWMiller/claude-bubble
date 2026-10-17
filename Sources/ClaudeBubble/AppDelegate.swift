@@ -1114,6 +1114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if setupWindow == nil {
             setupWindow = SetupWindowController(model: SetupModel(
                 settings: settings,
+                simulator: simulator,
                 connect: { [weak self] in try self?.connectClaudeCode() },
                 toggleLaunchAtLogin: { [weak self] in self?.toggleLaunchAtLogin() },
                 revealSettings: {

@@ -15,10 +15,12 @@ final class SetupModel: ObservableObject {
     let revealSettings: () -> Void
     /// The real bubble acts out a sample session while setup is open (the Session Simulator's story).
     let demo: (Bool) -> Void
+    let simulator: SimulatorModel
 
-    init(settings: SettingsModel, connect: @escaping () throws -> Void, toggleLaunchAtLogin: @escaping () -> Void,
+    init(settings: SettingsModel, simulator: SimulatorModel, connect: @escaping () throws -> Void, toggleLaunchAtLogin: @escaping () -> Void,
          revealSettings: @escaping () -> Void, demo: @escaping (Bool) -> Void) {
         self.settings = settings
+        self.simulator = simulator
         self.demo = demo
         self.connect = connect
         self.toggleLaunchAtLogin = toggleLaunchAtLogin
@@ -84,16 +86,8 @@ struct SetupView: View {
             .frame(maxWidth: .infinity)
             .padding(.bottom, 20)
 
-            HStack(spacing: 10) {
-                Image(systemName: "sparkles").font(.system(size: 13)).foregroundStyle(Self.amber)
-                Text("Your \(settings.prefs.style == .island ? "island" : "bubble") is playing a sample session while this window is open, so you can see what each state looks like.")
-                    .font(.system(size: 12.5)).foregroundStyle(Color.white.opacity(0.75)).fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 14).padding(.vertical, 11)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Self.amber.opacity(0.08)))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Self.amber.opacity(0.18), lineWidth: 1))
-            .padding(.bottom, 22)
+            DemoBanner(sim: model.simulator, palette: settings.prefs.palette, island: settings.prefs.style == .island)
+                .padding(.bottom, 22)
 
             section("Preferences")
             card {
@@ -199,6 +193,107 @@ struct SetupView: View {
         }
         .fixedSize()
     }
+}
+
+/// "Now playing" for the sample session the real bubble is acting out: what it's doing, in the state's colour,
+/// with the story's progress and a border that sweeps around in that colour.
+private struct DemoBanner: View {
+    @ObservedObject var sim: SimulatorModel
+    let palette: OrbPalette
+    let island: Bool
+
+    private var lead: SimulatorModel.Sim? { sim.sessions.first }
+    private var state: BubbleState { lead?.state ?? .idle }
+
+    private var color: Color {
+        state == .idle ? Color(red: 0.47, green: 0.9, blue: 0.67) : state.color(in: palette)
+    }
+
+    private var headline: String {
+        switch state {
+        case .working: "Working"
+        case .needs: "Needs you"
+        case .error: "Error"
+        case .idle: lead == nil ? "Starting" : "Done"
+        }
+    }
+
+    private var doing: String {
+        guard let lead else { return "Warming up the sample session" }
+        if state != .working { return SimulatorStory.detail(for: state) }
+        let what: String = switch lead.motion {
+        case .generating: "Thinking"
+        case .read: "Reading files"
+        case .search: "Searching the codebase"
+        case .edit: "Editing files"
+        case .bash: "Running a command"
+        case .web: "Fetching a web page"
+        case .mcp: "Calling an MCP tool"
+        case .compacting: "Compacting the conversation"
+        case .waiting: "Waiting on a subagent"
+        }
+        return lead.subagents > 0 ? "\(what) · \(lead.subagents) subagent\(lead.subagents == 1 ? "" : "s")" : what
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            let elapsed = sim.storyStarted.map { min(context.date.timeIntervalSince($0), SimulatorModel.storyLength) } ?? 0
+            let progress = SimulatorModel.storyLength > 0 ? elapsed / SimulatorModel.storyLength : 0
+            let pulse = 0.5 + 0.5 * sin(t * 3.2)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    ZStack {
+                        Circle().fill(Color.red.opacity(0.35 * pulse)).frame(width: 14, height: 14)
+                        Circle().fill(Color(red: 1, green: 0.32, blue: 0.32)).frame(width: 7, height: 7)
+                    }
+                    Text("LIVE PREVIEW").font(.system(size: 10.5, weight: .bold)).tracking(1.2)
+                        .foregroundStyle(Color.white.opacity(0.7))
+                    Text("· watch your \(island ? "island" : "bubble")").font(.system(size: 11)).foregroundStyle(Color.white.opacity(0.4))
+                    Spacer()
+                    Text("\(Self.clock(elapsed)) / \(Self.clock(SimulatorModel.storyLength))")
+                        .font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.white.opacity(0.45))
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(headline).font(.system(size: 20, weight: .bold)).foregroundStyle(color)
+                        .shadow(color: color.opacity(0.6), radius: 8)
+                        .contentTransition(.opacity)
+                    Text(doing).font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.75)).lineLimit(1)
+                        .contentTransition(.opacity)
+                }
+                .animation(.easeInOut(duration: 0.3), value: headline)
+                .animation(.easeInOut(duration: 0.3), value: doing)
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Color.white.opacity(0.08))
+                        Capsule().fill(LinearGradient(colors: [color.opacity(0.5), color], startPoint: .leading, endPoint: .trailing))
+                            .frame(width: max(4, g.size.width * progress))
+                            .shadow(color: color.opacity(0.8), radius: 4)
+                    }
+                }
+                .frame(height: 4)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.35))
+                    // The state's colour glowing in from the left, breathing.
+                    RadialGradient(colors: [color.opacity(0.22 + 0.08 * pulse), .clear], center: .leading, startRadius: 0, endRadius: 260)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            .overlay {
+                // A light sweeping round the border.
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(AngularGradient(colors: [color.opacity(0.05), color.opacity(0.9), color.opacity(0.05), color.opacity(0.05)],
+                                                  center: .center, angle: .degrees(t * 70)), lineWidth: 1.2)
+            }
+            .animation(.easeInOut(duration: 0.6), value: state)
+        }
+    }
+
+    static func clock(_ s: Double) -> String { String(format: "%d:%02d", Int(s) / 60, Int(s) % 60) }
 }
 
 /// Orb | Island, white thumb on the selected one.
