@@ -388,7 +388,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             IslandLayout.pillRect(size: IslandLayout.size(mode: mode, dock: m.dock, rest: m.rest, pips: model.sessions.count,
                                                           rows: model.sessions.count,
                                                           footer: model.today != nil || model.usage != nil,
-                                                          linked: IslandLayout.linkedRows(model.sessions)),
+                                                          linked: model.linkedRows),
                                   dock: m.dock, window: window)
         }
         let over = pill(m.mode).contains(mouse)
@@ -547,15 +547,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Advances the pip choreography, reports finished sessions to the orb, and handles pip hover.
     private func updatePips(mouse: CGPoint) {
         let now = CACurrentMediaTime()
-        let events = choreographer.update(model.sessions.map { PipInput(id: $0.id, state: $0.state, review: $0.reviewReady) },
-                                          now: now)
+        let events = choreographer.update(model.pipInputs, now: now)
         if events.contains(.ringPop), !quiet { animator.ringPop() }
         if events.contains(.allDone), forcedState == nil, !quiet { animator.celebrate(from: .idle) }
         if events.contains(.allDone) { islandDoneAt = Date() }
         let previous = model.pips
         let frame = choreographer.frame(now: now)
         if frame != model.pips { model.pips = frame }
-        if now - launchedAt > 1.5, !bubbleHidden, applied.toasts {
+        if !events.isEmpty, now - launchedAt > 1.5, !bubbleHidden, applied.toasts {
             announce(events, previous: previous, now: now)
         }
         if now - launchedAt > 1.5, !bubbleHidden {
@@ -709,7 +708,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let pill = IslandLayout.pillRect(size: IslandLayout.size(mode: m.mode, dock: m.dock, rest: m.rest,
                                                                      pips: model.sessions.count, rows: model.sessions.count,
                                                                      footer: model.today != nil || model.usage != nil,
-                                                                     linked: IslandLayout.linkedRows(model.sessions)),
+                                                                     linked: model.linkedRows),
                                              dock: m.dock, window: island.frame)
             let visible = NSScreen.screens.first { $0.frame.intersects(island.frame) }.map(islandArea) ?? island.frame
             placement = ToastLayout.placeIsland(pill: pill, dock: m.dock, size: ToastPanel.size, visible: visible)
