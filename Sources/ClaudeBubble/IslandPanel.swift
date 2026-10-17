@@ -219,6 +219,7 @@ struct IslandView: View {
     @ObservedObject var model: IslandModel
     @ObservedObject var sessions: SessionsModel
     let orb: OrbView
+    @Environment(\.isSnapshot) private var snapshot
 
     private var live: [Session] { SessionStore.sorted(sessions.sessions) }
     private var sideRest: Bool { model.dock.isSide && model.mode == .rest }
@@ -295,7 +296,14 @@ struct IslandView: View {
                     .shadow(color: .black.opacity(model.glow == .waves ? 0.9 : 0), radius: 2.5)
             }
             // Always in the hierarchy (one Metal view), just hidden while quiet.
-            OrbHost(view: orb)
+            Group {
+                // Rendered offscreen (README images), where the Metal view can't draw: a still of the orb.
+                if snapshot, let still = OrbSnapshot.render(state: model.state, size: Int(IslandLayout.orbSize * 4), palette: sessions.palette) {
+                    Image(decorative: still, scale: 4)
+                } else {
+                    OrbHost(view: orb)
+                }
+            }
                 .frame(width: IslandLayout.orbSize, height: IslandLayout.orbSize)
                 .position(orbCentre)
                 .opacity(quiet ? 0 : 1)

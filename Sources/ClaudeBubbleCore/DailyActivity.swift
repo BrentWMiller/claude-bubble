@@ -14,6 +14,11 @@ public enum DailyActivity {
     public struct Summary: Equatable, Sendable {
         public let working: TimeInterval
         public let sessions: Int
+
+        public init(working: TimeInterval, sessions: Int) {
+            self.working = working
+            self.sessions = sessions
+        }
     }
 
     /// Time spent in `working` within [since, now]. Each working entry lasts until the next entry of any

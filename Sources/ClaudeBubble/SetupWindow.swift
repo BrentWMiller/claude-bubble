@@ -68,6 +68,7 @@ struct SetupView: View {
     @ObservedObject var model: SetupModel
     @ObservedObject var settings: SettingsModel
     let close: () -> Void
+    @Environment(\.isSnapshot) private var snapshot
 
     private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
     private static let amber = Color(red: 1, green: 0.78, blue: 0.35)
@@ -97,8 +98,13 @@ struct SetupView: View {
                 }
                 divider
                 row(title: "Launch at login", detail: "Start Claude Bubble when you log in to your Mac") {
-                    Toggle("", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
-                        .toggleStyle(.switch).labelsHidden().tint(Self.green)
+                    if snapshot {   // the native switch can't draw offscreen
+                        Capsule().fill(model.launchAtLogin ? Self.green : Color.white.opacity(0.18)).frame(width: 38, height: 22)
+                            .overlay(Circle().fill(.white).padding(2), alignment: model.launchAtLogin ? .trailing : .leading)
+                    } else {
+                        Toggle("", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+                            .toggleStyle(.switch).labelsHidden().tint(Self.green)
+                    }
                 }
             }
             .padding(.bottom, 22)
