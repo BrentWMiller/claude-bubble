@@ -11,8 +11,9 @@ final class IslandModel: ObservableObject {
     @Published var glow: IslandGlow = .waves
     /// The look the orb is showing (drives the glow colour and pace); `.idle` with `done` shows the success green.
     @Published var state: BubbleState = .idle
-    /// Recent tool-complete ticks (seconds, CACurrentMediaTime) that brighten the wave.
-    @Published var ticks: [Double] = []
+    /// Recent tool-complete ticks (seconds, CACurrentMediaTime) that brighten the wave. Not published: the glow's
+    /// timeline reads them every frame anyway, and publishing re-rendered the whole island for each tool call.
+    var ticks: [Double] = []
     /// The glow colour's source, and the one it's fanning away from (with when the fan began).
     @Published var colorKey = IslandColorKey(state: .idle, done: false)
     @Published var fanFrom: IslandColorKey?
@@ -221,7 +222,7 @@ struct IslandView: View {
     let orb: OrbView
     @Environment(\.isSnapshot) private var snapshot
 
-    private var live: [Session] { SessionStore.sorted(sessions.sessions) }
+    private var live: [Session] { sessions.sorted }
     private var sideRest: Bool { model.dock.isSide && model.mode == .rest }
     private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {

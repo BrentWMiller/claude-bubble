@@ -71,7 +71,7 @@ struct ArcPipsView: View {
     }
 
     private func pipColor(_ pip: PipFrame) -> Color {
-        guard let session = model.sessions.first(where: { $0.id == pip.id }) else {
+        guard let session = model.byID[pip.id] else {
             return (pip.review ? BubbleState.needs : pip.state).color(in: model.palette)
         }
         return session.pipColor(in: model.palette)
@@ -206,11 +206,14 @@ struct SessionListView: View {
     @ObservedObject var model: SessionsModel
     @ObservedObject var motion: CardMotionModel
     let onSelect: (Session) -> Void
+    /// Done popping in (tick once a second) or out (stop).
+    @State private var settled = false
+    @State private var gone = false
 
     var body: some View {
-        // Animate at display rate while popping in or out, otherwise just tick the timers once a second.
-        let settled = motion.hiddenAt == nil && CACurrentMediaTime() - motion.shownAt > 0.9
-        TimelineView(.animation(minimumInterval: settled ? 1 : nil, paused: false)) { context in
+        // Animate at display rate while popping in or out, otherwise just tick the timers once a second; nothing once
+        // it's gone. Set from a task, not worked out in the body, which may not run again for a long while.
+        TimelineView(.animation(minimumInterval: settled ? 1 : nil, paused: gone)) { context in
             let now = CACurrentMediaTime()
             let age = now - motion.shownAt
             let pose = motion.hiddenAt.map { CardMotion.disappear(age: now - $0) } ?? CardMotion.appear(age: age)
@@ -220,11 +223,18 @@ struct SessionListView: View {
                 .offset(y: (motion.fromTop ? -1 : 1) * pose.offset)
                 .opacity(pose.opacity)
         }
+        .task(id: [motion.shownAt, motion.hiddenAt ?? -1]) {
+            settled = false
+            gone = false
+            try? await Task.sleep(nanoseconds: motion.hiddenAt == nil ? 900_000_000 : 1_000_000_000)
+            guard !Task.isCancelled else { return }
+            if motion.hiddenAt == nil { settled = true } else { gone = true }
+        }
     }
 
     private func card(now: Date, age: Double) -> some View {
         VStack(spacing: 2) {
-            ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
+            ForEach(Array(model.sorted.enumerated()), id: \.element.id) { index, session in
                 SessionRow(session: session, now: now,
                            palette: model.palette, entrance: CardMotion.row(index, age: age))
                     .onTapGesture { onSelect(session) }

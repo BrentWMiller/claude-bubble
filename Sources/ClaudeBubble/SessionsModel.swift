@@ -4,7 +4,15 @@ import Combine
 
 /// Live sessions, plus the current palette, shared by the pips and the hover list.
 final class SessionsModel: ObservableObject {
-    @Published var sessions: [Session] = []
+    @Published var sessions: [Session] = [] {
+        didSet {
+            sorted = SessionStore.sorted(sessions)
+            byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        }
+    }
+    /// `sessions`, most urgent first (sorted once per change, not per view per frame).
+    private(set) var sorted: [Session] = []
+    private(set) var byID: [String: Session] = [:]
     @Published var palette: OrbPalette = .agentsView
     /// Mirrors the orb's appear/vanish so the pips pop in and out with it.
     @Published var present = false

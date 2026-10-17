@@ -205,12 +205,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func syncSessionsNow() {
         if simulator.isOpen && !simulator.showsRealSessions {
             let sims = simulator.asSessions
-            model.sessions = sims
+            if sims != model.sessions { model.sessions = sims }
             liveState = SessionStore.aggregate(sims)
         } else {
             // Issue chips come from the branch name and the conversation (found in the background).
             // PR chips carry live status (checks, review, merged), which also clears "Ready for review" once merged.
-            model.sessions = PRStatus.apply(prStatus.statuses, to: linkScanner.apply(to: watchedSessions))
+            // Published only when it changed: every view showing sessions re-renders on each publish.
+            let next = PRStatus.apply(prStatus.statuses, to: linkScanner.apply(to: watchedSessions))
+            if next != model.sessions { model.sessions = next }
             linkScanner.refresh(watchedSessions)
             prStatus.refresh(model.sessions)
             liveState = watchedState
@@ -410,8 +412,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             m.fanStart = now
             m.colorKey = key
         }
-        // Only publish when something actually expires (the whole island re-renders on every change).
-        if m.ticks.contains(where: { CACurrentMediaTime() - $0 > 0.6 }) { m.ticks.removeAll { CACurrentMediaTime() - $0 > 0.6 } }
+        m.ticks.removeAll { CACurrentMediaTime() - $0 > 0.6 }
         island.pill = pill(mode)
     }
 
