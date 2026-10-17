@@ -74,7 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Find gh now, off the main thread (it may ask the login shell), before anything needs it.
-        DispatchQueue.global(qos: .utility).async { _ = PRStatusFetcher.gh }
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard PRStatusFetcher.resolveGH() != nil else { return }
+            DispatchQueue.main.async { self?.syncSessions() }   // fetch PR status now that we can
+        }
         applied = settings.prefs
         model.palette = applied.palette
         animator.interaction = applied.interaction
@@ -439,12 +442,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func refreshInstalledHook() {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let bubbleDir = home.appendingPathComponent(".claude-bubble")
-        // The binary first: the refreshed hook.sh hands every event to it.
-        if FileManager.default.fileExists(atPath: bubbleDir.appendingPathComponent("hook.sh").path) {
+        // Only while Claude Code runs our hook (not after Disconnect), and the binary first: the refreshed hook.sh
+        // hands every event to it. If the binary can't be put in place, the installed hook.sh (perhaps the older
+        // self-contained one) stays, rather than becoming a shim with nothing to run.
+        let settings = (try? Data(contentsOf: SetupModel.settingsURL)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
+        if HookInstaller.connection(settings: settings).hooks {
             do { try installHookBinary() } catch { NSLog("ClaudeBubble: hook binary refresh failed: \(error)") }
-            try? FileManager.default.removeItem(at: bubbleDir.appendingPathComponent("python-path"))   // the old Python hook's
         }
+        let binaryReady = FileManager.default.isExecutableFile(atPath: bubbleDir.appendingPathComponent("bin/claude-bubble-hook").path)
+        if binaryReady { try? FileManager.default.removeItem(at: bubbleDir.appendingPathComponent("python-path")) }   // the old Python hook's
         for (resource, installed) in [("claude-bubble-hook", "hook.sh"), ("claude-bubble-statusline", "statusline.sh")] {
+            if installed == "hook.sh", !binaryReady { continue }
             guard let source = Bundle.main.url(forResource: resource, withExtension: "sh") else { continue }
             do {
                 if try HookInstaller.refreshInstalledHook(source: source, destination: home.appendingPathComponent(".claude-bubble/\(installed)")) {

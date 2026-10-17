@@ -307,8 +307,12 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertNil(out["hooks"])
         XCTAssertEqual((out["statusLine"] as? [String: Any])?["command"] as? String, "~/bin/line.sh")
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), real.path, "the link survives")
-        for f in ["hook.sh", "statusline.sh", "statusline-inner", "bin", "python-path"] {
+        for f in ["bin", "python-path"] {
             XCTAssertFalse(FileManager.default.fileExists(atPath: bubble.appendingPathComponent(f).path), f)
+        }
+        // Sessions already running keep calling these until restarted: they stay, as harmless no-ops.
+        for f in ["hook.sh", "statusline.sh"] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: bubble.appendingPathComponent(f).path), f)
         }
         XCTAssertTrue(FileManager.default.fileExists(atPath: bubble.appendingPathComponent("sessions").path))
     }
@@ -322,5 +326,12 @@ final class HookInstallerTests: XCTestCase {
         var both = hooked
         both["statusLine"] = ["type": "command", "command": "\"/Users/me/.claude-bubble/statusline.sh\""]
         XCTAssertEqual(HookInstaller.connection(settings: both), .init(hooks: true, statusLine: true))
+    }
+
+    func testUninstallRefusesUnreadableSettings() throws {
+        let settings = dir.appendingPathComponent("settings.json")
+        try "{not json".write(to: settings, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try HookInstaller.uninstall(settingsURL: settings, bubbleDir: dir.appendingPathComponent(".claude-bubble")))
+        XCTAssertEqual(try String(contentsOf: settings, encoding: .utf8), "{not json", "left untouched")
     }
 }

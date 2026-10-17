@@ -25,7 +25,7 @@ func processInfo(_ pid: pid_t) -> (parent: pid_t, name: String)? {
 /// non-shell owner counts: anything else would be a short-lived process the app would see die and drop the session
 /// for. 0 means unknown, and the app falls back to staleness.
 func owner() -> Int32 {
-    if let given = env["CLAUDE_BUBBLE_PID"] { return Int32(given) ?? 0 }
+    if let given = env["CLAUDE_BUBBLE_PID"], !given.isEmpty { return Int32(given) ?? 0 }
     var pid = getppid()
     for _ in 0..<5 {
         guard let p = processInfo(pid) else { return 0 }
@@ -50,12 +50,14 @@ func run() {
     case .delete:
         try? FileManager.default.removeItem(at: path)
     case .write(let record):
-        guard let out = try? JSONSerialization.data(withJSONObject: record) else { return }
+        // isValidJSONObject first: JSONSerialization raises (not throws) on anything it can't encode.
+        guard JSONSerialization.isValidJSONObject(record), let out = try? JSONSerialization.data(withJSONObject: record) else { return }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // Write beside it, then rename over it: the app never reads a half-written file.
         let tmp = dir.appendingPathComponent(".tmp-\(getpid())-\(UInt64(Date().timeIntervalSince1970 * 1e9))")
         do {
             try out.write(to: tmp, options: .withoutOverwriting)
+            chmod(tmp.path, 0o600)   // what the session is doing and where: private, like the Python hook's
             if rename(tmp.path, path.path) != 0 { try? FileManager.default.removeItem(at: tmp) }
         } catch {
             try? FileManager.default.removeItem(at: tmp)

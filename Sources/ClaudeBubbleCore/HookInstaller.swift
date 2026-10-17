@@ -162,15 +162,17 @@ public enum HookInstaller {
         return settings
     }
 
-    /// Disconnects the bubble from Claude Code: our hooks out of settings.json (the real file, if it's a symlink),
-    /// the status line restored, and our hook files deleted. Sessions and the settings backup stay.
+    /// Disconnects the bubble from Claude Code: our hooks out of settings.json (the real file, if it's a symlink) and
+    /// the status line restored. Throws, changing nothing, if settings.json can't be read.
     public static func uninstall(settingsURL link: URL, bubbleDir: URL) throws {
         let fm = FileManager.default
         let settingsURL = link.resolvingSymlinksInPath()
-        if let data = try? Data(contentsOf: settingsURL), !data.isEmpty {
-            guard let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+        if fm.fileExists(atPath: settingsURL.path) {
+            let data = try Data(contentsOf: settingsURL)
+            guard data.isEmpty || ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]) != nil else {
                 throw InstallError.unparseableSettings(settingsURL)
             }
+            let settings = data.isEmpty ? [:] : (try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:])
             let inner = (try? String(contentsOf: bubbleDir.appendingPathComponent("statusline-inner"), encoding: .utf8)) ?? ""
             let out = removing(settings: settings,
                                hookCommand: "\"\(bubbleDir.appendingPathComponent("hook.sh").path)\"",
@@ -178,7 +180,9 @@ public enum HookInstaller {
             let json = try JSONSerialization.data(withJSONObject: out, options: [.prettyPrinted, .withoutEscapingSlashes])
             try json.write(to: settingsURL, options: .atomic)
         }
-        for name in ["hook.sh", "statusline.sh", "statusline-inner", "bin", "python-path"] {
+        // hook.sh and the status line wrapper stay: Claude Code sessions already running keep calling them until
+        // restarted. Without the binary, hook.sh does nothing; the wrapper still runs the user's own status line.
+        for name in ["bin", "python-path"] {
             try? fm.removeItem(at: bubbleDir.appendingPathComponent(name))
         }
     }

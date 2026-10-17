@@ -1,5 +1,6 @@
 #!/bin/bash
-# Builds build/ClaudeBubble.app from the SwiftPM release binary.
+# Builds build/ClaudeBubble.app from the SwiftPM release binary, for this Mac's architecture only (for local use;
+# scripts/release.sh builds the universal download).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build -c release

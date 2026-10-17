@@ -176,7 +176,8 @@ public enum HookRecorder {
         }
         let activitySince = (prev["activity"] as? String) == activity ? num(prev["activity_since"], now) : now
 
-        func counter(_ name: String) -> Int { freshStart ? 0 : Int(num(prev[name], 0)) }
+        // Int(exactly:) is nil for huge or non-finite values, which would otherwise crash the hook.
+        func counter(_ name: String) -> Int { freshStart ? 0 : Int(exactly: num(prev[name], 0).rounded(.towardZero)) ?? 0 }
         let ticks = counter("ticks") + (event == "PostToolUse" ? 1 : 0)
         let fails = counter("fails") + (event == "PostToolUseFailure" ? 1 : 0)
         let skills = counter("skills") + (event == "PreToolUse" && ["Skill", "EnterPlanMode", "ExitPlanMode"].contains(tool) ? 1 : 0)
@@ -265,9 +266,8 @@ public enum HookRecorder {
     static func first(_ a: Any?, _ b: Any?) -> Any? { truthy(a) ? a : b }
 
     static func number(_ v: Any?) -> Double? {
-        if let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID() { return n.doubleValue }
-        if let s = v as? String { return Double(s) }
-        return nil
+        guard let n = v as? NSNumber, CFGetTypeID(n) != CFBooleanGetTypeID(), n.doubleValue.isFinite else { return nil }
+        return n.doubleValue
     }
 
     static func num(_ v: Any?, _ fallback: Double) -> Double { number(v) ?? fallback }

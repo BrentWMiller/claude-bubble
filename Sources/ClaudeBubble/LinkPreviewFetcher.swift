@@ -12,7 +12,7 @@ final class LinkPreviewFetcher: ObservableObject {
     private let queue = DispatchQueue(label: "ClaudeBubble.link-preview", qos: .userInitiated)
 
     /// Whether there's a `gh` to ask (no card at all without one).
-    static let available = PRStatusFetcher.gh != nil
+    static var available: Bool { PRStatusFetcher.gh != nil }
 
     func preview(for url: URL) -> LinkPreview? { entries[url]?.preview }
 

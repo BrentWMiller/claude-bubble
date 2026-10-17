@@ -26,7 +26,7 @@ final class SetupModel: ObservableObject {
         let settings = (try? Data(contentsOf: Self.settingsURL)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
         connection = HookInstaller.connection(settings: settings)
         DispatchQueue.global(qos: .userInitiated).async {
-            let found = PRStatusFetcher.gh != nil
+            let found = PRStatusFetcher.resolveGH() != nil
             DispatchQueue.main.async { self.ghFound = found }
         }
     }

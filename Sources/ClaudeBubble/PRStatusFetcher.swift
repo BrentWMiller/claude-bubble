@@ -11,23 +11,52 @@ final class PRStatusFetcher {
     /// Called on the main thread when a status changed.
     var onChange: (() -> Void)?
 
-    /// The GitHub CLI: the usual install places, else wherever the user's login shell finds it (MacPorts, Nix,
-    /// ~/bin…). Looked up once; the shell lookup can take a moment, so first ask off the main thread.
-    static let gh: String? = {
+    private static let ghLock = NSLock()
+    private static var ghLooked = false
+    private static var ghPath: String?
+
+    /// The GitHub CLI, once `resolveGH()` has found it. Never blocks, so it's safe on the main thread.
+    static var gh: String? {
+        ghLock.lock(); defer { ghLock.unlock() }
+        return ghPath
+    }
+
+    /// Finds the GitHub CLI: the usual install places, else wherever the user's shell finds it (MacPorts, Nix,
+    /// ~/bin…), giving up after 3 seconds. Looks once; call it off the main thread.
+    @discardableResult
+    static func resolveGH() -> String? {
+        ghLock.lock()
+        if ghLooked { defer { ghLock.unlock() }; return ghPath }
+        ghLock.unlock()
+        let found = findGH()
+        ghLock.lock(); defer { ghLock.unlock() }
+        ghLooked = true
+        ghPath = found
+        return found
+    }
+
+    private static func findGH() -> String? {
         let usual = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
         if let found = usual.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) { return found }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
-        p.arguments = ["-lc", "command -v gh"]
+        p.arguments = ["-ilc", "command -v gh"]   // interactive too, for a PATH set only in .zshrc
         let out = Pipe()
         p.standardOutput = out
         p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        let done = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in done.signal() }
         do { try p.run() } catch { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
-        return path.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: path) ? path : nil
-    }()
+        if done.wait(timeout: .now() + 3) == .timedOut {
+            p.terminate()
+            return nil
+        }
+        let text = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        // Shell start-up files can print things too: the answer is the last line that's a path.
+        let path = text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.last { $0.hasPrefix("/") }
+        return path.flatMap { FileManager.default.isExecutableFile(atPath: $0) ? $0 : nil }
+    }
 
     var statuses: [URL: PRStatus] {
         queue.sync { entries.compactMapValues(\.status) }

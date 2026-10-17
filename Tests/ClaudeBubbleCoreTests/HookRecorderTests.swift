@@ -123,4 +123,14 @@ final class HookRecorderTests: XCTestCase {
         XCTAssertEqual(back["transcript"] as? String, "/t.jsonl")
         XCTAssertEqual(back["prompted"] as? Bool, true)
     }
+
+    func testSurvivesNonsenseInTheSessionFile() {
+        // A huge or non-numeric counter must not crash the hook (it would fail every event for that session).
+        let bad: [String: Any] = ["state": "working", "prompted": true, "ticks": 1e300, "fails": "inf", "skills": -1e300,
+                                  "started_at": "nan", "state_since": "x"]
+        let r = run([["hook_event_name": "PostToolUse"]], from: bad)
+        XCTAssertEqual(r?["ticks"] as? Int, 1)
+        XCTAssertEqual(r?["fails"] as? Int, 0)
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(r ?? [:]), "writable as JSON")
+    }
 }

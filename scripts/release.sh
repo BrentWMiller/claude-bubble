@@ -21,6 +21,12 @@ chmod +x "$APP/Contents/Resources/"*.sh
 codesign --force --sign - "$APP/Contents/Resources/claude-bubble-hook"
 codesign --force --sign - "$APP"
 
+# Both architectures, and a seal macOS accepts.
+for b in "$APP/Contents/MacOS/ClaudeBubble" "$APP/Contents/Resources/claude-bubble-hook"; do
+  [ "$(lipo -archs "$b")" = "x86_64 arm64" ] || { echo "not universal: $b" >&2; exit 1; }
+done
+codesign --verify --deep --strict "$APP"
+
 ZIP="build/ClaudeBubble-$VERSION.zip"
 rm -f "$ZIP"
 ditto -c -k --keepParent "$APP" "$ZIP"
