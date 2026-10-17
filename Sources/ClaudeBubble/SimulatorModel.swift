@@ -103,12 +103,39 @@ final class SimulatorModel: ObservableObject {
         }
     }
 
+    /// Setup's demo: the scripted session plus two others alongside it, so the pips under the orb show too: one
+    /// finishes partway, one stops to ask for something, then all three finish together (the pips' merge).
+    func playDemo() {
+        playSession()
+        let steps: [(Double, () -> Void)] = [
+            (1.0, { [weak self] in self?.companions.append(self?.add("docs-site", state: .working) ?? 0) }),
+            (2.2, { [weak self] in self?.companions.append(self?.add("api-server", state: .working) ?? 0) }),
+            (14, { [weak self] in self?.companion(0, .idle) }),
+            (22, { [weak self] in self?.companion(1, .needs) }),
+            (27, { [weak self] in self?.companion(1, .working) }),
+            (36, { [weak self] in self?.companion(1, .idle) }),
+        ]
+        for (at, step) in steps {
+            let work = DispatchWorkItem(block: step)
+            storyWork.append(work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + at, execute: work)
+        }
+    }
+
+    private var companions: [Int] = []
+
+    private func companion(_ i: Int, _ state: BubbleState) {
+        guard i < companions.count else { return }
+        set(companions[i], state)
+    }
+
     func remove(_ id: Int) {
         sessions.removeAll { $0.id == id }
     }
 
     func reset() {
         storyStarted = nil
+        companions = []
         storyWork.forEach { $0.cancel() }
         storyWork = []
         sessions = []

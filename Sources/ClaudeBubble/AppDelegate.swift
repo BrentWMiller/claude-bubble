@@ -1143,9 +1143,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         simulator.isOpen = true
-        simulator.playSession()
+        simulator.playDemo()
         let length = SimulatorStory.session.reduce(0) { $0 + $1.duration } + 3
-        demoLoop = Timer.scheduledTimer(withTimeInterval: length, repeats: true) { [weak self] _ in self?.simulator.playSession() }
+        demoLoop = Timer.scheduledTimer(withTimeInterval: length, repeats: true) { [weak self] _ in self?.simulator.playDemo() }
     }
 
     /// The first time the app opens without its hooks in Claude Code, it explains itself and offers to connect.
