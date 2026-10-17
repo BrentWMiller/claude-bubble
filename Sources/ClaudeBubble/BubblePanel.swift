@@ -37,6 +37,12 @@ final class BubblePanel: NSPanel {
         startClickThrough()
     }
 
+    /// The centre guides shown while the orb is dragged.
+    var guides: SnapGuidePanel? {
+        get { orbView.guides }
+        set { orbView.guides = newValue }
+    }
+
     /// Ignore the mouse unless it's over the orb, so the transparent margin doesn't swallow clicks.
     private func startClickThrough() {
         ignoresMouseEvents = true
