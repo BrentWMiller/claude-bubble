@@ -41,7 +41,8 @@ public struct PerfReport {
         }
         lines.append("main stalls: p95 \(ms(hitches.p95))  max \(ms(hitches.max))")
         lines.append(PerfMeter.Counter.allCases.map { "\($0.label) \(String(format: "%.0f", rates[$0] ?? 0))/s" }.joined(separator: "  "))
-        lines.append("cpu \(cpu.map { String(format: "%.0f%%", $0) } ?? "–")  memory \(memoryMB.map { String(format: "%.0fMB", $0) } ?? "–")")
+        let harness = sections[.harness].map { Double($0.count) * $0.average / window * 100 } ?? 0
+        lines.append("cpu \(cpu.map { String(format: "%.0f%%", $0) } ?? "–") (test itself \(String(format: "%.0f%%", harness)))  memory \(memoryMB.map { String(format: "%.0fMB", $0) } ?? "–")")
         return lines.joined(separator: "\n")
     }
 }
@@ -54,6 +55,8 @@ public final class PerfMeter {
         case load
         /// Handing a new set of sessions to the orb, pips, island and toasts.
         case sync
+        /// The stress test's own work (making and writing its events), so it can be told apart from the app's.
+        case harness
     }
 
     public enum Counter: String, CaseIterable {

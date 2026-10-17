@@ -75,7 +75,9 @@ final class StressRunner: ObservableObject {
         timer.schedule(deadline: .now() + interval, repeating: interval, leeway: .milliseconds(1))
         timer.setEventHandler { [weak self] in
             guard let self else { return }
-            if files { self.writeNextEvent() } else { self.simulateNextEvent() }
+            PerfMeter.shared.measure(.harness) {
+                if files { self.writeNextEvent() } else { self.simulateNextEvent() }
+            }
             PerfMeter.shared.count(.event)
         }
         timer.resume()
@@ -88,6 +90,7 @@ final class StressRunner: ObservableObject {
         beat.setEventHandler { [weak self] in
             guard let self else { return }
             let now = Self.now()
+            defer { PerfMeter.shared.record(.harness, seconds: Self.now() - now) }
             PerfMeter.shared.hitch(max(0, now - self.lastBeat - 0.010))
             self.lastBeat = now
         }

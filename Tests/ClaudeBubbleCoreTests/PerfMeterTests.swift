@@ -46,5 +46,7 @@ final class PerfMeterTests: XCTestCase {
         let text = meter.report().text
         XCTAssertTrue(text.contains("sync"))
         XCTAssertTrue(text.contains("4.0ms"))
+        meter.record(.harness, seconds: 0.5)
+        XCTAssertTrue(meter.report().text.contains("test itself 10%"), "0.5s of harness work in a 5s window")
     }
 }
