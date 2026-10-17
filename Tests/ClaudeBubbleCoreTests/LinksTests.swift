@@ -20,7 +20,7 @@ final class LinksTests: XCTestCase {
 
     func testRepoFromRemote() {
         XCTAssertEqual(LinkFinder.repo(fromRemote: "git@github.com:acme/widgets.git"), "acme/widgets")
-        XCTAssertEqual(LinkFinder.repo(fromRemote: "https://github.com/BrentWMiller/claude-bubble.git"), "BrentWMiller/claude-bubble")
+        XCTAssertEqual(LinkFinder.repo(fromRemote: "https://github.com/octocat/hello-world.git"), "octocat/hello-world")
         XCTAssertEqual(LinkFinder.repo(fromRemote: "https://github.com/o/r"), "o/r")
         XCTAssertNil(LinkFinder.repo(fromRemote: "git@gitlab.com:o/r.git"))
     }

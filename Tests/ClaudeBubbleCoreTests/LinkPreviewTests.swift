@@ -4,9 +4,9 @@ import XCTest
 final class LinkPreviewTests: XCTestCase {
     func testPullRequest() throws {
         let json = #"""
-        {"title":"CORE: Team role and member warnings","state":"OPEN","author":{"login":"brent"},
+        {"title":"CORE: Team role and member warnings","state":"OPEN","author":{"login":"octocat"},
          "additions":412,"deletions":88,"changedFiles":9,"reviewDecision":"CHANGES_REQUESTED",
-         "latestReviews":[{"author":{"login":"sam"},"state":"CHANGES_REQUESTED"},{"author":{"login":"kit"},"state":"COMMENTED"}],
+         "latestReviews":[{"author":{"login":"monalisa"},"state":"CHANGES_REQUESTED"},{"author":{"login":"kit"},"state":"COMMENTED"}],
          "statusCheckRollup":[
            {"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"},
            {"__typename":"CheckRun","name":"unit","status":"COMPLETED","conclusion":"SUCCESS"},
@@ -17,14 +17,14 @@ final class LinkPreviewTests: XCTestCase {
         """#
         let p = try XCTUnwrap(LinkPreview.parsePullRequest(Data(json.utf8)))
         XCTAssertEqual(p.title, "CORE: Team role and member warnings")
-        XCTAssertEqual(p.author, "brent")
+        XCTAssertEqual(p.author, "octocat")
         XCTAssertEqual(p.additions, 412)
         XCTAssertEqual(p.deletions, 88)
         XCTAssertEqual(p.changedFiles, 9)
         XCTAssertEqual(p.failed, ["lint", "ci/deploy"])
         XCTAssertEqual(p.passed, 2, "success and skipped count as passed")
         XCTAssertEqual(p.running, 2)
-        XCTAssertEqual(p.review, "Changes requested by sam")
+        XCTAssertEqual(p.review, "Changes requested by monalisa")
         XCTAssertFalse(p.final)
     }
 
@@ -40,13 +40,13 @@ final class LinkPreviewTests: XCTestCase {
         let json = #"""
         {"title":"Members can't change roles","state":"CLOSED",
          "labels":[{"name":"bug","color":"d73a4a"},{"name":"core","color":"0e8a16"}],
-         "assignees":[{"login":"brent"}],"comments":[{"body":"a"},{"body":"b"},{"body":"c"}]}
+         "assignees":[{"login":"octocat"}],"comments":[{"body":"a"},{"body":"b"},{"body":"c"}]}
         """#
         let p = try XCTUnwrap(LinkPreview.parseIssue(Data(json.utf8)))
         XCTAssertEqual(p.title, "Members can't change roles")
         XCTAssertEqual(p.labels.map(\.name), ["bug", "core"])
         XCTAssertEqual(p.labels.first?.color, "d73a4a")
-        XCTAssertEqual(p.assignees, ["brent"])
+        XCTAssertEqual(p.assignees, ["octocat"])
         XCTAssertEqual(p.comments, 3)
         XCTAssertTrue(p.final)
         XCTAssertNil(p.additions)

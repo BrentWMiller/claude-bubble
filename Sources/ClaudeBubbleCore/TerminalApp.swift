@@ -1,6 +1,6 @@
 /// Which app a click on the orb brings forward.
 public enum TerminalApp {
-    /// Override with: defaults write com.brentmiller.ClaudeBubble terminalBundleID <bundle id>
+    /// Override with: defaults write dev.claudebubble.app terminalBundleID <bundle id>
     public static let overrideKey = "terminalBundleID"
 
     public static let candidates = [
