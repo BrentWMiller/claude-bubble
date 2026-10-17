@@ -116,6 +116,7 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
     func draw(in view: MTKView) {
+        PerfMeter.shared.count(.orbFrame)
         let now = CACurrentMediaTime()
         let f = animator.step(dt: now - lastTime)
         lastTime = now

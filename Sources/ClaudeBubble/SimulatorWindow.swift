@@ -4,13 +4,15 @@ import SwiftUI
 
 final class SimulatorWindowController: NSWindowController, NSWindowDelegate {
     private let simulator: SimulatorModel
+    private let stress: StressRunner
 
-    init(simulator: SimulatorModel, palette: @escaping () -> OrbPalette) {
+    init(simulator: SimulatorModel, stress: StressRunner, palette: @escaping () -> OrbPalette) {
         self.simulator = simulator
-        let window = NSWindow(contentViewController: NSHostingController(rootView: SimulatorView(sim: simulator, palette: palette)))
+        self.stress = stress
+        let window = NSWindow(contentViewController: NSHostingController(rootView: SimulatorView(sim: simulator, stress: stress, palette: palette)))
         window.title = "Session Simulator"
         window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 460, height: 680))
+        window.setContentSize(NSSize(width: 460, height: 860))
         window.isReleasedWhenClosed = false
         window.center()
         super.init(window: window)
@@ -28,6 +30,7 @@ final class SimulatorWindowController: NSWindowController, NSWindowDelegate {
 
     /// Closing hands the orb back to the real sessions and stops any story mid-way.
     func windowWillClose(_ notification: Notification) {
+        stress.stop()
         simulator.reset()
         simulator.usageActive = false
         simulator.isOpen = false
@@ -36,6 +39,7 @@ final class SimulatorWindowController: NSWindowController, NSWindowDelegate {
 
 struct SimulatorView: View {
     @ObservedObject var sim: SimulatorModel
+    @ObservedObject var stress: StressRunner
     let palette: () -> OrbPalette
     private let options: [(BubbleState, Bool, String)] = [
         (.working, false, "Work"), (.needs, false, "Needs"), (.error, false, "Error"), (.idle, false, "Done"), (.idle, true, "Review")
@@ -56,16 +60,60 @@ struct SimulatorView: View {
             }
             .frame(maxHeight: .infinity)
             usage
+            stressTest
             HStack {
                 Button("Play story") { sim.playStory() }.keyboardShortcut(.defaultAction)
                 Button("Play session") { sim.playSession() }.help("A scripted session: every motion and layer, a permission wait, an error, and usage running down then resetting")
-                Button("Reset") { sim.reset() }
+                Button("Reset") { sim.reset() }.disabled(stress.running)
                 Spacer()
                 Text("The orb shows these while open").font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(16)
-        .frame(width: 460, height: 680)
+        .frame(width: 460, height: 860)
+    }
+
+    // Many agents at once, and what that costs: the readout covers the last 5 seconds.
+    private var stressTest: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Stress test").font(.system(size: 12, weight: .semibold))
+                Spacer()
+                Toggle("Real files", isOn: $stress.writesFiles)
+                    .help("Write session files like the hook does, so loading and syncing are measured too (otherwise drawing only)")
+            }
+            HStack(spacing: 14) {
+                number("Sessions", $stress.sessions)
+                number("Subagents each", $stress.subagents)
+                number("Events/s", $stress.rate)
+                Spacer()
+            }
+            .disabled(stress.running)
+            HStack {
+                if stress.running {
+                    Button("Stop") { stress.stop() }
+                } else {
+                    Button("Start") { stress.start() }
+                }
+                Button("Copy report") { stress.copyReport() }.disabled(stress.report == nil)
+                Spacer()
+                if stress.running || stress.elapsed > 0 {
+                    Text(StressRunner.duration(stress.elapsed))
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(stress.running ? .primary : .secondary)
+                        .help("Run time")
+                }
+                if stress.running { ProgressView().controlSize(.small) }
+            }
+            Text(stress.report?.text ?? "Start a run to measure the main thread's work, stalls, frame rates, CPU and memory.")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(stress.report == nil ? .secondary : .primary)
+                .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
+                .textSelection(.enabled)
+        }
+        .controlSize(.small)
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
     }
 
     private var usage: some View {
@@ -85,6 +133,20 @@ struct SimulatorView: View {
         .controlSize(.small)
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
+    }
+
+    private func number(_ label: String, _ value: Binding<Int>) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+            TextField("", value: value, format: .number).frame(width: 48).multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func number(_ label: String, _ value: Binding<Double>) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+            TextField("", value: value, format: .number.precision(.fractionLength(0...1))).frame(width: 48).multilineTextAlignment(.trailing)
+        }
     }
 
     private func row(_ s: SimulatorModel.Sim) -> some View {

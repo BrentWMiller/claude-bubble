@@ -47,23 +47,34 @@ public enum JobStore {
     }
 
     /// Jobs live in `<dir>/<first 8 chars of the session id>/state.json`; the full id must match.
-    public static func load(sessionId: String, from dir: URL) -> JobInfo? {
+    public static func load(sessionId: String, from dir: URL, cache: FileCache<JobInfo>? = nil) -> JobInfo? {
         guard sessionId.count >= 8 else { return nil }
         let url = dir.appendingPathComponent(String(sessionId.prefix(8))).appendingPathComponent("state.json")
-        guard let data = try? Data(contentsOf: url),
-              let record = try? JSONDecoder().decode(Record.self, from: data),
-              record.sessionId == sessionId else { return nil }
+        let decode = { (data: Data) in decodeJob(data, sessionId: sessionId) }
+        return cache.map { $0.value(at: url, decode: decode) } ?? (try? Data(contentsOf: url)).flatMap(decode)
+    }
+
+    private static func decodeJob(_ data: Data, sessionId: String) -> JobInfo? {
+        guard let record = try? JSONDecoder().decode(Record.self, from: data), record.sessionId == sessionId else { return nil }
         return JobInfo(name: record.name, detail: record.detail, state: record.state,
                        updatedAt: record.updatedAt.flatMap(parseDate), tokens: record.tokens,
                        hasPullRequest: record.children?.contains { $0.kind == "pr" } ?? false,
                        links: record.children?.compactMap(\.link) ?? [])
     }
 
-    static func parseDate(_ text: String) -> Date? {
+    // ISO8601DateFormatter is thread-safe; making one is the costly part.
+    private static let fractional: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = f.date(from: text) { return d }
+        return f
+    }()
+    private static let whole: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
-        return f.date(from: text)
+        return f
+    }()
+
+    static func parseDate(_ text: String) -> Date? {
+        fractional.date(from: text) ?? whole.date(from: text)
     }
 }

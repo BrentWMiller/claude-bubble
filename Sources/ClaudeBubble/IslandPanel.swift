@@ -11,12 +11,15 @@ final class IslandModel: ObservableObject {
     @Published var glow: IslandGlow = .waves
     /// The look the orb is showing (drives the glow colour and pace); `.idle` with `done` shows the success green.
     @Published var state: BubbleState = .idle
-    /// Recent tool-complete ticks (seconds, CACurrentMediaTime) that brighten the wave.
-    @Published var ticks: [Double] = []
+    /// Recent tool-complete ticks (seconds, CACurrentMediaTime) that brighten the wave. Not published: the glow's
+    /// timeline reads them every frame anyway, and publishing re-rendered the whole island for each tool call.
+    var ticks: [Double] = []
     /// The glow colour's source, and the one it's fanning away from (with when the fan began).
     @Published var colorKey = IslandColorKey(state: .idle, done: false)
     @Published var fanFrom: IslandColorKey?
     @Published var fanStart: Double = 0
+    /// Off while the island is hidden: the Metal glow stops drawing.
+    @Published var rendering = true
 
     static let fanDuration = 1.4
 
@@ -131,7 +134,10 @@ final class IslandPanel: NSPanel {
         })
     }
 
-    func setRendering(_ on: Bool) { orbView.isPaused = !on }
+    func setRendering(_ on: Bool) {
+        orbView.isPaused = !on
+        if model.rendering != on { model.rendering = on }
+    }
 
     /// Where the pill is on screen (kept current by the app); only it takes the mouse.
     var pill: CGRect = .zero { didSet { updateMouseCapture() } }
@@ -221,7 +227,7 @@ struct IslandView: View {
     let orb: OrbView
     @Environment(\.isSnapshot) private var snapshot
 
-    private var live: [Session] { SessionStore.sorted(sessions.sessions) }
+    private var live: [Session] { sessions.sorted }
     private var sideRest: Bool { model.dock.isSide && model.mode == .rest }
     private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {
@@ -287,8 +293,12 @@ struct IslandView: View {
                     .transition(.opacity)
             } else {
                 if model.glow == .waves {
-                    IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
-                                   edge: !sideRest)
+                    if snapshot {
+                        IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
+                                       edge: !sideRest)
+                    } else {
+                        GlowHost(kind: .glow, model: model, palette: sessions.palette, orbCentre: orbCentre, edge: !sideRest)
+                    }
                     if hasDetail { scrim }
                 }
                 content
@@ -309,13 +319,18 @@ struct IslandView: View {
                 .opacity(quiet ? 0 : 1)
         }
         .clipShape(shape)
-        .overlay(model.glow == .waves ? IslandRim(shape: shape, model: model, palette: sessions.palette) : nil)
+        .overlay(model.glow == .waves ? rim : nil)
         // A faint outline so the island stands out against dark windows; none on the docked edge, which meets the screen's.
         .overlay(shape.strokeBorder(Color.white.opacity(0.13), lineWidth: 1)
             .mask(Rectangle().padding(dockedEdge, 1))
             .allowsHitTesting(false))
         .shadow(color: .black.opacity(0.55), radius: 15, y: 10)
         .contentShape(shape)
+    }
+
+    @ViewBuilder private var rim: some View {
+        if snapshot { IslandRim(shape: shape, model: model, palette: sessions.palette) }
+        else { GlowHost(kind: .rim, model: model, palette: sessions.palette).allowsHitTesting(false) }
     }
 
     /// Showing text beyond the bar: the session list, or a needs-you or error message.
@@ -483,6 +498,11 @@ struct IslandGlowView: View {
 
     static let doneColor = Color(red: 0.47, green: 0.9, blue: 0.67)
 
+    /// How fast the dot-wave rolls (the design's speeds, slowed to 60%: calmer on a desktop you look at all day).
+    static func waveSpeed(idle: Bool, fast: Bool) -> Double {
+        (idle ? 0.5 : fast ? 1.6 : 1.1) * 0.6
+    }
+
     static func color(state: BubbleState, done: Bool, palette: OrbPalette) -> Color {
         if done { return doneColor }
         return state.color(in: palette)
@@ -543,6 +563,7 @@ struct IslandGlowView: View {
                 }
                 if waves {
                     Canvas { ctx, size in
+                        PerfMeter.shared.count(.glowFrame)
                         drawWaves(ctx, size: size, time: now, kick: kick, breath: breath, to: fan.to.color,
                                   from: fan.from.color, fan: fan.progress)
                     }
@@ -559,7 +580,7 @@ struct IslandGlowView: View {
         let fast = model.state == .needs || model.state == .error
         // Brighter than the design's numbers: on a real desktop the wave read too faint next to the prototype.
         let amp = (idle ? 0.45 : 1) * (1 + 0.6 * kick) * 1.8
-        let tt = time * (idle ? 0.5 : fast ? 1.6 : 1.1)
+        let tt = time * Self.waveSpeed(idle: idle, fast: fast)
         let oz = Double(IslandLayout.orbSize)
         let ox = Double(orbCentre.x), oy = Double(orbCentre.y)
         let r0 = max(Double(size.width) * 0.9, 160)

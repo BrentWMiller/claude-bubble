@@ -125,8 +125,11 @@ final class QuickPanelState: ObservableObject {
 
     func go(_ page: Page) {
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { self.page = page }
-        DispatchQueue.main.async { self.onResize?() }
+        resized()
     }
+
+    /// The content changed height: fit the window to it.
+    func resized() { DispatchQueue.main.async { self.onResize?() } }
 }
 
 struct QuickPanelView: View {
@@ -136,6 +139,8 @@ struct QuickPanelView: View {
     let close: () -> Void
     @ObservedObject var state = QuickPanelState()
     @State private var hoveredTheme: String?
+    /// The custom colour wells under the theme grid are open.
+    @State private var editingColors = false
 
     private var prefs: BubblePreferences { settings.prefs }
     private let dim = Color.white.opacity(0.5)
@@ -192,50 +197,34 @@ struct QuickPanelView: View {
             .buttonStyle(.plain)
             .padding(.bottom, 4)
             divider
-            sectionTitle("Colors")
-            ForEach([BubbleState.idle, .working, .needs, .error], id: \.self) { st in
-                HStack {
-                    Text(st.settingsLabel).foregroundStyle(Color.white.opacity(0.9))
-                    Spacer()
-                    ColorPicker("", selection: Binding(get: { st.color(in: prefs.palette) },
-                                                       set: { settings.setColor(NSColor($0), for: st) }),
-                                supportsOpacity: false)
-                        .labelsHidden()
-                }
-                .font(.system(size: 13))
-                .padding(.vertical, 1)
-            }
-            if prefs.customized {
-                Row(title: "Reset to \(prefs.presetName)") { settings.applyPreset(prefs.presetName) }
-            }
             if prefs.style == .island {
-                divider
                 sectionTitle("Island")
-                HStack {
-                    Text("At rest").foregroundStyle(dim)
-                    Spacer()
-                    Segmented(options: [(IslandRest.live, nil, "Live"), (.compact, nil, "Compact")],
-                              selection: Binding(get: { prefs.islandRest }, set: { settings.prefs.islandRest = $0 }))
+                VStack(spacing: 6) {
+                    HStack {
+                        Text("At rest").foregroundStyle(dim)
+                        Spacer()
+                        Segmented(options: [(IslandRest.live, nil, "Live"), (.compact, nil, "Compact")],
+                                  selection: Binding(get: { prefs.islandRest }, set: { settings.prefs.islandRest = $0 }))
+                    }
+                    HStack {
+                        Text("Glow").foregroundStyle(dim)
+                        Spacer()
+                        Segmented(options: [(IslandGlow.waves, nil, "Waves"), (.none, nil, "None")],
+                                  selection: Binding(get: { prefs.islandGlow }, set: { settings.prefs.islandGlow = $0 }))
+                    }
                 }
                 .font(.system(size: 13))
-                HStack {
-                    Text("Glow").foregroundStyle(dim)
-                    Spacer()
-                    Segmented(options: [(IslandGlow.waves, nil, "Waves"), (.none, nil, "None")],
-                              selection: Binding(get: { prefs.islandGlow }, set: { settings.prefs.islandGlow = $0 }))
-                }
-                .font(.system(size: 13))
-                .padding(.top, 6)
+                divider
+            }
+            sectionTitle("General")
+            VStack(spacing: 6) {
+                toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
+                toggleRow("Check for updates automatically", Binding(get: { updater.checksAutomatically },
+                                                                     set: { updater.checksAutomatically = $0 }))
             }
             divider
-            sectionTitle("Setup")
-            toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
-            Row(title: "Setup…") { close(); actions.openSetup() }
             Row(title: "Check for updates…") { close(); actions.checkForUpdates() }
-            toggleRow("Check for updates automatically", Binding(get: { updater.checksAutomatically },
-                                                                 set: { updater.checksAutomatically = $0 }))
-            Row(title: "Disconnect from Claude Code…") { close(); actions.disconnect() }
-            Row(title: "Uninstall Claude Bubble…", destructive: true) { close(); actions.uninstall() }
+            Row(title: "Setup…") { close(); actions.openSetup() }
             Row(title: "Reset position") { actions.resetPosition() }
             divider
             sectionTitle("Debug")
@@ -244,6 +233,9 @@ struct QuickPanelView: View {
                       selection: Binding(get: { actions.debugState() }, set: { actions.setDebugState($0) }), fill: true)
             Row(title: "Session Simulator…") { close(); actions.openSimulator() }
                 .padding(.top, 4)
+            divider
+            Row(title: "Disconnect from Claude Code…") { close(); actions.disconnect() }
+            Row(title: "Uninstall Claude Bubble…", destructive: true) { close(); actions.uninstall() }
         }
     }
 
@@ -302,6 +294,12 @@ struct QuickPanelView: View {
                 Text("Theme").foregroundStyle(dim)
                 Spacer()
                 Text(hoveredTheme ?? (prefs.customized ? "Custom" : prefs.presetName)).foregroundStyle(Color.white)
+                if prefs.customized {
+                    Button("Reset") { settings.applyPreset(prefs.presetName) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(dim)
+                        .help("Back to \(prefs.presetName)")
+                }
             }
             .font(.system(size: 13))
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 8), alignment: .leading, spacing: 10) {
@@ -311,6 +309,28 @@ struct QuickPanelView: View {
                         .onTapGesture { settings.applyPreset(preset.name) }
                         .help(preset.name)
                 }
+                CustomSwatch(palette: prefs.palette, selected: prefs.customized, open: editingColors)
+                    .onHover { hoveredTheme = $0 ? "Custom" : (hoveredTheme == "Custom" ? nil : hoveredTheme) }
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { editingColors.toggle() }
+                        state.resized()
+                    }
+                    .help("Custom colours")
+            }
+            if editingColors {
+                HStack(spacing: 0) {
+                    ForEach([BubbleState.idle, .working, .needs, .error], id: \.self) { st in
+                        VStack(spacing: 4) {
+                            ColorPicker("", selection: Binding(get: { st.color(in: prefs.palette) },
+                                                               set: { settings.setColor(NSColor($0), for: st) }),
+                                        supportsOpacity: false)
+                                .labelsHidden()
+                            Text(st.settingsLabel).font(.system(size: 11)).foregroundStyle(dim)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+                .transition(.opacity)
             }
         }
     }
@@ -395,6 +415,38 @@ struct QuickPanelView: View {
             Toggle("", isOn: on).toggleStyle(.switch).controlSize(.small).tint(Color(red: 0.2, green: 0.78, blue: 0.35)).labelsHidden()
         }
         .font(.system(size: 13))
+    }
+}
+
+/// The theme grid's last spot: your own colours (a dashed ring with a plus until you pick some).
+private struct CustomSwatch: View {
+    let palette: OrbPalette
+    let selected: Bool
+    let open: Bool
+    @State private var hover = false
+
+    private func color(_ c: SIMD3<Float>) -> Color { Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)) }
+
+    var body: some View {
+        let w = palette.working
+        ZStack {
+            if selected {
+                Circle().fill(AngularGradient(colors: [color(w.c1), color(w.c2), color(w.c3), color(w.c1)], center: .center))
+            } else {
+                Circle().strokeBorder(Color.white.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, dash: [3, 2.5]))
+            }
+            Image(systemName: open ? "chevron.up" : selected ? "slider.horizontal.3" : "plus")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(Color.white.opacity(selected ? 0.9 : 0.6))
+                .shadow(color: .black.opacity(selected ? 0.5 : 0), radius: 1)
+        }
+        .overlay(Circle().stroke(Color.white.opacity(selected ? 1 : hover ? 0.45 : 0), lineWidth: 2).padding(-3.5))
+        .frame(width: 22, height: 22)
+        .frame(width: 30, height: 30)
+        .scaleEffect(hover && !selected ? 1.1 : 1)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hover)
+        .onHover { hover = $0 }
+        .contentShape(Circle())
     }
 }
 

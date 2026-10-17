@@ -11,12 +11,16 @@ final class LinkScanner {
     private var repos: [String: Repo] = [:]              // by cwd
     private var transcripts: [String: Transcript] = [:]  // by transcript path
     private var scanning = false
+    /// What's been found, as of the last scan: the main thread reads this rather than wait for the queue (which
+    /// can be busy running git and reading transcripts for every session).
+    private let shownLock = NSLock()
+    private var shown: (repos: [String: Repo], transcripts: [String: Transcript]) = ([:], [:])
     /// Called on the main thread when something new turned up.
     var onChange: (() -> Void)?
 
     /// The sessions with their issue chips added to their job links (from what's been found so far).
     func apply(to sessions: [Session]) -> [Session] {
-        let (repos, transcripts) = queue.sync { (self.repos, self.transcripts) }
+        let (repos, transcripts) = shownLock.withLock { shown }
         return sessions.map { s in
             var s = s
             let r = repos[s.cwd]
@@ -49,7 +53,10 @@ final class LinkScanner {
                     if self.scan(path, repo: self.repos[cwd]?.repo, now: now) { changed = true }
                 }
             }
-            if changed { DispatchQueue.main.async { self.onChange?() } }
+            if changed {
+                self.shownLock.withLock { self.shown = (self.repos, self.transcripts) }
+                DispatchQueue.main.async { self.onChange?() }
+            }
         }
     }
 

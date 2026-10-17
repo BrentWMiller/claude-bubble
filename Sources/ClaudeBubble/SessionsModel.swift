@@ -4,7 +4,21 @@ import Combine
 
 /// Live sessions, plus the current palette, shared by the pips and the hover list.
 final class SessionsModel: ObservableObject {
-    @Published var sessions: [Session] = []
+    @Published var sessions: [Session] = [] {
+        didSet {
+            sorted = SessionStore.sorted(sessions)
+            byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            linkedRows = sorted.prefix(IslandLayout.maxRows).filter { !$0.links.isEmpty }.count
+            pipInputs = sessions.map { PipInput(id: $0.id, state: $0.state, review: $0.reviewReady) }
+        }
+    }
+    /// `sessions`, most urgent first (sorted once per change, not per view per frame).
+    private(set) var sorted: [Session] = []
+    private(set) var byID: [String: Session] = [:]
+    /// `IslandLayout.linkedRows(sessions)`, and the pip choreographer's input: worked out once per change, not on
+    /// every 20Hz tick.
+    private(set) var linkedRows = 0
+    private(set) var pipInputs: [PipInput] = []
     @Published var palette: OrbPalette = .agentsView
     /// Mirrors the orb's appear/vanish so the pips pop in and out with it.
     @Published var present = false
