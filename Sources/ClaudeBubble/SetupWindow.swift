@@ -215,7 +215,8 @@ private struct DemoBanner: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
-            let elapsed = sim.storyStarted.map { min(context.date.timeIntervalSince($0), SimulatorModel.storyLength) } ?? 0
+            let total = SimulatorModel.storyLength * sim.storyScale
+            let elapsed = sim.storyStarted.map { min(context.date.timeIntervalSince($0), total) } ?? 0
             let pulse = 0.5 + 0.5 * sin(t * 3.2)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -228,12 +229,12 @@ private struct DemoBanner: View {
                         .foregroundStyle(Color.white.opacity(0.7))
                     Text("· watch your \(island ? "island" : "bubble")").font(.system(size: 11)).foregroundStyle(Color.white.opacity(0.4))
                     Spacer()
-                    Text("\(Self.clock(elapsed)) / \(Self.clock(SimulatorModel.storyLength))")
+                    Text("\(Self.clock(elapsed)) / \(Self.clock(total))")
                         .font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.white.opacity(0.45))
                 }
                 // The story's steps, each as long as it plays: done ones lit, the current one filling.
                 GeometryReader { g in
-                    let steps = SimulatorStory.session.map(\.duration)
+                    let steps = SimulatorStory.session.map { $0.duration * sim.storyScale }
                     let gap: CGFloat = 3
                     let usable = g.size.width - gap * CGFloat(max(steps.count - 1, 0))
                     HStack(spacing: gap) {
@@ -243,10 +244,10 @@ private struct DemoBanner: View {
                             ZStack(alignment: .leading) {
                                 Capsule().fill(Color.white.opacity(0.1))
                                 Capsule().fill(color)
-                                    .frame(width: max(0, usable * CGFloat(steps[i] / SimulatorModel.storyLength) * CGFloat(fill)))
+                                    .frame(width: max(0, usable * CGFloat(steps[i] / total) * CGFloat(fill)))
                                     .shadow(color: color.opacity(fill > 0 ? 0.7 : 0), radius: 3)
                             }
-                            .frame(width: usable * CGFloat(steps[i] / SimulatorModel.storyLength))
+                            .frame(width: usable * CGFloat(steps[i] / total))
                         }
                     }
                 }

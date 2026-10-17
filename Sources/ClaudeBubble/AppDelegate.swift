@@ -1144,7 +1144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         simulator.isOpen = true
         simulator.playDemo()
-        let length = SimulatorStory.session.reduce(0) { $0 + $1.duration } + 3
+        let length = SimulatorModel.demoLength + 2.5   // a beat on Done before it starts again
         demoLoop = Timer.scheduledTimer(withTimeInterval: length, repeats: true) { [weak self] _ in self?.simulator.playDemo() }
     }
 

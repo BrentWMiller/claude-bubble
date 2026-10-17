@@ -25,6 +25,9 @@ final class SimulatorModel: ObservableObject {
     /// When the scripted session last started playing (nil when it isn't).
     @Published private(set) var storyStarted: Date?
     static let storyLength = SimulatorStory.session.reduce(0) { $0 + $1.duration }
+    /// How fast the story is playing (setup's demo squeezes it into 15 seconds).
+    @Published private(set) var storyScale: Double = 1
+    static let demoLength: Double = 15
     @Published var isOpen = false
     /// Stands in for the real usage reading while on.
     @Published var usageActive = false { didSet { if usageActive && !oldValue { windowEnds = Date().addingTimeInterval(72 * 60) } } }
@@ -79,8 +82,10 @@ final class SimulatorModel: ObservableObject {
 
     /// The design's scripted session (Orb States): about 40 seconds of reads, searches, edits, a failing then
     /// passing test run, a web fetch, an MCP call, subagents, compaction, and the finish.
-    func playSession() {
+    /// `scale` < 1 plays it faster (every step's length times `scale`).
+    func playSession(scale: Double = 1) {
         reset()
+        storyScale = scale
         storyStarted = Date()
         usageActive = true
         let id = add("auth-refactor", state: .working)
@@ -99,14 +104,16 @@ final class SimulatorModel: ObservableObject {
             }
             storyWork.append(work)
             DispatchQueue.main.asyncAfter(deadline: .now() + t, execute: work)
-            t += step.duration
+            t += step.duration * scale
         }
     }
 
     /// Setup's demo: the scripted session plus two others alongside it, so the pips under the orb show too: one
     /// finishes partway, one stops to ask for something, then all three finish together (the pips' merge).
     func playDemo() {
-        playSession()
+        let scale = Self.demoLength / Self.storyLength
+        playSession(scale: scale)
+        // When, in the full-length story's seconds.
         let steps: [(Double, () -> Void)] = [
             (1.0, { [weak self] in self?.companions.append(self?.add("docs-site", state: .working) ?? 0) }),
             (2.2, { [weak self] in self?.companions.append(self?.add("api-server", state: .working) ?? 0) }),
@@ -118,7 +125,7 @@ final class SimulatorModel: ObservableObject {
         for (at, step) in steps {
             let work = DispatchWorkItem(block: step)
             storyWork.append(work)
-            DispatchQueue.main.asyncAfter(deadline: .now() + at, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + at * scale, execute: work)
         }
     }
 
