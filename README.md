@@ -14,14 +14,15 @@ you can look away until one needs you.
 - **Usage.** Your 5-hour usage and time to reset, with a heads-up before you run low.
 - **Stays out of the way.** Float the orb anywhere, or dock it as an island at any screen edge. Quiet mode, "hide for
   an hour", and 15 colour themes are one right-click away.
+- **Keeps itself up to date.** New versions show up in the app; one click installs them.
 
 ![Session list and a pull request's hover card](docs/images/sessions.png)
 
 ## Install
 
-You need macOS 14 or later and Claude Code.
+You need macOS 14 or later (Apple silicon or Intel) and Claude Code.
 
-1. Download `ClaudeBubble-<version>.zip` from [Releases](../../releases) and unzip it.
+1. Download `ClaudeBubble-<version>.zip` from the [latest release](../../releases/latest) and unzip it.
 2. Move **Claude Bubble.app** to your Applications folder.
 3. Open it. The app isn't notarized by Apple, so the first launch needs one extra step:
    - **macOS 15 and later:** open the app; when it says "Claude Bubble" Not Opened, click **Done** (not Move to
@@ -29,7 +30,11 @@ You need macOS 14 or later and Claude Code.
      **Open Anyway**, and confirm.
    - **macOS 14:** right-click the app, choose **Open**, then click **Open**.
    - **Or, in Terminal:** `xattr -dr com.apple.quarantine "/Applications/Claude Bubble.app"`
-4. In the setup window, click **Connect to Claude Code**. Restart any Claude Code sessions that are already running.
+4. The setup window opens, and your bubble plays a short sample session beside it so you can see each state. Choose
+   **Orb** or **Island**, turn on **Launch at login** if you like, and click **Connect to Claude Code**.
+5. Restart any Claude Code sessions that are already running, so they start reporting to the bubble.
+
+You can open setup again any time: right-click the orb, then **Settings… → Setup…**.
 
 ### What connecting changes
 
@@ -53,8 +58,17 @@ gh auth login
 |---|---|
 | Hover the orb | Every session, its status, links and time |
 | Click a session | Brings its terminal to the front |
-| Right-click the orb | Themes, size, island or orb, quiet mode, hide for an hour, setup |
-| Drag the orb | Anywhere, even mostly off the edge of the screen |
+| Hover a PR or issue chip | Its title, checks, review and labels |
+| Right-click the orb | Themes, size, island or orb, quiet mode, hide for an hour, settings |
+| Drag the orb (or island) | Anywhere, even mostly off the edge of the screen; the island docks to any edge |
+
+## Updates
+
+Claude Bubble checks this repository's releases about once a day. When there's a new version you'll see a
+notification and an **Update** button at the top of the right-click menu; it shows what's new, then downloads,
+verifies (the checksum published with the release, the app's identity and its code signature), installs and
+relaunches. Your settings and connection carry over. You can check now, or turn automatic checks off, under
+**Settings…**.
 
 ## Privacy
 
@@ -64,7 +78,11 @@ Everything stays on your Mac. The bubble reads:
 - Claude Code's local session state and transcripts, to find issue numbers;
 - `git` in your project folders, for branch names.
 
-The only network requests are the GitHub CLI's, made with your own login, and only if you've installed it.
+It makes two kinds of network request, both to GitHub:
+
+- **Update checks**, about once a day, to this repository's public releases (no account, nothing about you sent). You
+  can turn them off in **Settings…**.
+- **Pull request and issue status**, through the GitHub CLI with your own login, only if you've installed it.
 
 ## Uninstall
 
