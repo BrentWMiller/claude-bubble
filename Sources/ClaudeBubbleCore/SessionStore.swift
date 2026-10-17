@@ -210,9 +210,12 @@ public enum SessionStore {
     }
 
     /// Most urgent first; within a state, the most recent change first.
-    public static func sorted(_ sessions: [Session]) -> [Session] {
+    /// Pinned sessions (by id) first, each group in that order.
+    public static func sorted(_ sessions: [Session], pinned: Set<String> = []) -> [Session] {
         sessions.sorted { a, b in
-            a.state.priority != b.state.priority ? a.state.priority > b.state.priority : a.stateSince > b.stateSince
+            let pa = pinned.contains(a.id), pb = pinned.contains(b.id)
+            if pa != pb { return pa }
+            return a.state.priority != b.state.priority ? a.state.priority > b.state.priority : a.stateSince > b.stateSince
         }
     }
 

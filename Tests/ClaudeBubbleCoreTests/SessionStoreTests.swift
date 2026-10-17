@@ -204,4 +204,17 @@ final class SessionStoreTests: XCTestCase {
         XCTAssertEqual(SessionStore.motionFocus([a, b, c])?.id, "b")
         XCTAssertNil(SessionStore.motionFocus([c]))
     }
+
+    // Pinned sessions lead the lists, in their usual order among themselves; the rest follow as before.
+    func testPinnedSessionsComeFirst() {
+        let t = now
+        let needs = Session(id: "needs", state: .needs, updatedAt: t)
+        let working = Session(id: "working", state: .working, updatedAt: t)
+        let doneOld = Session(id: "done-old", state: .idle, updatedAt: t, stateSince: t.addingTimeInterval(-600))
+        let doneNew = Session(id: "done-new", state: .idle, updatedAt: t, stateSince: t.addingTimeInterval(-60))
+        let all = [doneOld, working, needs, doneNew]
+        XCTAssertEqual(SessionStore.sorted(all).map(\.id), ["needs", "working", "done-new", "done-old"])
+        XCTAssertEqual(SessionStore.sorted(all, pinned: ["done-old"]).map(\.id), ["done-old", "needs", "working", "done-new"])
+        XCTAssertEqual(SessionStore.sorted(all, pinned: ["done-old", "working"]).map(\.id), ["working", "done-old", "needs", "done-new"])
+    }
 }
