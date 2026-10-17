@@ -81,6 +81,15 @@ final class JobStoreTests: XCTestCase {
         XCTAssertEqual(s.detail, "fixing 4 review findings")
     }
 
+    // Compacting is the hook's to say: the job's summary still describes the turn before it.
+    func testCompactingKeepsTheHookStatus() throws {
+        try writeJob(#"{"sessionId":"\#(sid)","name":"Claude status bubble app","detail":"fix installed; awaiting test","state":"working","updatedAt":"\#(iso(now))"}"#)
+        var compacting = session(.working, detail: "Compacting")
+        compacting.activity.motion = .compacting
+        let s = try XCTUnwrap(SessionStore.withJobs([compacting], from: dir).first)
+        XCTAssertEqual(s.detail, "Compacting")
+    }
+
     func testNeedsKeepsTheHookPrompt() throws {
         try writeJob(#"{"sessionId":"\#(sid)","name":"Claude status bubble app","detail":"fixing things","state":"working","updatedAt":"\#(iso(now))"}"#)
         let s = try XCTUnwrap(SessionStore.withJobs([session(.needs, detail: "Approve Edit auth.ts?")], from: dir).first)

@@ -228,7 +228,8 @@ public enum SessionStore {
                 let summary = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 detail = summary.isEmpty ? "Waiting on background agents" : summary
             }
-            if s.state == .working, job.state == "working",
+            // Except while compacting: the job's summary still describes the turn before it.
+            if s.state == .working, job.state == "working", s.activity.motion != .compacting,
                let summary = job.detail?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty,
                let written = job.updatedAt, written >= s.stateSince.addingTimeInterval(-5) {
                 detail = summary
