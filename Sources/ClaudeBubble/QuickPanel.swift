@@ -151,11 +151,21 @@ struct QuickPanelView: View {
     private let dim = Color.white.opacity(0.5)
 
     var body: some View {
-        Group {
-            if state.page == .main { mainPage.transition(.move(edge: .leading).combined(with: .opacity)) }
-            else { advancedPage.transition(.move(edge: .trailing).combined(with: .opacity)) }
+        VStack(spacing: 0) {
+            // A grab handle: drag the panel anywhere (dragging its background would fight the sliders).
+            ZStack {
+                Capsule().fill(Color.white.opacity(0.18)).frame(width: 32, height: 4)
+                WindowDragArea()
+            }
+            .frame(height: 14)
+            .help("Drag to move")
+            Group {
+                if state.page == .main { mainPage.transition(.move(edge: .leading).combined(with: .opacity)) }
+                else { advancedPage.transition(.move(edge: .trailing).combined(with: .opacity)) }
+            }
         }
-        .padding(10)
+        .padding([.horizontal, .bottom], 10)
+        .padding(.top, 2)
         .frame(width: QuickPanel.width)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x1c / 255, green: 0x1c / 255, blue: 0x20 / 255)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.1), lineWidth: 1))
@@ -432,6 +442,18 @@ struct QuickPanelView: View {
         }
         .font(.system(size: 13))
     }
+}
+
+/// Moves its window when dragged (the system's own window drag), with an open-hand cursor over it.
+private struct WindowDragArea: NSViewRepresentable {
+    final class Area: NSView {
+        override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    }
+
+    func makeNSView(context: Context) -> Area { Area() }
+    func updateNSView(_ nsView: Area, context: Context) {}
 }
 
 /// One editable colour: a well with its name under it, ringed while it's open in the editor.
