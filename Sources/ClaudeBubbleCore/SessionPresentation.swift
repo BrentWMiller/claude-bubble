@@ -25,6 +25,17 @@ extension Session {
     }
 }
 
+extension Session {
+    /// What a resting session is, in words: finished its turn, waiting with a PR, or quiet without finishing.
+    public var restingLabel: String {
+        switch tone {
+        case .idle: "Idle"
+        case .attention: "Ready for review"
+        default: "Completed"
+        }
+    }
+}
+
 /// The hover card's pop-in and pop-out, in the toasts' style: it unfolds from the orb's side, eases out of the orb
 /// with a slight overshoot, and its rows cascade in; leaving, it slips back toward the orb and closes.
 public enum CardMotion {

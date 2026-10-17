@@ -468,7 +468,7 @@ struct IslandView: View {
         case .rest:
             guard !live.isEmpty else { return "No sessions" }
             let focus = SessionStore.motionFocus(live) ?? live.first!
-            if focus.state == .idle { return "Idle" }
+            if focus.state == .idle { return focus.restingLabel }
             return focus.detail.isEmpty ? focus.state.settingsLabel : focus.detail
         }
     }

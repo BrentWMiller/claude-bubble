@@ -173,4 +173,13 @@ final class SessionPresentationTests: XCTestCase {
         XCTAssertEqual(gone.offset, 6, accuracy: 0.001, "slips back toward the orb")
         XCTAssertEqual(CardMotion.hideDuration, 0.22)
     }
+
+    // The island's bar at rest says which kind of resting it is, matching the colour it's drawn in.
+    func testRestingLabel() {
+        let now = Date()
+        XCTAssertEqual(Session(id: "a", state: .idle, updatedAt: now, detail: "Completed").restingLabel, "Completed")
+        XCTAssertEqual(Session(id: "a", state: .idle, updatedAt: now, detail: "Idle").restingLabel, "Idle")
+        XCTAssertEqual(Session(id: "a", state: .idle, updatedAt: now, detail: "Completed", reviewReady: true).restingLabel,
+                       "Ready for review")
+    }
 }
