@@ -14,6 +14,9 @@ final class OrbView: MTKView {
     var crisp = false
     private var renderer: OrbRenderer?
     private var pendingClick: NSEvent?
+    /// The centre guides shown while dragging, and the snap to the screen's middle.
+    var guides: SnapGuidePanel?
+    private var snap = SnapGuide()
 
     init(frame: NSRect, animator: OrbAnimator) {
         super.init(frame: frame, device: MTLCreateSystemDefaultDevice())
@@ -59,9 +62,14 @@ final class OrbView: MTKView {
         }
         guard let start = dragStart else { return }
         let mouse = NSEvent.mouseLocation
-        let wanted = CGPoint(x: start.origin.x + mouse.x - start.mouse.x, y: start.origin.y + mouse.y - start.mouse.y)
+        var wanted = CGPoint(x: start.origin.x + mouse.x - start.mouse.x, y: start.origin.y + mouse.y - start.mouse.y)
         guard let screen = BubblePanel.screen(nearest: mouse) else { return }
-        window.setFrameOrigin(BubblePlacement.clampedOrigin(wanted, side: window.frame.width, screen: screen.frame,
+        let side = window.frame.width, centre = screen.visibleFrame.midX
+        // Snap to the middle of the screen, with a guide either side of the orb itself (not its glow).
+        wanted.x = snap.apply(wanted.x + side / 2, centre: centre) - side / 2
+        guides?.show(on: screen.frame, axis: .vertical, at: SnapGuide.lines(centre: centre, extent: side * 0.6),
+                     snapped: snap.snapped, below: window)
+        window.setFrameOrigin(BubblePlacement.clampedOrigin(wanted, side: side, screen: screen.frame,
                                                             visible: screen.visibleFrame))
     }
 
@@ -69,6 +77,8 @@ final class OrbView: MTKView {
         if pendingClick != nil { onClick?() }
         pendingClick = nil
         dragStart = nil
+        snap.reset()
+        guides?.hide()
     }
 }
 

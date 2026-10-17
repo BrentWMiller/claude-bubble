@@ -36,6 +36,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let toasts = ToastQueue()
     private let toastModel = ToastModel()
     private var toastPanel: ToastPanel!
+    /// Dashed centre guides while dragging the orb or the island.
+    private let guides = SnapGuidePanel()
+    private var islandSnap = SnapGuide()
     private var soundLimiter = SoundRateLimiter()
     private let layerTracker = LayerTracker()
     private let edgeLight = EdgeLightController()
@@ -99,6 +102,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         listPanel.bubble = panel
         toastPanel = ToastPanel(model: toastModel)
         toastPanel.bubble = panel
+        panel.guides = guides
         island = IslandPanel(animator: animator, sessions: model)
         island.onClick = { [weak self] in
             self?.focusTerminal()
@@ -345,7 +349,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Dragging: snap to the edge nearest the pointer and slide along it, reshaping for that edge as it goes.
     private func dragIsland(to point: CGPoint) {
-        guard let visible = islandScreen(mouse: point).map(islandArea) else { return }
+        guard let screen = islandScreen(mouse: point), case let visible = islandArea(screen) else { return }
+        // Snap to the middle of the edge it's on, with a guide either side of the pill.
+        let side = IslandLayout.nearest(point, visible: visible).dock.isSide
+        var point = point
+        if side {
+            point.y = islandSnap.apply(point.y, centre: visible.midY)
+        } else {
+            point.x = islandSnap.apply(point.x, centre: visible.midX)
+        }
+        let pill = island.pill.isEmpty ? CGRect(origin: .zero, size: IslandLayout.windowSize) : island.pill
+        guides.show(on: screen.frame, axis: side ? .horizontal : .vertical,
+                    at: SnapGuide.lines(centre: side ? visible.midY : visible.midX, extent: side ? pill.height : pill.width),
+                    snapped: islandSnap.snapped, below: island)
         let target = IslandLayout.nearest(point, visible: visible)
         islandDrag = target
         hover.dismiss()
@@ -356,6 +372,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func endIslandDrag() {
+        islandSnap.reset()
+        guides.hide()
         guard let target = islandDrag else { return }
         islandDrag = nil
         settings.prefs.islandDock = target.dock
