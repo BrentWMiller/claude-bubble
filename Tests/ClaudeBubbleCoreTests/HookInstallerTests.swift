@@ -231,4 +231,21 @@ final class HookInstallerTests: XCTestCase {
         let up = try XCTUnwrap(HookInstaller.upgrade(settings: old, hookCommand: cmd, wrapper: wrapper))
         XCTAssertNil(up.inner, "already wrapped: leave the saved inner command alone")
     }
+
+    // The hook binary
+
+    func testInstallBinaryCopiesItRunnableAndUnquarantined() throws {
+        let source = dir.appendingPathComponent("claude-bubble-hook")
+        try Data("binary".utf8).write(to: source)
+        // A file from a downloaded zip carries a quarantine flag; Gatekeeper would refuse to run the copy.
+        XCTAssertEqual(setxattr(source.path, "com.apple.quarantine", "0081;00000000;Safari;", 21, 0, 0), 0)
+        let dest = dir.appendingPathComponent("bin/claude-bubble-hook")
+        XCTAssertTrue(try HookInstaller.installBinary(source: source, destination: dest))
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: dest.path))
+        XCTAssertEqual(getxattr(dest.path, "com.apple.quarantine", nil, 0, 0, 0), -1, "quarantine stripped")
+        XCTAssertFalse(try HookInstaller.installBinary(source: source, destination: dest), "already current")
+        try Data("newer".utf8).write(to: source)
+        XCTAssertTrue(try HookInstaller.installBinary(source: source, destination: dest))
+        XCTAssertEqual(try String(contentsOf: dest, encoding: .utf8), "newer")
+    }
 }

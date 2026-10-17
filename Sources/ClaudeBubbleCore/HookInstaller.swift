@@ -103,6 +103,28 @@ public enum HookInstaller {
         return true
     }
 
+    /// Puts the hook binary in place (install, or an app update): runnable, and without the quarantine flag a
+    /// downloaded zip leaves on it, which would make Gatekeeper refuse to run it from the hook. Returns whether it
+    /// changed anything.
+    @discardableResult
+    public static func installBinary(source: URL, destination: URL) throws -> Bool {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: destination.path), fm.contentsEqual(atPath: source.path, andPath: destination.path) {
+            return false
+        }
+        try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let staged = destination.appendingPathExtension("new")
+        try? fm.removeItem(at: staged)
+        try fm.copyItem(at: source, to: staged)
+        removexattr(staged.path, "com.apple.quarantine", 0)
+        try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: staged.path)
+        // Rename over it, so a hook firing mid-update runs the old binary or the new one, never half of one.
+        guard rename(staged.path, destination.path) == 0 else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: destination.path])
+        }
+        return true
+    }
+
     public static func install(settingsURL link: URL, hookSource: URL, hookDestination: URL,
                                statusLineSource: URL? = nil, statusLineDestination: URL? = nil) throws {
         let fm = FileManager.default

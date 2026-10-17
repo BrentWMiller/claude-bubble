@@ -9,6 +9,9 @@ let package = Package(
     ],
     targets: [
         .target(name: "ClaudeBubbleCore", path: "Sources/ClaudeBubbleCore"),
+        // The Claude Code hook's logic: Foundation only, so the hook binary starts fast.
+        .target(name: "HookCore", path: "Sources/HookCore"),
+        .executableTarget(name: "claude-bubble-hook", dependencies: ["HookCore"], path: "Sources/claude-bubble-hook"),
         .executableTarget(
             name: "ClaudeBubble",
             dependencies: ["ClaudeBubbleCore"],
@@ -16,7 +19,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ClaudeBubbleCoreTests",
-            dependencies: ["ClaudeBubbleCore"],
+            dependencies: ["ClaudeBubbleCore", "HookCore"],
             path: "Tests/ClaudeBubbleCoreTests"
         )
     ]

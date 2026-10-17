@@ -1,7 +1,10 @@
 #!/bin/bash
 # Exercises hook/claude-bubble-hook.sh against a temp sessions dir.
 set -u
-HOOK="$(cd "$(dirname "$0")/.." && pwd)/hook/claude-bubble-hook.sh"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+HOOK="$ROOT/hook/claude-bubble-hook.sh"
+# The shim runs the hook binary; point it at the one just built (swift build).
+export CLAUDE_BUBBLE_HOOK_BIN="${CLAUDE_BUBBLE_HOOK_BIN:-$ROOT/.build/debug/claude-bubble-hook}"
 export CLAUDE_BUBBLE_DIR="$(mktemp -d)"
 export CLAUDE_BUBBLE_REPLAY_WINDOW=0
 S="$CLAUDE_BUBBLE_DIR/sessions"

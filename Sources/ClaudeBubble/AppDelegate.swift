@@ -434,6 +434,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Keeps an already-installed hook in step with this build, so rebuilds don't need a reinstall.
     private func refreshInstalledHook() {
         let home = FileManager.default.homeDirectoryForCurrentUser
+        let bubbleDir = home.appendingPathComponent(".claude-bubble")
+        // The binary first: the refreshed hook.sh hands every event to it.
+        if FileManager.default.fileExists(atPath: bubbleDir.appendingPathComponent("hook.sh").path) {
+            do { try installHookBinary() } catch { NSLog("ClaudeBubble: hook binary refresh failed: \(error)") }
+            try? FileManager.default.removeItem(at: bubbleDir.appendingPathComponent("python-path"))   // the old Python hook's
+        }
         for (resource, installed) in [("claude-bubble-hook", "hook.sh"), ("claude-bubble-statusline", "statusline.sh")] {
             guard let source = Bundle.main.url(forResource: resource, withExtension: "sh") else { continue }
             do {
@@ -446,7 +452,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Bring an existing install up to date: newer hook events, and the status line wrapper (usage).
         let settingsURL = home.appendingPathComponent(".claude/settings.json").resolvingSymlinksInPath()
-        let bubbleDir = home.appendingPathComponent(".claude-bubble")
         let wrapperURL = bubbleDir.appendingPathComponent("statusline.sh")
         let command = "\"\(bubbleDir.appendingPathComponent("hook.sh").path)\""
         guard let data = try? Data(contentsOf: settingsURL),
@@ -1067,6 +1072,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if before == .working, forcedState == .idle { animator.celebrate(from: .working) }
     }
 
+    /// Copies the bundled hook binary to ~/.claude-bubble/bin, where hook.sh runs it.
+    private func installHookBinary() throws {
+        guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: nil) else {
+            throw HookInstaller.InstallError.missingHookScript
+        }
+        let dest = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude-bubble/bin/claude-bubble-hook")
+        if try HookInstaller.installBinary(source: source, destination: dest) { NSLog("ClaudeBubble: installed hook binary") }
+    }
+
     @objc private func installHooks() {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
@@ -1076,6 +1090,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 throw HookInstaller.InstallError.missingHookScript
             }
             let home = FileManager.default.homeDirectoryForCurrentUser
+            try installHookBinary()
             try HookInstaller.install(settingsURL: home.appendingPathComponent(".claude/settings.json"),
                                       hookSource: source,
                                       hookDestination: home.appendingPathComponent(".claude-bubble/hook.sh"),
