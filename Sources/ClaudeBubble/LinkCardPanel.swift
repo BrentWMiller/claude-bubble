@@ -122,3 +122,13 @@ struct ScreenFrameReader: NSViewRepresentable {
         return w.convertToScreen(v.convert(v.bounds, to: nil))
     }
 }
+
+/// Set when a view is rendered offscreen (README images, probes), where AppKit views can't draw.
+private struct SnapshotKey: EnvironmentKey { static let defaultValue = false }
+
+extension EnvironmentValues {
+    var isSnapshot: Bool {
+        get { self[SnapshotKey.self] }
+        set { self[SnapshotKey.self] = newValue }
+    }
+}

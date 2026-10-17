@@ -334,6 +334,7 @@ private struct LinkChip: View {
     @State private var cardTimer: Timer?
     @State private var owner = UUID()
     @State private var place = ScreenFrameReader.Box()
+    @Environment(\.isSnapshot) private var snapshot
 
     private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
     private static let red = Color(red: 1, green: 0.42, blue: 0.42)
@@ -432,7 +433,7 @@ private struct LinkChip: View {
             .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.white.opacity(hover ? 0.12 : 0.06)))
             .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.white.opacity(hover ? 0.22 : 0.12), lineWidth: 1))
             .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .background(ScreenFrameReader(box: place))
+            .background { if !snapshot { ScreenFrameReader(box: place) } }
         }
         .buttonStyle(.plain)
         .onHover { inside in
