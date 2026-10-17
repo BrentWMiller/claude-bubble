@@ -103,6 +103,86 @@ public enum HookInstaller {
         return true
     }
 
+    /// Whether Claude Code is connected to the bubble: its hooks run ours, and its status line runs our wrapper.
+    public struct Connection: Equatable {
+        public var hooks: Bool
+        public var statusLine: Bool
+        public init(hooks: Bool, statusLine: Bool) {
+            self.hooks = hooks
+            self.statusLine = statusLine
+        }
+    }
+
+    public static func connection(settings: [String: Any]) -> Connection {
+        let hooks = (settings["hooks"] as? [String: Any] ?? [:]).values.contains { groups in
+            (groups as? [Any] ?? []).contains { group in
+                ((group as? [String: Any])?["hooks"] as? [[String: Any]] ?? []).contains {
+                    ($0["command"] as? String)?.contains(".claude-bubble/hook.sh") == true
+                }
+            }
+        }
+        let line = ((settings["statusLine"] as? [String: Any])?["command"] as? String)?.contains(".claude-bubble/statusline.sh") == true
+        return Connection(hooks: hooks, statusLine: line)
+    }
+
+    /// Settings without the bubble: every hook entry that runs our hook (groups and events left empty go too), and
+    /// the status line back to what it was before we wrapped it (`inner`: the saved command, "" when there was
+    /// none). Everything else is left exactly as it is.
+    public static func removing(settings: [String: Any], hookCommand: String, inner: String?) -> [String: Any] {
+        var settings = settings
+        func ours(_ entry: Any) -> Bool {
+            guard let c = (entry as? [String: Any])?["command"] as? String else { return false }
+            return c == hookCommand || c.contains(".claude-bubble/hook.sh")
+        }
+        if var hooks = settings["hooks"] as? [String: Any] {
+            for (event, value) in hooks {
+                guard let groups = value as? [Any] else { continue }
+                let kept: [Any] = groups.compactMap { group in
+                    guard var g = group as? [String: Any], let entries = g["hooks"] as? [Any], entries.contains(where: ours) else {
+                        return group
+                    }
+                    let rest = entries.filter { !ours($0) }
+                    if rest.isEmpty { return nil }
+                    g["hooks"] = rest
+                    return g
+                }
+                hooks[event] = kept.isEmpty ? nil : kept
+            }
+            settings["hooks"] = hooks.isEmpty ? nil : hooks
+        }
+        if var line = settings["statusLine"] as? [String: Any], let c = line["command"] as? String,
+           c.contains(".claude-bubble/statusline.sh") {
+            if let inner, !inner.isEmpty {
+                line["command"] = inner
+                settings["statusLine"] = line
+            } else {
+                settings["statusLine"] = nil
+            }
+        }
+        return settings
+    }
+
+    /// Disconnects the bubble from Claude Code: our hooks out of settings.json (the real file, if it's a symlink),
+    /// the status line restored, and our hook files deleted. Sessions and the settings backup stay.
+    public static func uninstall(settingsURL link: URL, bubbleDir: URL) throws {
+        let fm = FileManager.default
+        let settingsURL = link.resolvingSymlinksInPath()
+        if let data = try? Data(contentsOf: settingsURL), !data.isEmpty {
+            guard let settings = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+                throw InstallError.unparseableSettings(settingsURL)
+            }
+            let inner = (try? String(contentsOf: bubbleDir.appendingPathComponent("statusline-inner"), encoding: .utf8)) ?? ""
+            let out = removing(settings: settings,
+                               hookCommand: "\"\(bubbleDir.appendingPathComponent("hook.sh").path)\"",
+                               inner: inner.trimmingCharacters(in: .whitespacesAndNewlines))
+            let json = try JSONSerialization.data(withJSONObject: out, options: [.prettyPrinted, .withoutEscapingSlashes])
+            try json.write(to: settingsURL, options: .atomic)
+        }
+        for name in ["hook.sh", "statusline.sh", "statusline-inner", "bin", "python-path"] {
+            try? fm.removeItem(at: bubbleDir.appendingPathComponent(name))
+        }
+    }
+
     /// Puts the hook binary in place (install, or an app update): runnable, and without the quarantine flag a
     /// downloaded zip leaves on it, which would make Gatekeeper refuse to run it from the hook. Returns whether it
     /// changed anything.

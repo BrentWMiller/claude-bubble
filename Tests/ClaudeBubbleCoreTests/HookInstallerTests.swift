@@ -248,4 +248,79 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertTrue(try HookInstaller.installBinary(source: source, destination: dest))
         XCTAssertEqual(try String(contentsOf: dest, encoding: .utf8), "newer")
     }
+
+    // Disconnecting
+
+    func testRemovingTakesOutOnlyOurHooks() {
+        let mine: [String: Any] = ["type": "command", "command": "afplay ding.aiff"]
+        var settings = HookInstaller.merge(settings: ["model": "opus", "hooks": ["Stop": [["matcher": "", "hooks": [mine]]]]],
+                                           command: cmd)
+        // Ours sharing a group with someone else's.
+        var hooks = settings["hooks"] as! [String: Any]
+        hooks["PreToolUse"] = [["matcher": "Bash", "hooks": [mine, ["type": "command", "command": cmd]]]]
+        settings["hooks"] = hooks
+        let out = HookInstaller.removing(settings: settings, hookCommand: cmd, inner: nil)
+        XCTAssertEqual(out["model"] as? String, "opus")
+        XCTAssertEqual(commands(out, "Stop"), ["afplay ding.aiff"])
+        XCTAssertEqual(commands(out, "PreToolUse"), ["afplay ding.aiff"])
+        XCTAssertNil((out["hooks"] as? [String: Any])?["SessionStart"], "events left empty are dropped")
+        XCTAssertEqual(((out["hooks"] as? [String: Any])?["PreToolUse"] as? [[String: Any]])?.first?["matcher"] as? String, "Bash")
+    }
+
+    func testRemovingDropsAnEmptyHooksKey() {
+        let out = HookInstaller.removing(settings: HookInstaller.merge(settings: [:], command: cmd), hookCommand: cmd, inner: nil)
+        XCTAssertNil(out["hooks"])
+    }
+
+    func testRemovingRestoresTheStatusLine() {
+        let wrapper = "\"/Users/me/.claude-bubble/statusline.sh\""
+        let wrapped: [String: Any] = ["statusLine": ["type": "command", "command": wrapper, "padding": 0]]
+        let restored = HookInstaller.removing(settings: wrapped, hookCommand: cmd, inner: "~/bin/line.sh")
+        XCTAssertEqual((restored["statusLine"] as? [String: Any])?["command"] as? String, "~/bin/line.sh")
+        XCTAssertEqual((restored["statusLine"] as? [String: Any])?["padding"] as? Int, 0)
+        XCTAssertNil(HookInstaller.removing(settings: wrapped, hookCommand: cmd, inner: "")["statusLine"], "there was none before")
+        let theirs: [String: Any] = ["statusLine": ["type": "command", "command": "~/bin/line.sh"]]
+        XCTAssertEqual((HookInstaller.removing(settings: theirs, hookCommand: cmd, inner: nil)["statusLine"] as? [String: Any])?["command"] as? String,
+                       "~/bin/line.sh", "a status line that isn't ours is left alone")
+    }
+
+    func testUninstallWritesThroughASymlinkAndRemovesOurFiles() throws {
+        let real = dir.appendingPathComponent("dotfiles/settings.json")
+        try FileManager.default.createDirectory(at: real.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let bubble = dir.appendingPathComponent(".claude-bubble")
+        try FileManager.default.createDirectory(at: bubble.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        let hook = bubble.appendingPathComponent("hook.sh").path
+        let settings = HookInstaller.merge(settings: ["statusLine": ["type": "command", "command": "\"\(bubble.path)/statusline.sh\""]],
+                                           command: "\"\(hook)\"")
+        try JSONSerialization.data(withJSONObject: settings).write(to: real)
+        let link = dir.appendingPathComponent("settings.json")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: real)
+        for f in ["hook.sh", "statusline.sh", "bin/claude-bubble-hook", "python-path"] {
+            try Data().write(to: bubble.appendingPathComponent(f))
+        }
+        try "~/bin/line.sh".write(to: bubble.appendingPathComponent("statusline-inner"), atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(at: bubble.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+
+        try HookInstaller.uninstall(settingsURL: link, bubbleDir: bubble)
+
+        let out = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: real)) as? [String: Any])
+        XCTAssertNil(out["hooks"])
+        XCTAssertEqual((out["statusLine"] as? [String: Any])?["command"] as? String, "~/bin/line.sh")
+        XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: link.path), real.path, "the link survives")
+        for f in ["hook.sh", "statusline.sh", "statusline-inner", "bin", "python-path"] {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: bubble.appendingPathComponent(f).path), f)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bubble.appendingPathComponent("sessions").path))
+    }
+
+    // Setup checklist
+
+    func testConnectionStatus() {
+        XCTAssertEqual(HookInstaller.connection(settings: [:]), .init(hooks: false, statusLine: false))
+        let hooked = HookInstaller.merge(settings: [:], command: cmd)
+        XCTAssertEqual(HookInstaller.connection(settings: hooked), .init(hooks: true, statusLine: false))
+        var both = hooked
+        both["statusLine"] = ["type": "command", "command": "\"/Users/me/.claude-bubble/statusline.sh\""]
+        XCTAssertEqual(HookInstaller.connection(settings: both), .init(hooks: true, statusLine: true))
+    }
 }

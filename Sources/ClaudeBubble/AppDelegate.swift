@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var watchedSessions: [Session] = []
     private let simulator = SimulatorModel()
     private var simulatorWindow: SimulatorWindowController?
+    private var setupWindow: SetupWindowController?
     private var simulatorSubscription: AnyCancellable?
     private let choreographer = PipChoreographer()
     private var pipCard: PipCardPanel!
@@ -72,6 +73,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Find gh now, off the main thread (it may ask the login shell), before anything needs it.
+        DispatchQueue.global(qos: .utility).async { _ = PRStatusFetcher.gh }
         applied = settings.prefs
         model.palette = applied.palette
         animator.interaction = applied.interaction
@@ -120,6 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         refreshInstalledHook()
         setUpStatusItem()
+        showSetupOnFirstLaunch()
         pipCard = PipCardPanel(model: model)
         watcher = SessionWatcher(directory: SessionStore.defaultDirectory) { [weak self] state, sessions in
             self?.watchedState = state
@@ -156,7 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(item("Restart", #selector(restart)))
         menu.delegate = self
         menu.addItem(.separator())
-        menu.addItem(item("Install Claude Code Hooks…", #selector(installHooks)))
+        menu.addItem(item("Setup…", #selector(openSetup)))
         menu.addItem(.separator())
 
         let debug = NSMenu()
@@ -920,7 +924,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         restart: { [weak self] in self?.restart() },
         quit: { NSApp.terminate(nil) },
         previewSound: { [weak self] option in self?.sounds.previewCompletion(option) },
-        installHooks: { [weak self] in self?.installHooks() },
+        openSetup: { [weak self] in self?.openSetup() },
+        disconnect: { [weak self] in self?.disconnectClaudeCode() },
         resetPosition: { [weak self] in self?.resetPosition() },
         launchAtLogin: { SMAppService.mainApp.status == .enabled },
         toggleLaunchAtLogin: { [weak self] in self?.toggleLaunchAtLogin() },
@@ -1081,29 +1086,70 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if try HookInstaller.installBinary(source: source, destination: dest) { NSLog("ClaudeBubble: installed hook binary") }
     }
 
-    @objc private func installHooks() {
-        NSApp.activate(ignoringOtherApps: true)
-        let alert = NSAlert()
-        do {
-            guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh"),
-                  let statusLine = Bundle.main.url(forResource: "claude-bubble-statusline", withExtension: "sh") else {
-                throw HookInstaller.InstallError.missingHookScript
-            }
-            let home = FileManager.default.homeDirectoryForCurrentUser
-            try installHookBinary()
-            try HookInstaller.install(settingsURL: home.appendingPathComponent(".claude/settings.json"),
-                                      hookSource: source,
-                                      hookDestination: home.appendingPathComponent(".claude-bubble/hook.sh"),
-                                      statusLineSource: statusLine,
-                                      statusLineDestination: home.appendingPathComponent(".claude-bubble/statusline.sh"))
-            alert.messageText = "Hooks installed"
-            alert.informativeText = "New Claude Code sessions will report to the bubble; restart running sessions to pick it up. Your status line still runs as before, and now also passes usage to the bubble. Your previous settings were saved to settings.json.claude-bubble.bak."
-        } catch {
-            alert.alertStyle = .warning
-            alert.messageText = "Couldn't install hooks"
-            alert.informativeText = error.localizedDescription
+    /// Connects Claude Code to the bubble: the hook binary, hooks for every event, and the status line wrapper.
+    private func connectClaudeCode() throws {
+        guard let source = Bundle.main.url(forResource: "claude-bubble-hook", withExtension: "sh"),
+              let statusLine = Bundle.main.url(forResource: "claude-bubble-statusline", withExtension: "sh") else {
+            throw HookInstaller.InstallError.missingHookScript
         }
-        alert.runModal()
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        try installHookBinary()
+        try HookInstaller.install(settingsURL: home.appendingPathComponent(".claude/settings.json"),
+                                  hookSource: source,
+                                  hookDestination: home.appendingPathComponent(".claude-bubble/hook.sh"),
+                                  statusLineSource: statusLine,
+                                  statusLineDestination: home.appendingPathComponent(".claude-bubble/statusline.sh"))
+    }
+
+    @objc private func openSetup() {
+        if setupWindow == nil {
+            setupWindow = SetupWindowController(model: SetupModel(
+                palette: { [weak self] in self?.applied.palette ?? .agentsView },
+                connect: { [weak self] in try self?.connectClaudeCode() },
+                revealSettings: {
+                    let url = SetupModel.settingsURL
+                    if FileManager.default.fileExists(atPath: url.path) {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    } else {
+                        NSWorkspace.shared.open(url.deletingLastPathComponent())
+                    }
+                }))
+        }
+        setupWindow?.show()
+    }
+
+    /// The first time the app opens without its hooks in Claude Code, it explains itself and offers to connect.
+    private func showSetupOnFirstLaunch() {
+        let key = "setupShown"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        let settings = (try? Data(contentsOf: SetupModel.settingsURL)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
+        UserDefaults.standard.set(true, forKey: key)
+        if !HookInstaller.connection(settings: settings).hooks { openSetup() }
+    }
+
+    /// Takes the bubble out of Claude Code (after asking): hooks removed, the status line put back as it was.
+    private func disconnectClaudeCode() {
+        NSApp.activate(ignoringOtherApps: true)
+        let ask = NSAlert()
+        ask.messageText = "Disconnect from Claude Code?"
+        ask.informativeText = "This removes Claude Bubble's hooks from ~/.claude/settings.json and puts your status line back the way it was. Nothing else in your settings changes. You can connect again from Setup."
+        ask.addButton(withTitle: "Disconnect")
+        ask.addButton(withTitle: "Cancel")
+        guard ask.runModal() == .alertFirstButtonReturn else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let done = NSAlert()
+        do {
+            try HookInstaller.uninstall(settingsURL: home.appendingPathComponent(".claude/settings.json"),
+                                        bubbleDir: home.appendingPathComponent(".claude-bubble"))
+            done.messageText = "Disconnected"
+            done.informativeText = "Restart running Claude Code sessions to stop them reporting. To remove the app too, quit it and move it to the Trash."
+        } catch {
+            done.alertStyle = .warning
+            done.messageText = "Couldn't disconnect"
+            done.informativeText = error.localizedDescription
+        }
+        done.runModal()
+        setupWindow?.model.refresh()
     }
 
     /// The menu-bar icon while the bubble is hidden: crossed out, so it's clear how to bring it back.

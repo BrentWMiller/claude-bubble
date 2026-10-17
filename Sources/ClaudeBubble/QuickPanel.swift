@@ -9,7 +9,8 @@ struct QuickPanelActions {
     var restart: () -> Void
     var quit: () -> Void
     var previewSound: (CompletionSound) -> Void
-    var installHooks: () -> Void
+    var openSetup: () -> Void
+    var disconnect: () -> Void
     var resetPosition: () -> Void
     var launchAtLogin: () -> Bool
     var toggleLaunchAtLogin: () -> Void
@@ -218,7 +219,8 @@ struct QuickPanelView: View {
             divider
             sectionTitle("Setup")
             toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
-            Row(title: "Install Claude Code hooks…") { close(); actions.installHooks() }
+            Row(title: "Setup…") { close(); actions.openSetup() }
+            Row(title: "Disconnect from Claude Code…") { close(); actions.disconnect() }
             Row(title: "Reset position") { actions.resetPosition() }
             divider
             sectionTitle("Debug")

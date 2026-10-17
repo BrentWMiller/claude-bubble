@@ -11,8 +11,23 @@ final class PRStatusFetcher {
     /// Called on the main thread when a status changed.
     var onChange: (() -> Void)?
 
-    static let gh: String? = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
-        .first { FileManager.default.isExecutableFile(atPath: $0) }
+    /// The GitHub CLI: the usual install places, else wherever the user's login shell finds it (MacPorts, Nix,
+    /// ~/bin…). Looked up once; the shell lookup can take a moment, so first ask off the main thread.
+    static let gh: String? = {
+        let usual = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+        if let found = usual.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) { return found }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
+        p.arguments = ["-lc", "command -v gh"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        let path = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.hasPrefix("/") && FileManager.default.isExecutableFile(atPath: path) ? path : nil
+    }()
 
     var statuses: [URL: PRStatus] {
         queue.sync { entries.compactMapValues(\.status) }
