@@ -194,7 +194,20 @@ send '{"hook_event_name":"PreCompact","session_id":"m"}';                       
 expect m working "compaction keeps the state"
 send '{"hook_event_name":"PostCompact","session_id":"m"}';                            expect_field m activity generating "PostCompact -> generating"
 send '{"hook_event_name":"Stop","session_id":"m"}'; expect m idle "Stop still idles"
-send '{"hook_event_name":"PreCompact","session_id":"m"}'; expect m idle "compaction while idle stays idle"
+send '{"hook_event_name":"PreCompact","session_id":"m"}'; expect m working "compaction while idle shows working"
+expect_field m detail Compacting "compaction while idle says Compacting"
+send '{"hook_event_name":"SessionStart","session_id":"m","source":"compact"}'; expect m working "compact SessionStart keeps compacting"
+send '{"hook_event_name":"PostCompact","session_id":"m"}'; expect m idle "compaction while idle goes back to idle"
+expect_field m detail Completed "compaction while idle restores the status line"
+send '{"hook_event_name":"UserPromptSubmit","session_id":"m"}'
+send '{"hook_event_name":"PreToolUse","session_id":"m","tool_name":"Read"}'
+send '{"hook_event_name":"PreCompact","session_id":"m"}'; send '{"hook_event_name":"PostCompact","session_id":"m"}'
+expect m working "auto-compact mid-turn stays working"
+expect_field m detail "Reading files" "auto-compact mid-turn restores the status line"
+send '{"hook_event_name":"Stop","session_id":"m"}'
+send '{"hook_event_name":"PreCompact","session_id":"m"}'; send '{"hook_event_name":"UserPromptSubmit","session_id":"m"}'
+send '{"hook_event_name":"Stop","session_id":"m"}'; send '{"hook_event_name":"PostCompact","session_id":"m"}'
+expect m idle "a stale PostCompact after a new turn keeps the turn's state"
 send '{"hook_event_name":"SessionStart","session_id":"m","source":"clear"}'
 check '[ "$(count_of m subagents)" = 0 ]' "fresh start clears subagents"
 send '{"hook_event_name":"SubagentStart","session_id":"n","agent_id":"x"}'; expect n working "subagent event on a new session -> working"
