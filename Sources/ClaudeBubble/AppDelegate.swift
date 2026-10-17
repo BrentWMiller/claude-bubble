@@ -539,8 +539,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !prefs.toasts { toasts.clear() }
         if prefs.palette != applied.palette {
             toastModel.palette = prefs.palette
-            animator.palette = prefs.palette
-            model.palette = prefs.palette
+            animator.palette = shown(prefs.palette)
+            model.palette = shown(prefs.palette)
         }
         if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
@@ -993,7 +993,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard color != previewColor else { return }
         previewColor = color
         animator.showsDone = color == .done
+        animator.palette = shown(applied.palette)
+        model.palette = shown(applied.palette)
         applyState()
+    }
+
+    /// The palette the orb and island draw with: while Idle is being edited, its colour stands in for the resting
+    /// look (it has no state of its own on the orb), so it can be seen.
+    private func shown(_ palette: OrbPalette) -> OrbPalette {
+        guard previewColor == .idle else { return palette }
+        var p = palette
+        p.idle = PaletteDerivation.colors(from: palette.quiet)
+        return p
     }
 
     /// The state that shows a colour being edited (Idle has none of its own on the orb: its resting look).
