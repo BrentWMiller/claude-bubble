@@ -334,4 +334,34 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertThrowsError(try HookInstaller.uninstall(settingsURL: settings, bubbleDir: dir.appendingPathComponent(".claude-bubble")))
         XCTAssertEqual(try String(contentsOf: settings, encoding: .utf8), "{not json", "left untouched")
     }
+
+    // Uninstalling the app
+
+    func testUninstallEverythingDisconnectsAndRemovesTheFolder() throws {
+        let bubble = dir.appendingPathComponent(".claude-bubble")
+        try FileManager.default.createDirectory(at: bubble.appendingPathComponent("sessions"), withIntermediateDirectories: true)
+        try Data().write(to: bubble.appendingPathComponent("hook.sh"))
+        try "~/bin/line.sh".write(to: bubble.appendingPathComponent("statusline-inner"), atomically: true, encoding: .utf8)
+        let settingsURL = dir.appendingPathComponent("settings.json")
+        let settings = HookInstaller.merge(settings: ["model": "opus", "statusLine": ["type": "command", "command": "\"\(bubble.path)/statusline.sh\""]],
+                                           command: "\"\(bubble.path)/hook.sh\"")
+        try JSONSerialization.data(withJSONObject: settings).write(to: settingsURL)
+
+        try HookInstaller.uninstallEverything(settingsURL: settingsURL, bubbleDir: bubble)
+
+        let out = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: settingsURL)) as? [String: Any])
+        XCTAssertNil(out["hooks"])
+        XCTAssertEqual(out["model"] as? String, "opus")
+        XCTAssertEqual((out["statusLine"] as? [String: Any])?["command"] as? String, "~/bin/line.sh", "restored before the folder went")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: bubble.path))
+    }
+
+    func testUninstallEverythingKeepsTheFolderIfSettingsCantBeRead() throws {
+        let bubble = dir.appendingPathComponent(".claude-bubble")
+        try FileManager.default.createDirectory(at: bubble, withIntermediateDirectories: true)
+        let settingsURL = dir.appendingPathComponent("settings.json")
+        try "{oops".write(to: settingsURL, atomically: true, encoding: .utf8)
+        XCTAssertThrowsError(try HookInstaller.uninstallEverything(settingsURL: settingsURL, bubbleDir: bubble))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: bubble.path), "hooks still point here: don't pull the files out from under them")
+    }
 }

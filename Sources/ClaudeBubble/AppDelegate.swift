@@ -934,6 +934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         previewSound: { [weak self] option in self?.sounds.previewCompletion(option) },
         openSetup: { [weak self] in self?.openSetup() },
         disconnect: { [weak self] in self?.disconnectClaudeCode() },
+        uninstall: { [weak self] in self?.uninstallApp() },
         resetPosition: { [weak self] in self?.resetPosition() },
         launchAtLogin: { SMAppService.mainApp.status == .enabled },
         toggleLaunchAtLogin: { [weak self] in self?.toggleLaunchAtLogin() },
@@ -1158,6 +1159,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         done.runModal()
         setupWindow?.model.refresh()
+    }
+
+    /// Removes Claude Bubble completely (after asking): disconnected from Claude Code, its files, preferences and
+    /// login item gone, and the app moved to the Trash. Stops at the first step that fails, before anything that
+    /// can't be put back.
+    private func uninstallApp() {
+        NSApp.activate(ignoringOtherApps: true)
+        let ask = NSAlert()
+        ask.alertStyle = .critical
+        ask.messageText = "Uninstall Claude Bubble?"
+        ask.informativeText = "This disconnects it from Claude Code (your other hooks and your status line stay as they are), removes its files and preferences, and moves the app to the Trash."
+        ask.addButton(withTitle: "Uninstall")
+        ask.addButton(withTitle: "Cancel")
+        guard ask.runModal() == .alertFirstButtonReturn else { return }
+
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        do {
+            try HookInstaller.uninstallEverything(settingsURL: home.appendingPathComponent(".claude/settings.json"),
+                                                  bubbleDir: home.appendingPathComponent(".claude-bubble"))
+        } catch {
+            let failed = NSAlert()
+            failed.alertStyle = .warning
+            failed.messageText = "Couldn't uninstall"
+            failed.informativeText = "\(error.localizedDescription)\n\nNothing was removed."
+            failed.runModal()
+            return
+        }
+        if SMAppService.mainApp.status == .enabled { try? SMAppService.mainApp.unregister() }
+        for domain in [Bundle.main.bundleIdentifier, DefaultsMigration.legacyDomain].compactMap({ $0 }) {
+            UserDefaults.standard.removePersistentDomain(forName: domain)
+        }
+        UserDefaults.standard.synchronize()
+
+        let done = NSAlert()
+        done.messageText = "Claude Bubble is uninstalled"
+        done.informativeText = "Restart any Claude Code sessions that are still running; until then they may show a hook error. Your settings from before Claude Bubble are saved at ~/.claude/settings.json.claude-bubble.bak."
+        done.runModal()
+        // Last, so nothing above writes the preferences back: the app goes to the Trash (recoverable) and quits.
+        NSWorkspace.shared.recycle([Bundle.main.bundleURL]) { _, _ in
+            DispatchQueue.main.async { exit(0) }
+        }
     }
 
     /// The menu-bar icon while the bubble is hidden: crossed out, so it's clear how to bring it back.

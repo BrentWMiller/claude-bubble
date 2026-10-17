@@ -24,8 +24,9 @@ You need macOS 14 or later and Claude Code.
 1. Download `ClaudeBubble-<version>.zip` from [Releases](../../releases) and unzip it.
 2. Move **Claude Bubble.app** to your Applications folder.
 3. Open it. The app isn't notarized by Apple, so the first launch needs one extra step:
-   - **macOS 15 and later:** open the app and dismiss the warning. Then go to **System Settings → Privacy & Security**,
-     scroll down to "Claude Bubble was blocked", and click **Open Anyway**.
+   - **macOS 15 and later:** open the app; when it says "Claude Bubble" Not Opened, click **Done** (not Move to
+     Trash). Then go to **System Settings → Privacy & Security**, scroll down to "Claude Bubble was blocked", click
+     **Open Anyway**, and confirm.
    - **macOS 14:** right-click the app, choose **Open**, then click **Open**.
    - **Or, in Terminal:** `xattr -dr com.apple.quarantine "/Applications/Claude Bubble.app"`
 4. In the setup window, click **Connect to Claude Code**. Restart any Claude Code sessions that are already running.
@@ -67,8 +68,11 @@ The only network requests are the GitHub CLI's, made with your own login, and on
 
 ## Uninstall
 
-Right-click the orb, open **Settings… → Disconnect from Claude Code…**, then quit the app and move it to the Trash.
-Disconnecting removes only Claude Bubble's hooks and puts your status line back the way it was.
+Right-click the orb, open **Settings…**, and choose **Uninstall Claude Bubble…**. It removes Claude Bubble's hooks
+from Claude Code (your other hooks and your status line stay as they are), deletes its files and preferences, and
+moves the app to the Trash. Restart any Claude Code sessions that are still running afterwards.
+
+To stop it reporting to the bubble but keep the app, choose **Disconnect from Claude Code…** instead.
 
 ## Build from source
 

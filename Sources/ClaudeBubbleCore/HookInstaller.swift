@@ -187,6 +187,15 @@ public enum HookInstaller {
         }
     }
 
+    /// Uninstalling the app: disconnects from Claude Code, then deletes `bubbleDir` (sessions, usage, hook, binary,
+    /// wrapper). If settings.json can't be read, it throws and deletes nothing, since its hooks would still point here.
+    public static func uninstallEverything(settingsURL: URL, bubbleDir: URL) throws {
+        try uninstall(settingsURL: settingsURL, bubbleDir: bubbleDir)
+        if FileManager.default.fileExists(atPath: bubbleDir.path) {
+            try FileManager.default.removeItem(at: bubbleDir)
+        }
+    }
+
     /// Puts the hook binary in place (install, or an app update): runnable, and without the quarantine flag a
     /// downloaded zip leaves on it, which would make Gatekeeper refuse to run it from the hook. Returns whether it
     /// changed anything.

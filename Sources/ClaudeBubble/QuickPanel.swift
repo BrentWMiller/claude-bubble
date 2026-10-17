@@ -11,6 +11,7 @@ struct QuickPanelActions {
     var previewSound: (CompletionSound) -> Void
     var openSetup: () -> Void
     var disconnect: () -> Void
+    var uninstall: () -> Void
     var resetPosition: () -> Void
     var launchAtLogin: () -> Bool
     var toggleLaunchAtLogin: () -> Void
@@ -221,6 +222,7 @@ struct QuickPanelView: View {
             toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
             Row(title: "Setup…") { close(); actions.openSetup() }
             Row(title: "Disconnect from Claude Code…") { close(); actions.disconnect() }
+            Row(title: "Uninstall Claude Bubble…", destructive: true) { close(); actions.uninstall() }
             Row(title: "Reset position") { actions.resetPosition() }
             divider
             sectionTitle("Debug")
@@ -443,13 +445,14 @@ private struct Row: View {
     let title: String
     var shortcut: String?
     var chevron = false
+    var destructive = false
     let action: () -> Void
     @State private var hover = false
 
     var body: some View {
         Button(action: action) {
             HStack {
-                Text(title).foregroundStyle(Color.white.opacity(0.92))
+                Text(title).foregroundStyle(destructive ? Color(red: 1, green: 0.45, blue: 0.45) : Color.white.opacity(0.92))
                 Spacer()
                 if let shortcut { Text(shortcut).foregroundStyle(Color.white.opacity(0.4)) }
                 if chevron { Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.white.opacity(0.4)) }
