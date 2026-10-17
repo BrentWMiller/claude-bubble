@@ -29,6 +29,8 @@ final class SimulatorModel: ObservableObject {
     @Published private(set) var storyScale: Double = 1
     static let demoLength: Double = 15
     @Published var isOpen = false
+    /// The stress test is writing real session files: show those (through the watcher) instead of these.
+    @Published var showsRealSessions = false
     /// Stands in for the real usage reading while on.
     @Published var usageActive = false { didSet { if usageActive && !oldValue { windowEnds = Date().addingTimeInterval(72 * 60) } } }
     /// Percent of the window left.

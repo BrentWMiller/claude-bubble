@@ -543,6 +543,7 @@ struct IslandGlowView: View {
                 }
                 if waves {
                     Canvas { ctx, size in
+                        PerfMeter.shared.count(.glowFrame)
                         drawWaves(ctx, size: size, time: now, kick: kick, breath: breath, to: fan.to.color,
                                   from: fan.from.color, fan: fan.progress)
                     }

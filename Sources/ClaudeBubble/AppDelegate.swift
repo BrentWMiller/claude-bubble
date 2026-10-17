@@ -199,7 +199,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Real sessions, or the simulator's while its window is open.
     private func syncSessions() {
-        if simulator.isOpen {
+        PerfMeter.shared.measure(.sync) { syncSessionsNow() }
+    }
+
+    private func syncSessionsNow() {
+        if simulator.isOpen && !simulator.showsRealSessions {
             let sims = simulator.asSessions
             model.sessions = sims
             liveState = SessionStore.aggregate(sims)
@@ -737,7 +741,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openSimulator() {
         if simulatorWindow == nil {
-            simulatorWindow = SimulatorWindowController(simulator: simulator) { [weak self] in self?.applied.palette ?? .agentsView }
+            simulatorWindow = SimulatorWindowController(simulator: simulator, stress: StressRunner(simulator: simulator)) { [weak self] in self?.applied.palette ?? .agentsView }
         }
         simulatorWindow?.show()
     }

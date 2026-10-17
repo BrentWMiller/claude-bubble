@@ -14,7 +14,7 @@ let package = Package(
         .executableTarget(name: "claude-bubble-hook", dependencies: ["HookCore"], path: "Sources/claude-bubble-hook"),
         .executableTarget(
             name: "ClaudeBubble",
-            dependencies: ["ClaudeBubbleCore"],
+            dependencies: ["ClaudeBubbleCore", "HookCore"],
             path: "Sources/ClaudeBubble"
         ),
         .testTarget(

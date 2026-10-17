@@ -33,7 +33,9 @@ public final class SessionWatcher {
 
     public func refresh() {
         let now = Date()
-        let sessions = SessionStore.withJobs(SessionStore.live(SessionStore.load(from: directory, now: now), now: now))
+        let sessions = PerfMeter.shared.measure(.load) {
+            SessionStore.withJobs(SessionStore.live(SessionStore.load(from: directory, now: now), now: now))
+        }
         let state = SessionStore.aggregate(sessions, now: now)
         if state != last || sessions != lastSessions {
             last = state
