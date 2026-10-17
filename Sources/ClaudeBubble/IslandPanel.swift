@@ -209,6 +209,23 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
     }
 }
 
+/// A view in its own hosting view (see `IslandView.isolated`). It never takes the mouse: the island's does.
+private struct IsolatedHost<Content: View>: NSViewRepresentable {
+    let content: Content
+
+    final class Host: NSHostingView<Content> {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+
+    func makeNSView(context: Context) -> Host {
+        let host = Host(rootView: content)
+        host.sizingOptions = []   // sized by the island; never measured
+        return host
+    }
+
+    func updateNSView(_ host: Host, context: Context) { host.rootView = content }
+}
+
 /// Hosts the island's own Metal orb view (one instance, always in the same place in the hierarchy).
 private struct OrbHost: NSViewRepresentable {
     let view: OrbView
@@ -227,7 +244,7 @@ struct IslandView: View {
     private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {
         IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
-                          footer: hasFooter, linked: IslandLayout.linkedRows(live))
+                          footer: hasFooter, linked: sessions.linkedRows)
     }
     private let spring = Animation.spring(response: 0.5, dampingFraction: 0.72)
 
@@ -288,8 +305,8 @@ struct IslandView: View {
                     .transition(.opacity)
             } else {
                 if model.glow == .waves {
-                    IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
-                                   edge: !sideRest)
+                    isolated(IslandGlowView(model: model, palette: sessions.palette, orbCentre: orbCentre, waves: true,
+                                            edge: !sideRest).clipShape(shape))
                     if hasDetail { scrim }
                 }
                 content
@@ -310,13 +327,19 @@ struct IslandView: View {
                 .opacity(quiet ? 0 : 1)
         }
         .clipShape(shape)
-        .overlay(model.glow == .waves ? IslandRim(shape: shape, model: model, palette: sessions.palette) : nil)
+        .overlay(model.glow == .waves ? isolated(IslandRim(shape: shape, model: model, palette: sessions.palette)) : nil)
         // A faint outline so the island stands out against dark windows; none on the docked edge, which meets the screen's.
         .overlay(shape.strokeBorder(Color.white.opacity(0.13), lineWidth: 1)
             .mask(Rectangle().padding(dockedEdge, 1))
             .allowsHitTesting(false))
         .shadow(color: .black.opacity(0.55), radius: 15, y: 10)
         .contentShape(shape)
+    }
+
+    /// The glow and rim animate 20-30 times a second: in a hosting view of their own, each frame re-renders just them,
+    /// not the island's whole tree (text, rows, layout). Offscreen snapshots can't draw hosted views: inline there.
+    @ViewBuilder private func isolated(_ view: some View) -> some View {
+        if snapshot { view } else { IsolatedHost(content: view) }
     }
 
     /// Showing text beyond the bar: the session list, or a needs-you or error message.
