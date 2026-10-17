@@ -5,7 +5,8 @@ import Foundation
 ///
 /// Files are read on a background queue, and only the ones that changed are decoded again. A burst of events (every
 /// hook write is a new file renamed into place, and many sessions write at once) comes through as one reload a short
-/// moment later. `onChange` is called on the main thread.
+/// moment later: at most 5 reloads a second, since every reload re-renders the island, pips and lists (the main
+/// cost under heavy load), and a status display needn't change faster. `onChange` is called on the main thread.
 public final class SessionWatcher {
     private let directory: URL
     private let coalesce: TimeInterval
@@ -19,7 +20,7 @@ public final class SessionWatcher {
     private var last: BubbleState?
     private var lastSessions: [Session]?
 
-    public init(directory: URL, coalesce: TimeInterval = 0.05, onChange: @escaping (BubbleState, [Session]) -> Void) {
+    public init(directory: URL, coalesce: TimeInterval = 0.2, onChange: @escaping (BubbleState, [Session]) -> Void) {
         self.directory = directory
         self.coalesce = coalesce
         self.onChange = onChange

@@ -295,6 +295,8 @@ struct GlowHost: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         guard let view = GlowMetalView(kind: kind) else { return NSView() }
+        model.glowLayers.add(view)
+        view.isPaused = !model.rendering
         update(view)
         return view
     }
@@ -309,6 +311,5 @@ struct GlowHost: NSViewRepresentable {
         view.orbCentre = orbCentre
         view.edge = edge
         view.waves = waves
-        if view.isPaused != !model.rendering { view.isPaused = !model.rendering }
     }
 }
