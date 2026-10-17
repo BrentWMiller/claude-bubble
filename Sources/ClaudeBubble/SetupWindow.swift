@@ -195,8 +195,8 @@ struct SetupView: View {
     }
 }
 
-/// "Now playing" for the sample session the real bubble is acting out: what it's doing, in the state's colour,
-/// with the story's progress and a border that sweeps around in that colour.
+/// "Now playing" for the sample session the real bubble is acting out: its steps as a segmented bar, over the
+/// island's glow, with a border that sweeps around in the state's colour.
 private struct DemoBanner: View {
     @ObservedObject var sim: SimulatorModel
     let palette: OrbPalette
@@ -212,40 +212,13 @@ private struct DemoBanner: View {
         state == .idle ? Color(red: 0.47, green: 0.9, blue: 0.67) : state.color(in: palette)
     }
 
-    private var headline: String {
-        switch state {
-        case .working: "Working"
-        case .needs: "Needs you"
-        case .error: "Error"
-        case .idle: lead == nil ? "Starting" : "Done"
-        }
-    }
-
-    private var doing: String {
-        guard let lead else { return "Warming up the sample session" }
-        if state != .working { return SimulatorStory.detail(for: state) }
-        let what: String = switch lead.motion {
-        case .generating: "Thinking"
-        case .read: "Reading files"
-        case .search: "Searching the codebase"
-        case .edit: "Editing files"
-        case .bash: "Running a command"
-        case .web: "Fetching a web page"
-        case .mcp: "Calling an MCP tool"
-        case .compacting: "Compacting the conversation"
-        case .waiting: "Waiting on a subagent"
-        }
-        return lead.subagents > 0 ? "\(what) · \(lead.subagents) subagent\(lead.subagents == 1 ? "" : "s")" : what
-    }
-
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let elapsed = sim.storyStarted.map { min(context.date.timeIntervalSince($0), SimulatorModel.storyLength) } ?? 0
-            let progress = SimulatorModel.storyLength > 0 ? elapsed / SimulatorModel.storyLength : 0
             let pulse = 0.5 + 0.5 * sin(t * 3.2)
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 8) {
                     ZStack {
                         Circle().fill(Color.red.opacity(0.35 * pulse)).frame(width: 14, height: 14)
@@ -258,21 +231,23 @@ private struct DemoBanner: View {
                     Text("\(Self.clock(elapsed)) / \(Self.clock(SimulatorModel.storyLength))")
                         .font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.white.opacity(0.45))
                 }
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(headline).font(.system(size: 20, weight: .bold)).foregroundStyle(color)
-                        .shadow(color: color.opacity(0.6), radius: 8)
-                        .contentTransition(.opacity)
-                    Text(doing).font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.75)).lineLimit(1)
-                        .contentTransition(.opacity)
-                }
-                .animation(.easeInOut(duration: 0.3), value: headline)
-                .animation(.easeInOut(duration: 0.3), value: doing)
+                // The story's steps, each as long as it plays: done ones lit, the current one filling.
                 GeometryReader { g in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.white.opacity(0.08))
-                        Capsule().fill(LinearGradient(colors: [color.opacity(0.5), color], startPoint: .leading, endPoint: .trailing))
-                            .frame(width: max(4, g.size.width * progress))
-                            .shadow(color: color.opacity(0.8), radius: 4)
+                    let steps = SimulatorStory.session.map(\.duration)
+                    let gap: CGFloat = 3
+                    let usable = g.size.width - gap * CGFloat(max(steps.count - 1, 0))
+                    HStack(spacing: gap) {
+                        ForEach(steps.indices, id: \.self) { i in
+                            let start = steps[..<i].reduce(0, +)
+                            let fill = min(max((elapsed - start) / steps[i], 0), 1)
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Color.white.opacity(0.1))
+                                Capsule().fill(color)
+                                    .frame(width: max(0, usable * CGFloat(steps[i] / SimulatorModel.storyLength) * CGFloat(fill)))
+                                    .shadow(color: color.opacity(fill > 0 ? 0.7 : 0), radius: 3)
+                            }
+                            .frame(width: usable * CGFloat(steps[i] / SimulatorModel.storyLength))
+                        }
                     }
                 }
                 .frame(height: 4)
