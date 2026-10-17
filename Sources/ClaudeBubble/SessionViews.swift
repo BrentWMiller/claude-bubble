@@ -205,7 +205,7 @@ final class CardMotionModel: ObservableObject {
 struct SessionListView: View {
     @ObservedObject var model: SessionsModel
     @ObservedObject var motion: CardMotionModel
-    let onSelect: () -> Void
+    let onSelect: (Session) -> Void
 
     var body: some View {
         // Animate at display rate while popping in or out, otherwise just tick the timers once a second.
@@ -227,7 +227,7 @@ struct SessionListView: View {
             ForEach(Array(SessionStore.sorted(model.sessions).enumerated()), id: \.element.id) { index, session in
                 SessionRow(session: session, now: now,
                            palette: model.palette, entrance: CardMotion.row(index, age: age))
-                    .onTapGesture(perform: onSelect)
+                    .onTapGesture { onSelect(session) }
             }
             if model.today != nil || model.usage != nil {
                 Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)

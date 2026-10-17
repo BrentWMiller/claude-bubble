@@ -90,8 +90,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.currentSpot = { [weak self] in self?.currentSpot() }
         // @Published fires before storing; apply on the next run-loop turn so reads and writes see the new value.
         settingsSubscription = settings.$prefs.dropFirst().receive(on: RunLoop.main).sink { [weak self] prefs in self?.apply(prefs) }
-        listPanel = SessionListPanel(model: model) { [weak self] in
-            self?.focusTerminal()
+        listPanel = SessionListPanel(model: model) { [weak self] session in
+            self?.focusTerminal(session)
             self?.hover.dismiss()
             self?.listPanel.popOut()
         }
@@ -427,9 +427,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func focusTerminal() {
+    /// Brings forward the app `session` runs in (or, for a click on the orb or island, the most pressing session's):
+    /// whatever terminal or editor that is, found from its process. A session that runs in the background (under
+    /// Claude Code's daemon, not a terminal) brings forward the terminal Claude Code is open in, the agents view
+    /// first. Failing both, or with a terminal chosen by the override setting, the first installed one from the list.
+    private func focusTerminal(_ session: Session? = nil) {
         let workspace = NSWorkspace.shared
         let override = UserDefaults.standard.string(forKey: TerminalApp.overrideKey)
+        if override == nil {
+            let own = (session ?? TerminalApp.target(in: model.sessions))?.pid.flatMap(Processes.owningApp(of:))
+            let app = own ?? TerminalApp.fallbackOrder(Processes.claudeProcesses()).lazy.compactMap(Processes.owningApp(of:)).first
+            if let url = app?.bundleURL {
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = true
+                workspace.openApplication(at: url, configuration: config)
+                return
+            }
+        }
         guard let id = TerminalApp.resolve(override: override, isInstalled: { workspace.urlForApplication(withBundleIdentifier: $0) != nil }),
               let url = workspace.urlForApplication(withBundleIdentifier: id) else {
             NSSound.beep()

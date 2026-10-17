@@ -10,7 +10,7 @@ final class SessionListPanel: NSPanel {
     private var bubbleFrame: CGRect = .zero
     private var subscription: AnyCancellable?
 
-    init(model: SessionsModel, onSelect: @escaping () -> Void) {
+    init(model: SessionsModel, onSelect: @escaping (Session) -> Void) {
         let motion = CardMotionModel()
         self.motion = motion
         host = FirstMouseHostingView(rootView: SessionListView(model: model, motion: motion, onSelect: onSelect))
