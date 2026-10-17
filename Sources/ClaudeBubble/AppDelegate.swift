@@ -1113,8 +1113,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openSetup() {
         if setupWindow == nil {
             setupWindow = SetupWindowController(model: SetupModel(
-                palette: { [weak self] in self?.applied.palette ?? .agentsView },
+                settings: settings,
                 connect: { [weak self] in try self?.connectClaudeCode() },
+                toggleLaunchAtLogin: { [weak self] in self?.toggleLaunchAtLogin() },
                 revealSettings: {
                     let url = SetupModel.settingsURL
                     if FileManager.default.fileExists(atPath: url.path) {
