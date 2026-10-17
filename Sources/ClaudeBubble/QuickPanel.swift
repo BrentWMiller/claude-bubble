@@ -19,6 +19,8 @@ struct QuickPanelActions {
     var debugState: () -> String
     var setDebugState: (String) -> Void
     var openSimulator: () -> Void
+    var installUpdate: () -> Void
+    var checkForUpdates: () -> Void
 }
 
 /// The right-click panel: the bubble's own dark card with one-click controls, instead of a system menu.
@@ -28,9 +30,12 @@ final class QuickPanel: NSPanel {
     private let host: NSHostingView<QuickPanelView>
     private let actions: QuickPanelActions
 
-    init(settings: SettingsModel, actions: QuickPanelActions) {
+    private let updater: Updater
+
+    init(settings: SettingsModel, updater: Updater, actions: QuickPanelActions) {
         self.actions = actions
-        host = NSHostingView(rootView: QuickPanelView(settings: settings, actions: actions, close: {}))
+        self.updater = updater
+        host = NSHostingView(rootView: QuickPanelView(settings: settings, updater: updater, actions: actions, close: {}))
         host.sizingOptions = [.intrinsicContentSize]   // fittingSize needs it; no min/max constraints (costly per frame)
         super.init(contentRect: CGRect(x: 0, y: 0, width: Self.width, height: 400),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
@@ -43,7 +48,7 @@ final class QuickPanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         appearance = NSAppearance(named: .darkAqua)
-        host.rootView = QuickPanelView(settings: settings, actions: actions, close: { [weak self] in self?.dismiss() })
+        host.rootView = QuickPanelView(settings: settings, updater: updater, actions: actions, close: { [weak self] in self?.dismiss() })
         host.rootView.state.onResize = { [weak self] in self?.refit() }
         contentView = host
     }
@@ -126,6 +131,7 @@ final class QuickPanelState: ObservableObject {
 
 struct QuickPanelView: View {
     @ObservedObject var settings: SettingsModel
+    @ObservedObject var updater: Updater
     let actions: QuickPanelActions
     let close: () -> Void
     @ObservedObject var state = QuickPanelState()
@@ -151,6 +157,10 @@ struct QuickPanelView: View {
 
     private var mainPage: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let release = updater.available {
+                UpdateRow(version: release.version.description, installing: updater.installing) { close(); actions.installUpdate() }
+                    .padding(.bottom, 8)
+            }
             top
             divider
             theme
@@ -221,6 +231,9 @@ struct QuickPanelView: View {
             sectionTitle("Setup")
             toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
             Row(title: "Setup…") { close(); actions.openSetup() }
+            Row(title: "Check for updates…") { close(); actions.checkForUpdates() }
+            toggleRow("Check for updates automatically", Binding(get: { updater.checksAutomatically },
+                                                                 set: { updater.checksAutomatically = $0 }))
             Row(title: "Disconnect from Claude Code…") { close(); actions.disconnect() }
             Row(title: "Uninstall Claude Bubble…", destructive: true) { close(); actions.uninstall() }
             Row(title: "Reset position") { actions.resetPosition() }
@@ -465,6 +478,36 @@ private struct Row: View {
         }
         .buttonStyle(.plain)
         .padding(.horizontal, -6)
+        .onHover { hover = $0 }
+    }
+}
+
+/// "Update to 0.1.3" at the top of the panel while a newer version is out.
+private struct UpdateRow: View {
+    let version: String
+    let installing: Bool
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.down.circle.fill").font(.system(size: 14))
+                    .foregroundStyle(Color(red: 0.42, green: 0.85, blue: 0.55))
+                Text(installing ? "Downloading \(version)…" : "Update to \(version)").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                Spacer()
+                if !installing { Text("Install").font(.system(size: 12)).foregroundStyle(Color.white.opacity(0.5)) }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(red: 0.42, green: 0.85, blue: 0.55).opacity(hover ? 0.2 : 0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(red: 0.42, green: 0.85, blue: 0.55).opacity(0.3), lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(installing)
         .onHover { hover = $0 }
     }
 }

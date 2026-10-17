@@ -127,6 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         refreshInstalledHook()
         setUpStatusItem()
         showSetupOnFirstLaunch()
+        updater.onFound = { [weak self] release in self?.pushToast(.update, name: "Claude Bubble \(release.version)") }
+        updater.start()
         pipCard = PipCardPanel(model: model)
         watcher = SessionWatcher(directory: SessionStore.defaultDirectory) { [weak self] state, sessions in
             self?.watchedState = state
@@ -927,7 +929,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         quickPanel.show(at: NSEvent.mouseLocation)
     }
 
-    private lazy var quickPanel = QuickPanel(settings: settings, actions: QuickPanelActions(
+    private let updater = Updater()
+
+    private lazy var quickPanel = QuickPanel(settings: settings, updater: updater, actions: QuickPanelActions(
         hideForAnHour: { [weak self] in self?.hide(for: 3600) },
         restart: { [weak self] in self?.restart() },
         quit: { NSApp.terminate(nil) },
@@ -940,7 +944,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleLaunchAtLogin: { [weak self] in self?.toggleLaunchAtLogin() },
         debugState: { [weak self] in self?.forcedState?.rawValue ?? "live" },
         setDebugState: { [weak self] key in self?.forceState(key) },
-        openSimulator: { [weak self] in self?.openSimulator() }
+        openSimulator: { [weak self] in self?.openSimulator() },
+        installUpdate: { [weak self] in self?.offerUpdate() },
+        checkForUpdates: { [weak self] in self?.checkForUpdates() }
     ))
 
     /// Under the menu-bar icon (or at the pointer if the icon isn't showing).
@@ -1146,6 +1152,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         simulator.playDemo()
         let length = SimulatorModel.demoLength + 2.5   // a beat on Done before it starts again
         demoLoop = Timer.scheduledTimer(withTimeInterval: length, repeats: true) { [weak self] _ in self?.simulator.playDemo() }
+    }
+
+    /// Asks GitHub now, and says what it found.
+    private func checkForUpdates() {
+        updater.check(manual: true) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .newer: self.offerUpdate()
+            case .upToDate:
+                NSApp.activate(ignoringOtherApps: true)
+                let a = NSAlert()
+                a.messageText = "You're up to date"
+                a.informativeText = "Claude Bubble \(self.updater.current?.description ?? "") is the latest version."
+                a.runModal()
+            case .failed(let why):
+                NSApp.activate(ignoringOtherApps: true)
+                let a = NSAlert()
+                a.alertStyle = .warning
+                a.messageText = "Couldn't check for updates"
+                a.informativeText = why
+                a.runModal()
+            }
+        }
+    }
+
+    /// What's new in the available version, then install it (or not).
+    private func offerUpdate() {
+        guard let release = updater.available, !updater.installing else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.messageText = "Claude Bubble \(release.version) is available"
+        let notes = release.whatsNew.replacingOccurrences(of: "**", with: "")
+        a.informativeText = "You have \(updater.current?.description ?? "an older version").\n\n"
+            + (notes.count > 900 ? String(notes.prefix(900)) + "…" : notes)
+        a.addButton(withTitle: "Install & Relaunch")
+        a.addButton(withTitle: "Later")
+        a.addButton(withTitle: "Skip This Version")
+        switch a.runModal() {
+        case .alertFirstButtonReturn:
+            updater.install(release) { [weak self] error in self?.updateFailed(error, release) }
+        case .alertThirdButtonReturn:
+            updater.skip(release)
+        default:
+            break
+        }
+    }
+
+    private func updateFailed(_ error: Error, _ release: ReleaseInfo) {
+        NSApp.activate(ignoringOtherApps: true)
+        let a = NSAlert()
+        a.alertStyle = .warning
+        a.messageText = "Couldn't install the update"
+        a.informativeText = "\(error.localizedDescription)\n\nNothing was changed. You can download it from the release page instead."
+        a.addButton(withTitle: "Open Release Page")
+        a.addButton(withTitle: "Cancel")
+        if a.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(release.page) }
     }
 
     /// The first time the app opens without its hooks in Claude Code, it explains itself and offers to connect.
