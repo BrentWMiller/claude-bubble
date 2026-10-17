@@ -13,10 +13,13 @@ final class SetupModel: ObservableObject {
     let connect: () throws -> Void
     let toggleLaunchAtLogin: () -> Void
     let revealSettings: () -> Void
+    /// The real bubble acts out a sample session while setup is open (the Session Simulator's story).
+    let demo: (Bool) -> Void
 
     init(settings: SettingsModel, connect: @escaping () throws -> Void, toggleLaunchAtLogin: @escaping () -> Void,
-         revealSettings: @escaping () -> Void) {
+         revealSettings: @escaping () -> Void, demo: @escaping (Bool) -> Void) {
         self.settings = settings
+        self.demo = demo
         self.connect = connect
         self.toggleLaunchAtLogin = toggleLaunchAtLogin
         self.revealSettings = revealSettings
@@ -56,120 +59,13 @@ final class SetupModel: ObservableObject {
     }
 }
 
-// MARK: - Preview
-
-/// The live preview at the top of setup: the app's real orb, or its real island fed simulated sessions (as the
-/// Session Simulator does), cycling through the states so you know what each looks like.
-final class SetupPreviewModel: ObservableObject {
-    static let states: [(BubbleState, String, String)] = [
-        (.working, "Working", "Claude is thinking or running tools"),
-        (.needs, "Needs you", "Waiting on a permission or a question"),
-        (.error, "Error", "A turn failed"),
-        (.idle, "Done", "Finished and ready for you"),
-    ]
-    @Published var index = 0
-    /// One animator per view: each Metal view steps its animator as it draws.
-    let orbAnimator: OrbAnimator
-    let islandAnimator: OrbAnimator
-    let island = IslandModel()
-    let sessions = SessionsModel()
-    private(set) lazy var islandOrb: OrbView = {
-        let v = OrbView(frame: NSRect(x: 0, y: 0, width: IslandLayout.orbSize, height: IslandLayout.orbSize), animator: islandAnimator)
-        v.allowsDrag = false
-        v.passesMouseThrough = true
-        v.crisp = true
-        v.preferredFramesPerSecond = 30
-        return v
-    }()
-    private var timer: Timer?
-    private var doneAt: Date?
-
-    init(palette: OrbPalette) {
-        orbAnimator = OrbAnimator(state: Self.states[0].0, palette: palette)
-        islandAnimator = OrbAnimator(state: Self.states[0].0, palette: palette)
-        sessions.palette = palette
-        island.dock = .top
-        island.glow = .waves
-        island.rest = .live
-        apply(previous: nil)
-    }
-
-    var current: (BubbleState, String, String) { Self.states[index] }
-
-    func setPalette(_ palette: OrbPalette) {
-        orbAnimator.palette = palette
-        islandAnimator.palette = palette
-        sessions.palette = palette
-    }
-
-    func start() {
-        guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 3.4, repeats: true) { [weak self] _ in self?.advance() }
-    }
-
-    func stop() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    private func advance() {
-        let before = current.0
-        index = (index + 1) % Self.states.count
-        apply(previous: before)
-    }
-
-    /// Puts both views in the current state the way the app does: the orb's state (with the finish flourish into
-    /// Done), simulated sessions, the island's mode from them, and its glow colour fanning over.
-    private func apply(previous: BubbleState?) {
-        let state = current.0, now = Date()
-        for a in [orbAnimator, islandAnimator] {
-            a.setState(state)
-            if previous != nil, state == .idle { a.celebrate(from: .working) }
-        }
-        doneAt = state == .idle && previous != nil ? now : nil
-        var lead = Session(id: "sim-lead", state: state, updatedAt: now, project: "billing",
-                           detail: SimulatorStory.detail(for: state), stateSince: now, title: "Billing: CSV import")
-        lead.activity = SessionActivity(motion: state == .working ? .bash : .generating, since: now)
-        let other = Session(id: "sim-docs", state: .idle, updatedAt: now.addingTimeInterval(-600), project: "docs",
-                            detail: "Completed", stateSince: now.addingTimeInterval(-600), title: "Docs: getting started")
-        sessions.sessions = [lead, other]
-        island.mode = IslandMode.choose(sessions: sessions.sessions, now: now, hovering: false, doneAt: doneAt)
-        island.state = state
-        let key = IslandColorKey(state: state, done: island.mode == .done)
-        if key != island.colorKey {
-            island.fanFrom = island.colorKey
-            island.fanStart = CACurrentMediaTime()
-            island.colorKey = key
-        }
-    }
-}
-
-/// An OrbView for SwiftUI.
-private struct OrbPreview: NSViewRepresentable {
-    let animator: OrbAnimator
-    let side: CGFloat
-    var crisp = false
-
-    func makeNSView(context: Context) -> OrbView {
-        let v = OrbView(frame: NSRect(x: 0, y: 0, width: side, height: side), animator: animator)
-        v.allowsDrag = false
-        v.passesMouseThrough = true
-        v.crisp = crisp
-        return v
-    }
-
-    func updateNSView(_ nsView: OrbView, context: Context) {}
-}
-
 // MARK: - Setup view
 
 /// Welcome and setup: a live preview of the orb's states, how to show it, and what's connected.
 struct SetupView: View {
     @ObservedObject var model: SetupModel
-    @ObservedObject var preview: SetupPreviewModel
     @ObservedObject var settings: SettingsModel
     let close: () -> Void
-    @Environment(\.isSnapshot) private var snapshot
 
     private static let green = Color(red: 0.42, green: 0.85, blue: 0.55)
     private static let amber = Color(red: 1, green: 0.78, blue: 0.35)
@@ -188,7 +84,16 @@ struct SetupView: View {
             .frame(maxWidth: .infinity)
             .padding(.bottom, 20)
 
-            previewCard.padding(.bottom, 22)
+            HStack(spacing: 10) {
+                Image(systemName: "sparkles").font(.system(size: 13)).foregroundStyle(Self.amber)
+                Text("Your \(settings.prefs.style == .island ? "island" : "bubble") is playing a sample session while this window is open, so you can see what each state looks like.")
+                    .font(.system(size: 12.5)).foregroundStyle(Color.white.opacity(0.75)).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Self.amber.opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Self.amber.opacity(0.18), lineWidth: 1))
+            .padding(.bottom, 22)
 
             section("Preferences")
             card {
@@ -254,50 +159,7 @@ struct SetupView: View {
         .frame(width: 520)
         .background(Color(red: 0.13, green: 0.13, blue: 0.145))
         .environment(\.colorScheme, .dark)
-        .onAppear { model.refresh(); preview.start() }
-        .onDisappear { preview.stop() }
-    }
-
-    // The orb (or island) going through its states.
-    private var previewCard: some View {
-        let (state, name, what) = preview.current
-        let color = state.color(in: settings.prefs.palette)
-        return VStack(spacing: 0) {
-            ZStack {
-                if settings.prefs.style == .island {
-                    // The real island, docked to the top of the card as it would be under the menu bar.
-                    IslandView(model: preview.island, sessions: preview.sessions, orb: preview.islandOrb)
-                        .frame(width: IslandLayout.windowSize.width, height: 170)
-                        .frame(maxHeight: .infinity, alignment: .top)
-                } else {
-                    orb(state, side: 150)
-                }
-            }
-            .frame(height: 170)
-            .animation(.easeInOut(duration: 0.25), value: settings.prefs.style)
-            VStack(spacing: 4) {
-                Text(name).font(.system(size: 14, weight: .semibold)).foregroundStyle(color)
-                Text(what).font(.system(size: 13)).foregroundStyle(Self.dim)
-            }
-            .id(preview.index)
-            .transition(.opacity)
-            .animation(.easeInOut(duration: 0.3), value: preview.index)
-        }
-        .padding(.top, 14).padding(.bottom, 18)
-        .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(LinearGradient(colors: [Color(white: 0.07), Color(white: 0.035)], startPoint: .top, endPoint: .bottom)))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Self.line, lineWidth: 1))
-    }
-
-    /// The live orb, or (rendered offscreen, where Metal views can't draw) a still of it.
-    @ViewBuilder private func orb(_ state: BubbleState, side: CGFloat, crisp: Bool = false) -> some View {
-        if snapshot, let image = OrbSnapshot.render(state: state, size: Int(side * 2), palette: settings.prefs.palette) {
-            Image(decorative: image, scale: 2).frame(width: side, height: side)
-        } else {
-            OrbPreview(animator: preview.orbAnimator, side: side, crisp: crisp).frame(width: side, height: side)
-        }
+        .onAppear { model.refresh() }
     }
 
     private func section(_ title: String) -> some View {
@@ -401,13 +263,11 @@ private struct PillButton: ButtonStyle {
     }
 }
 
-final class SetupWindowController: NSWindowController {
+final class SetupWindowController: NSWindowController, NSWindowDelegate {
     let model: SetupModel
-    private let preview: SetupPreviewModel
 
     init(model: SetupModel) {
         self.model = model
-        preview = SetupPreviewModel(palette: model.settings.prefs.palette)
         let window = NSWindow(contentRect: .zero, styleMask: [.titled, .closable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -416,7 +276,8 @@ final class SetupWindowController: NSWindowController {
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
         super.init(window: window)
-        window.contentViewController = NSHostingController(rootView: SetupView(model: model, preview: preview, settings: model.settings) {
+        window.delegate = self
+        window.contentViewController = NSHostingController(rootView: SetupView(model: model, settings: model.settings) {
             [weak window] in window?.close()
         })
         window.center()
@@ -426,9 +287,12 @@ final class SetupWindowController: NSWindowController {
 
     func show() {
         model.refresh()
-        preview.setPalette(model.settings.prefs.palette)
+        model.demo(true)
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
     }
+
+    /// Closing hands the bubble back to the real sessions.
+    func windowWillClose(_ notification: Notification) { model.demo(false) }
 }

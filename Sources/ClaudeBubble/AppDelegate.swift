@@ -1123,9 +1123,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                     } else {
                         NSWorkspace.shared.open(url.deletingLastPathComponent())
                     }
-                }))
+                },
+                demo: { [weak self] on in self?.setupDemo(on) }))
         }
         setupWindow?.show()
+    }
+
+    private var demoLoop: Timer?
+
+    /// While setup is open, the real bubble plays the Session Simulator's sample session, on a loop.
+    private func setupDemo(_ on: Bool) {
+        demoLoop?.invalidate()
+        demoLoop = nil
+        guard on else {
+            simulator.reset()
+            simulator.usageActive = false
+            simulator.isOpen = false
+            return
+        }
+        simulator.isOpen = true
+        simulator.playSession()
+        let length = SimulatorStory.session.reduce(0) { $0 + $1.duration } + 3
+        demoLoop = Timer.scheduledTimer(withTimeInterval: length, repeats: true) { [weak self] _ in self?.simulator.playSession() }
     }
 
     /// The first time the app opens without its hooks in Claude Code, it explains itself and offers to connect.
