@@ -21,6 +21,8 @@ struct QuickPanelActions {
     var openSimulator: () -> Void
     var installUpdate: () -> Void
     var checkForUpdates: () -> Void
+    /// Shows the orb/island in the state a colour belongs to while it's being edited (nil: back to normal).
+    var previewColor: (PaletteColor?) -> Void
 }
 
 /// The right-click panel: the bubble's own dark card with one-click controls, instead of a system menu.
@@ -102,6 +104,7 @@ final class QuickPanel: NSPanel {
     }
 
     func dismiss() {
+        actions.previewColor(nil)
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         guard isVisible else { return }
@@ -314,7 +317,10 @@ struct QuickPanelView: View {
                 CustomSwatch(palette: prefs.palette, selected: prefs.customized, open: editingColors)
                     .onHover { hoveredTheme = $0 ? "Custom" : (hoveredTheme == "Custom" ? nil : hoveredTheme) }
                     .onTapGesture {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { editingColors.toggle() }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            editingColors.toggle()
+                            if !editingColors { editingColor = nil }
+                        }
                         state.resized()
                     }
                     .help("Custom colours")
@@ -332,7 +338,7 @@ struct QuickPanelView: View {
                                 }
                         }
                     }
-                    // Edits apply as you drag: the orb (or island) itself is the preview.
+                    // Edits apply as you drag, with the orb (or island) showing that colour's state: it's the preview.
                     if let c = editingColor {
                         ColorEditor(rgb: Binding(get: { prefs.palette[c] }, set: { settings.setColor($0, for: c) }))
                             .id(c)
@@ -342,6 +348,7 @@ struct QuickPanelView: View {
                 .transition(.opacity)
             }
         }
+        .onChange(of: editingColor) { _, color in actions.previewColor(color) }
     }
 
     // MARK: Size, opacity, pointer

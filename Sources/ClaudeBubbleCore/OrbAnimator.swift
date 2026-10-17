@@ -181,6 +181,9 @@ public final class OrbAnimator {
 
     /// Everything finished: play the completed moment, holding `held`'s look until the release.
     /// Changing state never celebrates on its own; the caller decides (the pips' all-done merge, or Debug).
+    /// Holds the all-done wash (previewing its colour while it's being edited).
+    public var showsDone = false
+
     public func celebrate(from held: BubbleState) {
         heldState = held
         completionTime = 0
@@ -307,8 +310,8 @@ public final class OrbAnimator {
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
         // All done: wash into green on the release, hold, then fade back to the palette's rest colours.
         var output = UsageTint.blend(current, palette: palette, warm: usageWarm * tintGate, critical: usageCritical * tintGate)
-        if let bt = completionTime {
-            let w = Self.smoothstep(0.42, 0.55, bt) * (1 - Self.smoothstep(1.0, 2.25, bt))
+        let washed = showsDone ? 1 : completionTime.map { bt in Self.smoothstep(0.42, 0.55, bt) * (1 - Self.smoothstep(1.0, 2.25, bt)) }
+        if let w = washed {
             let g = palette.done
             output.c1 += (g.c1 - output.c1) * w
             output.c2 += (g.c2 - output.c2) * w

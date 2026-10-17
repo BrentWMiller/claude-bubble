@@ -64,6 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// No sounds for the burst of pips that appear at launch.
     private let launchedAt = CACurrentMediaTime()
     private var forcedState: BubbleState?
+    /// The colour being edited in the quick panel: the orb and island show its state meanwhile.
+    private var previewColor: PaletteColor?
     private let toggleItem = NSMenuItem(title: "", action: #selector(toggleBubble), keyEquivalent: "")
     private var debugItems: [NSMenuItem] = []
     /// The Colors/Size/Opacity/Follow items in the menu-bar menu; rebuilt each time it opens.
@@ -268,7 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// What the orb shows. Never celebrates by itself: that's the pips' all-done merge (or Debug).
     private func applyState() {
-        let state = forcedState ?? hoveredState ?? liveState
+        let state = previewState ?? forcedState ?? hoveredState ?? liveState
         animator.setState(state)
         // The menu-bar icon tracks the real (or forced) state, not a hover preview.
         statusItem.button?.image = bubbleHidden ? Self.hiddenImage : Self.statusImage(for: forcedState ?? liveState, palette: applied.palette)
@@ -416,7 +418,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                             openDelay: HoverTracker.islandOpenDelay)
         if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
         if open, !wasOpen { prStatus.refresh(model.sessions, looking: true) }
-        let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open, doneAt: islandDoneAt, quiet: quiet)
+        let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open,
+                                     doneAt: previewColor == .done ? Date() : islandDoneAt, quiet: quiet)
         if m.mode != mode { m.mode = mode }
         // Peeking at the session panel while quiet shows the orb at its normal size.
         animator.quiet = quiet && mode != .hover
@@ -982,8 +985,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setDebugState: { [weak self] key in self?.forceState(key) },
         openSimulator: { [weak self] in self?.openSimulator() },
         installUpdate: { [weak self] in self?.offerUpdate() },
-        checkForUpdates: { [weak self] in self?.checkForUpdates() }
+        checkForUpdates: { [weak self] in self?.checkForUpdates() },
+        previewColor: { [weak self] color in self?.preview(color) }
     ))
+
+    private func preview(_ color: PaletteColor?) {
+        guard color != previewColor else { return }
+        previewColor = color
+        animator.showsDone = color == .done
+        applyState()
+    }
+
+    /// The state that shows a colour being edited (Idle has none of its own on the orb: its resting look).
+    private var previewState: BubbleState? {
+        switch previewColor {
+        case nil: nil
+        case .completed, .idle, .done: .idle
+        case .working: .working
+        case .needs: .needs
+        case .error: .error
+        }
+    }
 
     /// Under the menu-bar icon (or at the pointer if the icon isn't showing).
     private func showQuickPanelFromStatusItem(page: QuickPanelState.Page = .main) {

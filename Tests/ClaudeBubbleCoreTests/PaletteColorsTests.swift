@@ -30,6 +30,18 @@ final class PaletteColorsTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(OrbPalette.self, from: JSONEncoder().encode(p)), p)
     }
 
+    // Editing All done holds the orb in it, so the colour can be seen.
+    func testShowsDoneHoldsTheWash() {
+        var palette = OrbPalette.originalDesign
+        palette[.done] = [1, 0, 0]
+        let a = OrbAnimator(state: .idle, palette: palette)
+        a.showsDone = true
+        let f = a.step(dt: 1.0 / 60)
+        XCTAssertEqual(f.params.c1, palette.done.c1)
+        a.showsDone = false
+        XCTAssertNotEqual(a.step(dt: 1.0 / 60).params.c1, palette.done.c1)
+    }
+
     func testLabels() {
         XCTAssertEqual(PaletteColor.allCases.map(\.label), ["Completed", "Working", "Needs you", "Error", "Idle", "All done"])
     }
