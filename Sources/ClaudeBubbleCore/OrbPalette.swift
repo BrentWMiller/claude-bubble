@@ -11,9 +11,56 @@ public struct StateColors: Codable, Equatable, Sendable {
 
 public struct OrbPalette: Codable, Equatable, Sendable {
     public var idle, working, needs, error: StateColors
+    /// Sessions that went quiet without finishing ("Idle" in the list and pips).
+    public var quiet: SIMD3<Float>
+    /// The "All done" wash when every session finishes.
+    public var done: StateColors
 
-    public init(idle: StateColors, working: StateColors, needs: StateColors, error: StateColors) {
+    /// Grey, about how white at 45% reads on the panels' near-black.
+    public static let defaultQuiet: SIMD3<Float> = [0.5, 0.5, 0.51]
+    /// The design's success mint.
+    public static let defaultDone = StateColors(c1: [0.74, 1, 0.84], c2: [0.5, 0.88, 0.7], c3: [0.9, 1, 0.92],
+                                                halo: [0.1, 0.3, 0.18], swatch: [0.74, 1, 0.84])
+
+    public init(idle: StateColors, working: StateColors, needs: StateColors, error: StateColors,
+                quiet: SIMD3<Float> = OrbPalette.defaultQuiet, done: StateColors = OrbPalette.defaultDone) {
         self.idle = idle; self.working = working; self.needs = needs; self.error = error
+        self.quiet = quiet; self.done = done
+    }
+
+    private enum CodingKeys: String, CodingKey { case idle, working, needs, error, quiet, done }
+
+    // Palettes saved before Idle and All done could be edited lack them: those take the defaults.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(idle: try c.decode(StateColors.self, forKey: .idle), working: try c.decode(StateColors.self, forKey: .working),
+                  needs: try c.decode(StateColors.self, forKey: .needs), error: try c.decode(StateColors.self, forKey: .error),
+                  quiet: try c.decodeIfPresent(SIMD3<Float>.self, forKey: .quiet) ?? Self.defaultQuiet,
+                  done: try c.decodeIfPresent(StateColors.self, forKey: .done) ?? Self.defaultDone)
+    }
+
+    /// One of the colours you can edit, by its flat colour (the shader colours are derived from it).
+    public subscript(color: PaletteColor) -> SIMD3<Float> {
+        get {
+            switch color {
+            case .completed: idle.swatch
+            case .working: working.swatch
+            case .needs: needs.swatch
+            case .error: error.swatch
+            case .idle: quiet
+            case .done: done.swatch
+            }
+        }
+        set {
+            switch color {
+            case .completed: idle = PaletteDerivation.colors(from: newValue)
+            case .working: working = PaletteDerivation.colors(from: newValue)
+            case .needs: needs = PaletteDerivation.colors(from: newValue)
+            case .error: error = PaletteDerivation.colors(from: newValue)
+            case .idle: quiet = newValue
+            case .done: done = PaletteDerivation.colors(from: newValue)
+            }
+        }
     }
 
     public subscript(state: BubbleState) -> StateColors {
@@ -170,6 +217,22 @@ public struct OrbPalette: Codable, Equatable, Sendable {
 }
 
 /// Turns one picked color into a full orb state, shaped like the hand-made palettes.
+/// The colours you can set yourself: the four states, plus sessions gone quiet and the all-done wash.
+public enum PaletteColor: CaseIterable, Sendable {
+    case completed, working, needs, error, idle, done
+
+    public var label: String {
+        switch self {
+        case .completed: "Completed"
+        case .working: "Working"
+        case .needs: "Needs you"
+        case .error: "Error"
+        case .idle: "Idle"
+        case .done: "All done"
+        }
+    }
+}
+
 public enum PaletteDerivation {
     public static func colors(from base: SIMD3<Float>) -> StateColors {
         let b = clamp(base)

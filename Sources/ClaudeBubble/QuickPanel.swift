@@ -21,6 +21,8 @@ struct QuickPanelActions {
     var openSimulator: () -> Void
     var installUpdate: () -> Void
     var checkForUpdates: () -> Void
+    /// Shows the orb/island in the state a colour belongs to while it's being edited (nil: back to normal).
+    var previewColor: (PaletteColor?) -> Void
 }
 
 /// The right-click panel: the bubble's own dark card with one-click controls, instead of a system menu.
@@ -102,6 +104,7 @@ final class QuickPanel: NSPanel {
     }
 
     func dismiss() {
+        actions.previewColor(nil)
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         guard isVisible else { return }
@@ -141,16 +144,28 @@ struct QuickPanelView: View {
     @State private var hoveredTheme: String?
     /// The custom colour wells under the theme grid are open.
     @State private var editingColors = false
+    /// The colour open in the editor under the wells.
+    @State private var editingColor: PaletteColor?
 
     private var prefs: BubblePreferences { settings.prefs }
     private let dim = Color.white.opacity(0.5)
 
     var body: some View {
-        Group {
-            if state.page == .main { mainPage.transition(.move(edge: .leading).combined(with: .opacity)) }
-            else { advancedPage.transition(.move(edge: .trailing).combined(with: .opacity)) }
+        VStack(spacing: 0) {
+            // A grab handle: drag the panel anywhere (dragging its background would fight the sliders).
+            ZStack {
+                Capsule().fill(Color.white.opacity(0.18)).frame(width: 32, height: 4)
+                WindowDragArea()
+            }
+            .frame(height: 14)
+            .help("Drag to move")
+            Group {
+                if state.page == .main { mainPage.transition(.move(edge: .leading).combined(with: .opacity)) }
+                else { advancedPage.transition(.move(edge: .trailing).combined(with: .opacity)) }
+            }
         }
-        .padding(10)
+        .padding([.horizontal, .bottom], 10)
+        .padding(.top, 2)
         .frame(width: QuickPanel.width)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x1c / 255, green: 0x1c / 255, blue: 0x20 / 255)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.1), lineWidth: 1))
@@ -312,27 +327,38 @@ struct QuickPanelView: View {
                 CustomSwatch(palette: prefs.palette, selected: prefs.customized, open: editingColors)
                     .onHover { hoveredTheme = $0 ? "Custom" : (hoveredTheme == "Custom" ? nil : hoveredTheme) }
                     .onTapGesture {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { editingColors.toggle() }
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            editingColors.toggle()
+                            if !editingColors { editingColor = nil }
+                        }
                         state.resized()
                     }
                     .help("Custom colours")
             }
             if editingColors {
-                HStack(spacing: 0) {
-                    ForEach([BubbleState.idle, .working, .needs, .error], id: \.self) { st in
-                        VStack(spacing: 4) {
-                            ColorPicker("", selection: Binding(get: { st.color(in: prefs.palette) },
-                                                               set: { settings.setColor(NSColor($0), for: st) }),
-                                        supportsOpacity: false)
-                                .labelsHidden()
-                            Text(st.settingsLabel).font(.system(size: 11)).foregroundStyle(dim)
+                VStack(spacing: 10) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 8) {
+                        ForEach(PaletteColor.allCases, id: \.self) { c in
+                            ColorWell(rgb: prefs.palette[c], label: c.label, selected: editingColor == c)
+                                .onTapGesture {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                        editingColor = editingColor == c ? nil : c
+                                    }
+                                    state.resized()
+                                }
                         }
-                        .frame(maxWidth: .infinity)
+                    }
+                    // Edits apply as you drag, with the orb (or island) showing that colour's state: it's the preview.
+                    if let c = editingColor {
+                        ColorEditor(rgb: Binding(get: { prefs.palette[c] }, set: { settings.setColor($0, for: c) }))
+                            .id(c)
+                            .transition(.opacity)
                     }
                 }
                 .transition(.opacity)
             }
         }
+        .onChange(of: editingColor) { _, color in actions.previewColor(color) }
     }
 
     // MARK: Size, opacity, pointer
@@ -415,6 +441,137 @@ struct QuickPanelView: View {
             Toggle("", isOn: on).toggleStyle(.switch).controlSize(.small).tint(Color(red: 0.2, green: 0.78, blue: 0.35)).labelsHidden()
         }
         .font(.system(size: 13))
+    }
+}
+
+/// Moves its window when dragged (the system's own window drag), with an open-hand cursor over it.
+private struct WindowDragArea: NSViewRepresentable {
+    final class Area: NSView {
+        override func mouseDown(with event: NSEvent) { window?.performDrag(with: event) }
+        override func resetCursorRects() { addCursorRect(bounds, cursor: .openHand) }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    }
+
+    func makeNSView(context: Context) -> Area { Area() }
+    func updateNSView(_ nsView: Area, context: Context) {}
+}
+
+/// One editable colour: a well with its name under it, ringed while it's open in the editor.
+private struct ColorWell: View {
+    let rgb: SIMD3<Float>
+    let label: String
+    let selected: Bool
+    @State private var hover = false
+
+    var body: some View {
+        VStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color(red: Double(rgb.x), green: Double(rgb.y), blue: Double(rgb.z)))
+                .frame(height: 22)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(selected ? 1 : hover ? 0.45 : 0), lineWidth: 2)
+                    .padding(-3))
+            Text(label).font(.system(size: 11)).foregroundStyle(Color.white.opacity(selected ? 0.95 : 0.5))
+        }
+        .padding(.horizontal, 3)
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+    }
+}
+
+/// A small colour picker that lives in the panel (the system colour panel would take focus and close it): a
+/// saturation/brightness square, a hue bar and a hex field. Every change is applied straight away.
+private struct ColorEditor: View {
+    @Binding var rgb: SIMD3<Float>
+    @State private var hue: Double = 0
+    @State private var saturation: Double = 0
+    @State private var brightness: Double = 0
+    @State private var hex = ""
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        VStack(spacing: 8) {
+            GeometryReader { geo in
+                let size = geo.size
+                ZStack(alignment: .topLeading) {
+                    Color(hue: hue, saturation: 1, brightness: 1)
+                    LinearGradient(colors: [.white, .white.opacity(0)], startPoint: .leading, endPoint: .trailing)
+                    LinearGradient(colors: [.black.opacity(0), .black], startPoint: .top, endPoint: .bottom)
+                    knob(Color(hue: hue, saturation: saturation, brightness: brightness))
+                        .position(x: saturation * size.width, y: (1 - brightness) * size.height)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+                    saturation = min(max(g.location.x / size.width, 0), 1)
+                    brightness = 1 - min(max(g.location.y / size.height, 0), 1)
+                    apply()
+                })
+            }
+            .frame(height: 96)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    LinearGradient(colors: stride(from: 0.0, through: 1, by: 1.0 / 6).map { Color(hue: $0, saturation: 1, brightness: 1) },
+                                   startPoint: .leading, endPoint: .trailing)
+                        .clipShape(Capsule())
+                    knob(Color(hue: hue, saturation: 1, brightness: 1))
+                        .position(x: hue * geo.size.width, y: geo.size.height / 2)
+                }
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 0).onChanged { g in
+                    hue = min(max(g.location.x / geo.size.width, 0), 0.9999)
+                    apply()
+                })
+            }
+            .frame(height: 12)
+            HStack(spacing: 8) {
+                Circle().fill(Color(red: Double(rgb.x), green: Double(rgb.y), blue: Double(rgb.z))).frame(width: 14, height: 14)
+                TextField("#RRGGBB", text: $hex)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12, design: .monospaced))
+                    .focused($typing)
+                    .onSubmit(applyHex)
+                    .onChange(of: typing) { _, on in if !on { applyHex() } }
+                Spacer()
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+        }
+        .onAppear(perform: load)
+    }
+
+    private func knob(_ fill: Color) -> some View {
+        Circle().fill(fill)
+            .overlay(Circle().stroke(Color.white, lineWidth: 2))
+            .shadow(color: .black.opacity(0.4), radius: 2)
+            .frame(width: 12, height: 12)
+    }
+
+    /// Picks up the current colour (keeping the hue of a grey, which has none of its own).
+    private func load() {
+        let c = NSColor(srgbRed: CGFloat(rgb.x), green: CGFloat(rgb.y), blue: CGFloat(rgb.z), alpha: 1)
+        if c.saturationComponent > 0.001 { hue = c.hueComponent }
+        saturation = c.saturationComponent
+        brightness = c.brightnessComponent
+        hex = Self.hex(rgb)
+    }
+
+    private func apply() {
+        guard let c = NSColor(hue: hue, saturation: saturation, brightness: brightness, alpha: 1).usingColorSpace(.sRGB) else { return }
+        rgb = [Float(c.redComponent), Float(c.greenComponent), Float(c.blueComponent)]
+        if !typing { hex = Self.hex(rgb) }
+    }
+
+    private func applyHex() {
+        let digits = hex.trimmingCharacters(in: .whitespaces).trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard digits.count == 6, let v = UInt32(digits, radix: 16) else { hex = Self.hex(rgb); return }
+        rgb = [Float((v >> 16) & 0xff) / 255, Float((v >> 8) & 0xff) / 255, Float(v & 0xff) / 255]
+        load()
+    }
+
+    static func hex(_ c: SIMD3<Float>) -> String {
+        String(format: "#%02X%02X%02X", Int((c.x * 255).rounded()), Int((c.y * 255).rounded()), Int((c.z * 255).rounded()))
     }
 }
 

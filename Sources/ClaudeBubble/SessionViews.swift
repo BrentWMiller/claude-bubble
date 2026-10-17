@@ -22,7 +22,7 @@ extension BubbleState {
 /// Session pips on an arc under the orb, choreographed by `PipChoreographer` (spawn, hop, shake, flare, merge).
 extension StatusTone {
     /// Status colours follow the orb's palette: needs/review, error, working, and finished take its swatches;
-    /// sessions that went quiet without finishing stay grey.
+    /// sessions that went quiet without finishing take the palette's Idle colour.
     func color(in palette: OrbPalette) -> Color {
         let state: BubbleState
         switch self {
@@ -30,7 +30,9 @@ extension StatusTone {
         case .error: state = .error
         case .working: state = .working
         case .completed: state = .idle
-        case .idle: return Color.white.opacity(0.45)
+        case .idle:
+            let c = palette.quiet
+            return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
         }
         return state.color(in: palette)
     }
