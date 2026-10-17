@@ -46,7 +46,8 @@ struct IslandColorKey: Equatable {
     let done: Bool
 
     func rgb(_ palette: OrbPalette) -> SIMD3<Double> {
-        if done { return [0.47, 0.9, 0.67] }
+        // The all-done colour's deeper tone, which reads better as a glow than its pale main colour.
+        if done { let c = palette.done.c2; return [Double(c.x), Double(c.y), Double(c.z)] }
         let c = palette[state].swatch
         return [Double(c.x), Double(c.y), Double(c.z)]
     }
@@ -476,7 +477,7 @@ struct IslandView: View {
         switch model.mode {
         case .needs: BubbleState.needs.color(in: sessions.palette)
         case .error: BubbleState.error.color(in: sessions.palette)
-        case .done: IslandGlowView.doneColor
+        case .done: IslandGlowView.color(state: .idle, done: true, palette: sessions.palette)
         default: .white
         }
     }
@@ -504,7 +505,6 @@ struct IslandGlowView: View {
         return Image(nsImage: image)
     }()
 
-    static let doneColor = Color(red: 0.47, green: 0.9, blue: 0.67)
 
     /// How fast the dot-wave rolls (the design's speeds, slowed to 60%: calmer on a desktop you look at all day).
     static func waveSpeed(idle: Bool, fast: Bool) -> Double {
@@ -512,7 +512,7 @@ struct IslandGlowView: View {
     }
 
     static func color(state: BubbleState, done: Bool, palette: OrbPalette) -> Color {
-        if done { return doneColor }
+        if done { let c = palette.done.c2; return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)) }
         return state.color(in: palette)
     }
 

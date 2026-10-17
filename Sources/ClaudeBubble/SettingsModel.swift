@@ -28,10 +28,9 @@ final class SettingsModel: ObservableObject {
         prefs = p
     }
 
-    func setColor(_ color: NSColor, for state: BubbleState) {
-        guard let c = color.usingColorSpace(.sRGB) else { return }
+    func setColor(_ rgb: SIMD3<Float>, for color: PaletteColor) {
         var p = prefs
-        p.palette[state] = PaletteDerivation.colors(from: [Float(c.redComponent), Float(c.greenComponent), Float(c.blueComponent)])
+        p.palette[color] = rgb
         p.customized = true
         prefs = p
     }

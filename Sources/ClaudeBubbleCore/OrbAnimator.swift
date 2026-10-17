@@ -94,9 +94,8 @@ public final class OrbAnimator {
     private var completionTime: Float?
     /// The completed moment plays at half the design's speed (8s instead of 4s), so it's easy to take in.
     public static let completionSpeed: Float = 0.5
-    /// "All done" green the orb washes into on the release, whatever the palette (the design's success mint).
-    public static let doneGreen = StateColors(c1: [0.74, 1, 0.84], c2: [0.5, 0.88, 0.7], c3: [0.9, 1, 0.92],
-                                              halo: [0.1, 0.3, 0.18], swatch: [0.74, 1, 0.84])
+    /// "All done" green the orb washes into on the release by default (the palette's `done` sets it).
+    public static let doneGreen = OrbPalette.defaultDone
     /// The look held through the gather (what the orb looked like when the celebration began).
     private var heldState: BubbleState = .working
     /// A ring pop's clock; nil when not playing.
@@ -310,7 +309,7 @@ public final class OrbAnimator {
         var output = UsageTint.blend(current, palette: palette, warm: usageWarm * tintGate, critical: usageCritical * tintGate)
         if let bt = completionTime {
             let w = Self.smoothstep(0.42, 0.55, bt) * (1 - Self.smoothstep(1.0, 2.25, bt))
-            let g = Self.doneGreen
+            let g = palette.done
             output.c1 += (g.c1 - output.c1) * w
             output.c2 += (g.c2 - output.c2) * w
             output.c3 += (g.c3 - output.c3) * w

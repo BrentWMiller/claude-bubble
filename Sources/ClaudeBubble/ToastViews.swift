@@ -20,7 +20,7 @@ extension ToastKind {
         case .needs, .review, .usageLow: palette[.needs].swatch
         case .error, .usageCritical: palette[.error].swatch
         case .finished, .usageRefreshed, .catchUp, .update: palette[.idle].swatch
-        case .allDone: OrbAnimator.doneGreen.swatch
+        case .allDone: palette.done.swatch
         }
         return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
     }
