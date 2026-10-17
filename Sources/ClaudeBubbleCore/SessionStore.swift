@@ -92,7 +92,14 @@ public enum SessionStore {
             .appendingPathComponent(".claude-bubble/sessions", isDirectory: true)
     }
 
-    private struct Record: Decodable {
+    /// Decoded session and job files, for a watcher's reloads (one queue's).
+    public final class LoadCache {
+        fileprivate let sessions = FileCache<Record>()
+        fileprivate let jobs = FileCache<JobInfo>()
+        public init() {}
+    }
+
+    fileprivate struct Record: Decodable {
         let state: String
         let cwd: String?
         let updated_at: Double
@@ -111,7 +118,7 @@ public enum SessionStore {
         let transcript: String?
     }
 
-    private struct SubagentList: Decodable {
+    fileprivate struct SubagentList: Decodable {
         let count: Int
         init(from decoder: Decoder) throws {
             let c = try decoder.singleValueContainer()
@@ -134,15 +141,19 @@ public enum SessionStore {
     }
 
     public static func load(from dir: URL, now: Date = Date(),
-                            isAlive: (Int32, Date) -> Bool = processIsAlive(_:lastSeen:)) -> [Session] {
+                            isAlive: (Int32, Date) -> Bool = processIsAlive(_:lastSeen:), cache: LoadCache? = nil) -> [Session] {
         let fm = FileManager.default
         guard let names = try? fm.contentsOfDirectory(atPath: dir.path) else { return [] }
+        let decoder = JSONDecoder()
+        let decode = { (data: Data) in try? decoder.decode(Record.self, from: data) }
         var sessions: [Session] = []
+        var seen: Set<String> = []
+        defer { cache?.sessions.prune(keeping: seen) }
         for name in names.sorted() where name.hasSuffix(".json") && !name.hasPrefix(".") {
             let url = dir.appendingPathComponent(name)
-            guard let data = try? Data(contentsOf: url),
-                  let record = try? JSONDecoder().decode(Record.self, from: data),
-                  let state = BubbleState(rawValue: record.state) else { continue }
+            seen.insert(url.path)
+            let found = cache.map { $0.sessions.value(at: url, decode: decode) } ?? (try? Data(contentsOf: url)).flatMap(decode)
+            guard let record = found, let state = BubbleState(rawValue: record.state) else { continue }
             let updated = Date(timeIntervalSince1970: record.updated_at)
             // pid 0/1 would make kill() target a process group or launchd, so treat it as unknown.
             let pid = record.pid.flatMap { $0 > 1 ? $0 : nil }
@@ -208,9 +219,10 @@ public enum SessionStore {
     /// Adds what Claude Code's job files know: session titles, its own status line while working, "Ready for
     /// review" (finished with a PR), and "Needs input" (the turn ended on a question). Needs/error from the hook
     /// keep its more specific text.
-    public static func withJobs(_ sessions: [Session], from jobsDir: URL = JobStore.defaultDirectory) -> [Session] {
+    public static func withJobs(_ sessions: [Session], from jobsDir: URL = JobStore.defaultDirectory,
+                                cache: LoadCache? = nil) -> [Session] {
         sessions.map { s in
-            guard let job = JobStore.load(sessionId: s.id, from: jobsDir) else { return s }
+            guard let job = JobStore.load(sessionId: s.id, from: jobsDir, cache: cache?.jobs) else { return s }
             let name = job.name?.trimmingCharacters(in: .whitespacesAndNewlines)
             let title = (name?.isEmpty ?? true) ? nil : name
             var detail = s.detail
