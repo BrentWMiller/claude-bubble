@@ -47,7 +47,11 @@ final class StressRunner: ObservableObject {
         elapsed = 0
         report = nil
         PerfMeter.shared.recording = true
-        let count = sessions, subs = subagents, files = writesFiles, interval = 1 / max(rate, 0.5)
+        // Typed in, so kept within reason.
+        sessions = min(max(sessions, 1), 500)
+        subagents = min(max(subagents, 0), 20)
+        rate = min(max(rate, 0.1), 1000)
+        let count = sessions, subs = subagents, files = writesFiles, interval = 1 / rate
         let made = (0..<count).map { i in
             let name = String(format: "agent-%02d", i + 1)
             return StressAgent(sessionID: Self.prefix + name, cwd: "/stress/\(name)", maxSubagents: subs)
@@ -124,7 +128,7 @@ final class StressRunner: ObservableObject {
 
     /// The settings and the last readout, for pasting into a note or an issue.
     func copyReport() {
-        let head = "Claude Bubble stress test: \(sessions) sessions × \(subagents) subagents, \(Int(rate)) events/s, "
+        let head = "Claude Bubble stress test: \(sessions) sessions × \(subagents) subagents, \(rate.formatted()) events/s, "
             + (writesFiles ? "real files" : "in memory") + ", ran \(Self.duration(elapsed))"
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(head + "\n" + (report?.text ?? "(no readout yet)"), forType: .string)

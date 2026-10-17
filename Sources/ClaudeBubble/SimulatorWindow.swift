@@ -82,14 +82,11 @@ struct SimulatorView: View {
                 Toggle("Real files", isOn: $stress.writesFiles)
                     .help("Write session files like the hook does, so loading and syncing are measured too (otherwise drawing only)")
             }
-            Group {
-                Stepper("Sessions \(stress.sessions)", value: $stress.sessions, in: 1...50)
-                Stepper("Subagents each \(stress.subagents)", value: $stress.subagents, in: 0...6)
-                HStack {
-                    Text("Events")
-                    Slider(value: $stress.rate, in: 1...100)
-                    Text("\(Int(stress.rate))/s").font(.system(size: 12, design: .monospaced)).frame(width: 50, alignment: .trailing)
-                }
+            HStack(spacing: 14) {
+                number("Sessions", $stress.sessions)
+                number("Subagents each", $stress.subagents)
+                number("Events/s", $stress.rate)
+                Spacer()
             }
             .disabled(stress.running)
             HStack {
@@ -136,6 +133,20 @@ struct SimulatorView: View {
         .controlSize(.small)
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(0.05)))
+    }
+
+    private func number(_ label: String, _ value: Binding<Int>) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+            TextField("", value: value, format: .number).frame(width: 48).multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func number(_ label: String, _ value: Binding<Double>) -> some View {
+        HStack(spacing: 6) {
+            Text(label)
+            TextField("", value: value, format: .number.precision(.fractionLength(0...1))).frame(width: 48).multilineTextAlignment(.trailing)
+        }
     }
 
     private func row(_ s: SimulatorModel.Sim) -> some View {
