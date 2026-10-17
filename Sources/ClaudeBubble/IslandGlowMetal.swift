@@ -102,6 +102,7 @@ enum GlowShaders {
     struct DotOut {
         float4 position [[position]];
         float pointSize [[point_size]];
+        float diameter;    // the point's size in pixels again: [[point_size]] doesn't reach the fragment stage
         float radius;      // pt
         float4 color;      // premultiplied
     };
@@ -112,6 +113,7 @@ enum GlowShaders {
         DotOut out;
         out.position = float4(-2, -2, 0, 1);
         out.pointSize = 0;
+        out.diameter = 0;
         out.radius = 0;
         out.color = float4(0);
         uint cols = uint(u.misc.z);
@@ -142,13 +144,14 @@ enum GlowShaders {
         float3 rgb = d0 < front ? u.to.rgb : u.from.rgb;
         out.position = float4(px / u.frame.x * 2 - 1, 1 - py / u.frame.y * 2, 0, 1);
         out.pointSize = (rad * 2 + 2) * u.frame.z;
+        out.diameter = out.pointSize;
         out.radius = rad;
         out.color = float4(rgb * stepped, stepped);
         return out;
     }
 
     fragment float4 dotFragment(DotOut in [[stage_in]], float2 pc [[point_coord]], constant GlowUniforms &u [[buffer(0)]]) {
-        float d = length(pc - 0.5) * in.pointSize;              // pixels from the centre
+        float d = length(pc - 0.5) * in.diameter;               // pixels from the centre
         float cover = clamp(in.radius * u.frame.z - d + 0.5, 0.0, 1.0);
         cover *= pill(in.position.xy / u.frame.z, u, 0.0);
         return in.color * cover;
