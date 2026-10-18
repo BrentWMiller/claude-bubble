@@ -267,11 +267,13 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     if (gy > 0.) gy = max(smin(gy, lim / max(abs(sp.y), 1e-3) - 1., .15), 0.);
     sp.x *= 1. + gx;
     sp.y *= 1. + gy;
-    float soft = .12 * R;
-    if (dep.x > 0.) sp.x = smin(sp.x, ed.x * R, soft);
-    if (dep.z > 0.) sp.x = -smin(-sp.x, ed.z * R, soft);
-    if (dep.y > 0.) sp.y = smin(sp.y, ed.y * R, soft);
-    if (dep.w > 0.) sp.y = -smin(-sp.y, ed.w * R, soft);
+    // Squish, not flatten: the touching side is pulled in until its rim just meets the edge, staying rounded (a
+    // squeezed ball), easing off toward the far side.
+    float4 fit = clamp(ed, .2, 1.);   // the rim's new reach on each side, in radii
+    if (dep.x > 0. && sp.x > 0.) sp.x *= mix(1., fit.x, ss(-.2, 1., rp.x));
+    if (dep.z > 0. && sp.x < 0.) sp.x *= mix(1., fit.z, ss(-.2, 1., -rp.x));
+    if (dep.y > 0. && sp.y > 0.) sp.y *= mix(1., fit.y, ss(-.2, 1., rp.y));
+    if (dep.w > 0. && sp.y < 0.) sp.y *= mix(1., fit.w, ss(-.2, 1., -rp.y));
     o.position = float4(sp, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
