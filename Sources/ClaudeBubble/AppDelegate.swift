@@ -1100,7 +1100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let styles = NSMenu()
         for style in BubbleStyle.allCases {
-            let it = item(style == .orb ? "Orb" : "Island", #selector(pickStyle(_:)))
+            let it = item(style == .orb ? "Orb" : "Dock", #selector(pickStyle(_:)))
             it.representedObject = style.rawValue
             it.state = prefs.style == style ? .on : .off
             styles.addItem(it)
@@ -1114,7 +1114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let follow = item("Follow the Pointer", #selector(toggleFollow))
         follow.state = prefs.followPointer ? .on : .off
-        let styleItems = [submenu("Style", styles)] + (prefs.style == .island ? [submenu("Island Dock", docks)] : [])
+        let styleItems = [submenu("Style", styles)] + (prefs.style == .island ? [submenu("Dock Edge", docks)] : [])
         return styleItems + [quietItem, submenu("Colors", colors), submenu("Size", sizes), submenu("Opacity", opacities),
                 submenu("Interaction", interactions), toastItem, usageItem, edgeItem, soundItem, submenu("Completion Sound", completions), follow]
     }
