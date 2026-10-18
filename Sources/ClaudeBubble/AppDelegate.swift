@@ -344,7 +344,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// The orb flies from its spot into a closed island, which then opens.
-    private func morphToIsland(_ island: IslandPanel) -> Bool {
+    /// `fromQuiet`: the orb leaving is quiet's small one, which flies at the island orb's size from the start.
+    private func morphToIsland(_ island: IslandPanel, fromQuiet: Bool = false) -> Bool {
         guard panel.isVisible else { return false }
         island.orderOut(nil)
         let window = islandWindowFrame(mouse: NSEvent.mouseLocation)
@@ -359,7 +360,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.setPipsVisible(false)
         let landing = StyleMorph.orbFrame(centre: IslandLayout.tuckedOrbCentre(dock: island.model.dock, window: window),
                                           side: IslandLayout.orbSize)
-        panel.fly(from: morphHome, to: landing) { [weak self] in
+        // Quiet's orb is the island orb's size: swap it for a full-size orb in a panel that small, then fly that.
+        let start = fromQuiet ? StyleMorph.orbFrame(centre: CGPoint(x: morphHome.midX, y: morphHome.midY), side: IslandLayout.orbSize)
+                              : morphHome
+        if fromQuiet { animator.settleQuiet() }
+        panel.fly(from: start, to: landing) { [weak self] in
             guard let self else { return }
             // Landed: the island (still closed, its orb exactly where this one is) takes over, then opens.
             let home = self.morphHome
@@ -376,11 +381,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         return true
     }
 
-    /// The island closes around its orb, then the orb flies out to its spot.
-    private func morphToOrb(_ island: IslandPanel) -> Bool {
+    /// The island closes around its orb, then the orb flies out to its spot. `toQuiet`: it stays the island orb's
+    /// size, and lands as quiet's small orb.
+    private func morphToOrb(_ island: IslandPanel, toQuiet: Bool = false) -> Bool {
         guard island.isVisible else { return false }
         morph = .orb
         morphHome = panel.frame
+        if toQuiet { animator.quiet = false; animator.settleQuiet() }   // full size in a small panel while it flies
         islandTucked = true
         island.model.mode = .tucked
         island.pill = IslandLayout.pillRect(size: IslandLayout.size(mode: .tucked, dock: island.model.dock, rest: .live, pips: 0, rows: 0),
@@ -391,10 +398,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let start = StyleMorph.orbFrame(centre: IslandLayout.tuckedOrbCentre(dock: island.model.dock, window: island.frame),
                                             side: IslandLayout.orbSize)
             self.panel.setPipsVisible(false, duration: 0)
-            self.panel.fly(from: start, to: self.morphHome) { [weak self] in
+            let home = self.morphHome
+            let end = toQuiet ? StyleMorph.orbFrame(centre: CGPoint(x: home.midX, y: home.midY), side: IslandLayout.orbSize) : home
+            self.panel.fly(from: start, to: end) { [weak self] in
                 guard let self else { return }
                 self.morph = nil
                 self.islandTucked = false
+                if toQuiet {
+                    // Landed: the full panel with quiet's orb, which is drawn exactly the size this one was.
+                    self.panel.restore(home)
+                    self.animator.quiet = self.quiet
+                    self.animator.settleQuiet()
+                }
                 self.updateVisibility()
                 self.panel.setPipsVisible(true)
             }
@@ -426,6 +441,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.cancelFlight()
         panel.restore(morphHome)
         panel.setPipsVisible(true, duration: 0)
+        if animator.quiet != quiet { animator.quiet = quiet; animator.settleQuiet() }
         island.alphaValue = applied.opacity
     }
 
@@ -687,7 +703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyIslandOptions(prefs)
         if styleChanged {
             hover.dismiss()   // an open list or island panel mustn't carry over to the other style
-            if !morphStyle(to: prefs.style) {
+            // Leaving quiet for the island has already started quiet's orb flying into it.
+            if morph == nil, !morphStyle(to: prefs.style) {
                 updateVisibility()
                 if !bubbleHidden { appearOrb() }
             }
@@ -824,10 +841,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.quiet = on
         sounds.enabled = applied.sounds && !on
         // From the island, quiet swaps it for the small orb (and back).
+        // From the island, quiet's small orb flies out of it (and back into it), as switching style does.
         if applied.style == .island {
             hover.dismiss()
-            animator.settleQuiet()   // the orb shows already small (or full size), not shrinking (growing) into it
-            updateVisibility()
+            endMorph()
+            let moving = !bubbleHidden && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            if !(moving && (on ? morphToOrb(island, toQuiet: true) : morphToIsland(island, fromQuiet: true))) {
+                animator.settleQuiet()   // the orb shows already small (or full size), not shrinking (growing) into it
+                updateVisibility()
+            }
         }
         if on {
             hover.dismiss()
