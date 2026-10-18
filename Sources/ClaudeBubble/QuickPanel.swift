@@ -367,19 +367,29 @@ struct QuickPanelView: View {
 
     // MARK: Size, opacity, pointer
 
+    /// The orb's own options (size, pointer watching, edge light) only show while it's the orb; the island has its
+    /// own (dock, width) at the top.
+    private var isOrb: Bool { prefs.style == .orb }
+
     private var sliders: some View {
         VStack(spacing: 12) {
-            sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
-                      range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
+            if isOrb {
+                sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
+                          range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
+            }
             sliderRow("Opacity", value: Binding(get: { prefs.opacity }, set: { settings.prefs.opacity = $0 }),
                       range: 0.3...1, text: "\(Int((prefs.opacity * 100).rounded()))%")
             HStack {
                 Text("Pointer").foregroundStyle(dim)
                 Spacer()
-                Segmented(options: [(PointerMode.off, nil, "Off"), (.watch, nil, "Watch"), (.follow, nil, "Follow")],
+                // The island doesn't watch the pointer; Follow takes it to the pointer's display.
+                Segmented(options: isOrb ? [(PointerMode.off, nil, "Off"), (.watch, nil, "Watch"), (.follow, nil, "Follow")]
+                                         : [(PointerMode.off, nil, "Off"), (.follow, nil, "Follow")],
                           selection: Binding(get: { pointerMode }, set: setPointer))
             }
             .font(.system(size: 13))
+            .help(isOrb ? "Watch: the orb looks toward the pointer. Follow: it also moves to the pointer's display."
+                        : "Follow: the island moves to the display the pointer is on.")
         }
         .padding(.top, 14)
     }
@@ -388,11 +398,12 @@ struct QuickPanelView: View {
     private enum PointerMode: Hashable { case off, watch, follow }
 
     private var pointerMode: PointerMode {
-        prefs.followPointer ? .follow : prefs.interaction == .off ? .off : .watch
+        prefs.followPointer ? .follow : !isOrb || prefs.interaction == .off ? .off : .watch
     }
 
     private func setPointer(_ mode: PointerMode) {
-        settings.prefs.interaction = mode == .off ? .off : .attention
+        // The island's Off and Follow leave the orb's watching as it was.
+        if isOrb { settings.prefs.interaction = mode == .off ? .off : .attention }
         settings.setFollowPointer(mode == .follow)
     }
 
@@ -411,7 +422,9 @@ struct QuickPanelView: View {
         VStack(spacing: 6) {
             toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
             toggleRow("Usage meter", Binding(get: { prefs.usage }, set: { settings.prefs.usage = $0 }))
-            toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
+            if isOrb {
+                toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
+            }
             toggleRow("Approve from the bubble", Binding(get: { prefs.approvals }, set: { settings.prefs.approvals = $0 }))
             toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))
             HStack(spacing: 8) {
