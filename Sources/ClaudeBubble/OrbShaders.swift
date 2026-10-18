@@ -17,6 +17,7 @@ struct Uniforms {
     float4 i;   // three tick amplitudes, unused
     float4 j, k, l, m;   // colour fan: the c1, c2, c3 and halo it sweeps away from
     float4 n;   // colour fan progress 0…1 (< 0 = settled), unused
+    float4 o;   // edge squash: right, top, left, bottom edges' distances from the centre, in orb radii (≥ 1 = clear)
 };
 
 // Colour ripple: new colours spread from the orb's centre outward as an expanding ring. `along` is the distance from
@@ -121,6 +122,8 @@ float hs(float3 v) { return fract(sin(dot(v, float3(12.9898, 78.233, 37.719))) *
 // smoothstep that also runs downhill (edge0 > edge1), as the design's GLSL relies on.
 float ss(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0., 1.); return t * t * (3. - 2. * t); }
 float angTo(float3 q, float3 d) { return acos(clamp(dot(q, normalize(d)), -1., 1.)); }
+// A smooth minimum: the lesser of a and b, rounded over k.
+float smin(float a, float b, float k) { float h = clamp(.5 + .5 * (b - a) / k, 0., 1.); return mix(b, a, h) - k * h * (1. - h); }
 float rpl(float3 q, float3 s, float pa) { float an = angTo(q, s); return pow(max(sin(an * 7. - pa * 3.5), 0.), 3.) * 1.7 * exp(-an * .45); }
 float bn(float3 b, float pa) {
     return sin(b.x + pa * 1.1) * sin(b.y * 1.2 - pa * .8) * sin(b.z * .9 + pa * .95)
@@ -246,6 +249,20 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float pk = pow(max(pal, 0.), 14.) * smoothstep(.25 * R, .85 * R, length(sp)) * (.55 + .45 * step(0., p.z));
     sp += pdir * pk * pullAmt * R * .32;
     sp -= (sp - pdir * dot(sp, pdir)) * pk * max(pullAmt, 0.) * .45;
+    // Edge squash (EdgeSquash), like a drop pressed on glass: the orb spreads along an edge it's pushed into, most on
+    // the side touching it, and the dots past the edge flatten onto it. The spring's rebound reads past 1 (negative
+    // depth), narrowing it for the jiggle.
+    float4 ed = u.o, dep = clamp(1. - ed, -.35, 1.5);
+    float2 rp = sp / R;
+    float spreadY = dep.x * ss(-1., 1., rp.x) + dep.z * ss(-1., 1., -rp.x);
+    float spreadX = dep.y * ss(-1., 1., rp.y) + dep.w * ss(-1., 1., -rp.y);
+    sp.x *= 1. + .55 * spreadX;
+    sp.y *= 1. + .55 * spreadY;
+    float soft = .12 * R;
+    if (dep.x > 0.) sp.x = smin(sp.x, ed.x * R, soft);
+    if (dep.z > 0.) sp.x = -smin(-sp.x, ed.z * R, soft);
+    if (dep.y > 0.) sp.y = smin(sp.y, ed.y * R, soft);
+    if (dep.w > 0.) sp.y = -smin(-sp.y, ed.w * R, soft);
     o.position = float4(sp.x + u.c.z * 2. + drift.x, sp.y + drift.y, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
@@ -310,4 +327,6 @@ struct OrbUniforms {
     var m: SIMD4<Float> = .zero
     /// No colour fan by default.
     var n: SIMD4<Float> = [-1, 0, 0, 0]
+    /// No edge close enough to squash by default.
+    var o: SIMD4<Float> = SIMD4(repeating: 1)   // EdgeSquash.far
 }
