@@ -64,7 +64,7 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(loaded.opacity, 0.3)
         p.diameter = 2000
         p.opacity = 7
-        XCTAssertEqual(p.clamped().diameter, 500)
+        XCTAssertEqual(p.clamped().diameter, 800)
         XCTAssertEqual(p.clamped().opacity, 1)
     }
 
@@ -77,16 +77,16 @@ final class PreferencesTests: XCTestCase {
 
     func testBigOrbsGetMoreDotsNotBiggerOnes() {
         XCTAssertEqual(OrbGeometry.pointCount(diameter: 72), OrbGeometry.pointCount)
-        XCTAssertEqual(OrbGeometry.pointCount(diameter: 400), OrbGeometry.pointCount)
-        XCTAssertEqual(OrbGeometry.pointCount(diameter: 500), 8125, "as the area grows")
+        XCTAssertEqual(OrbGeometry.pointCount(diameter: 500), OrbGeometry.pointCount)
+        XCTAssertEqual(OrbGeometry.pointCount(diameter: 800), 13312, "as the area grows")
         XCTAssertEqual(OrbGeometry.dotSizingSide(120), 120)
-        XCTAssertEqual(OrbGeometry.dotSizingSide(500 / 0.6), 400 / 0.6, accuracy: 0.001)
+        XCTAssertEqual(OrbGeometry.dotSizingSide(800 / 0.6), 500 / 0.6, accuracy: 0.001)
     }
 
     func testPanelSide() {
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 72), 120, accuracy: 0.001)
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 10), 40 / 0.6, accuracy: 0.001)
-        XCTAssertEqual(OrbSize.panelSide(forDiameter: 2000), 500 / 0.6, accuracy: 0.001)
+        XCTAssertEqual(OrbSize.panelSide(forDiameter: 2000), 800 / 0.6, accuracy: 0.001)
     }
 
     func testSoundsAreOnByDefaultAndToggle() throws {
