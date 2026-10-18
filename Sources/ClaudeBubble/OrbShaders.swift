@@ -172,7 +172,8 @@ float2 wallSquish(float a, float b, float e, float R, float ph, bool sags) {
     // the flat rounded. (The per-pixel pass skips the flattening: past the wall is off screen, so the screen's edge
     // makes the same flat face.)
     float a2 = e < 1. ? reach(e) * R - (R - a) * w.c : a * w.c;
-    if (e < 1.) a2 = smin(a2, e * R, .1 * R);
+    // The flat lies just past the edge, so the dots piled on it sit off screen, not as a bright line along it.
+    if (e < 1.) a2 = smin(a2, (e + .08) * R, .1 * R);
     return float2(a2, b * gs.x - gs.y);
 }
 
