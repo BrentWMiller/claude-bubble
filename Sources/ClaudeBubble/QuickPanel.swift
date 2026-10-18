@@ -95,12 +95,17 @@ final class QuickPanel: NSPanel {
         }
     }
 
-    /// The pages differ in height: keep the top-left where it opened as the content resizes.
+    /// The content changed height (another page, another style's controls): keep the top-left where it was, unless
+    /// that would run off the bottom of the screen; then it moves up to stay whole.
     func refit() {
         guard isVisible else { return }
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
-        setFrame(CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height), display: true)
+        var target = CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height)
+        if let visible = (screen ?? NSScreen.main)?.visibleFrame {
+            target.origin.y = min(max(target.minY, visible.minY + 8), visible.maxY - size.height - 8)
+        }
+        setFrame(target, display: true)
     }
 
     func dismiss() {
@@ -173,6 +178,10 @@ struct QuickPanelView: View {
         .scaleEffect(state.shown ? 1 : 0.95, anchor: .topLeading)
         .opacity(state.shown ? 1 : 0)
         .environment(\.colorScheme, .dark)
+        // Switching style (or quiet) shows different controls: fit the window to them.
+        .onChange(of: prefs.style) { state.resized() }
+        .onChange(of: prefs.quiet) { state.resized() }
+        .onChange(of: updater.available?.version.description) { state.resized() }
     }
 
     private var mainPage: some View {
@@ -254,6 +263,11 @@ struct QuickPanelView: View {
         }
     }
 
+    /// A group's heading on the main page, like Theme's.
+    private func groupTitle(_ text: String) -> some View {
+        Text(text).font(.system(size: 13)).foregroundStyle(dim).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 2)
+    }
+
     private func sectionTitle(_ text: String) -> some View {
         Text(text).font(.system(size: 13)).foregroundStyle(dim).padding(.bottom, 6)
     }
@@ -280,7 +294,32 @@ struct QuickPanelView: View {
                                              settings.prefs = p
                                          }),
                       fill: true, large: true)
-            if prefs.style == .island {
+            // The style's own controls, under a heading, right below the choice: the orb's size, pointer watching and
+            // edge light, or the island's dock and width. None while quiet (it's a dot either way).
+            if !prefs.quiet {
+                VStack(spacing: 10) {
+                    divider.padding(.vertical, -4)
+                    groupTitle(isOrb ? "Orb Customization" : "Island Customization")
+                    styleControls
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var styleControls: some View {
+        Group {
+            if isOrb {
+                sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
+                          range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
+                VStack(spacing: 6) {
+                    toggleRow("Look at the pointer", Binding(get: { prefs.interaction != .off },
+                                                             set: { settings.prefs.interaction = $0 ? .attention : .off }))
+                        .help("The orb leans toward the pointer as it comes close.")
+                    toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
+                        .help("A light along the screen's edge when the orb is near it.")
+                    followToggle
+                }
+            } else {
                 HStack {
                     Text("Dock").foregroundStyle(dim)
                     Spacer()
@@ -292,7 +331,18 @@ struct QuickPanelView: View {
                                                   set: { settings.prefs.islandWidth = ($0 * 20).rounded() / 20 }),
                           range: Double(IslandLayout.minWidth)...Double(IslandLayout.maxWidth),
                           text: "\(Int((prefs.islandWidth * 100).rounded()))%")
+                followToggle
             }
+        }
+    }
+
+    /// Only matters with more than one display.
+    @ViewBuilder private var followToggle: some View {
+        if NSScreen.screens.count > 1 {
+            toggleRow("Move to the pointer's display", Binding(get: { prefs.followPointer },
+                                                               set: { settings.setFollowPointer($0) }))
+                .help(isOrb ? "The orb jumps to whichever display the pointer is on, in the same spot."
+                            : "The island moves to whichever display the pointer is on.")
         }
     }
 
@@ -367,33 +417,16 @@ struct QuickPanelView: View {
 
     // MARK: Size, opacity, pointer
 
+    /// The orb's own options (size, pointer watching, edge light) only show while it's the orb; the island has its
+    /// own (dock, width) at the top.
+    private var isOrb: Bool { prefs.style == .orb }
+
     private var sliders: some View {
         VStack(spacing: 12) {
-            sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
-                      range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
             sliderRow("Opacity", value: Binding(get: { prefs.opacity }, set: { settings.prefs.opacity = $0 }),
                       range: 0.3...1, text: "\(Int((prefs.opacity * 100).rounded()))%")
-            HStack {
-                Text("Pointer").foregroundStyle(dim)
-                Spacer()
-                Segmented(options: [(PointerMode.off, nil, "Off"), (.watch, nil, "Watch"), (.follow, nil, "Follow")],
-                          selection: Binding(get: { pointerMode }, set: setPointer))
-            }
-            .font(.system(size: 13))
         }
         .padding(.top, 14)
-    }
-
-    /// Off: the orb ignores the pointer. Watch: it turns its attention to it. Follow: and it hops to the pointer's display.
-    private enum PointerMode: Hashable { case off, watch, follow }
-
-    private var pointerMode: PointerMode {
-        prefs.followPointer ? .follow : prefs.interaction == .off ? .off : .watch
-    }
-
-    private func setPointer(_ mode: PointerMode) {
-        settings.prefs.interaction = mode == .off ? .off : .attention
-        settings.setFollowPointer(mode == .follow)
     }
 
     private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, text: String) -> some View {
@@ -409,10 +442,14 @@ struct QuickPanelView: View {
 
     private var toggles: some View {
         VStack(spacing: 6) {
-            toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
+            groupTitle("Sessions")
             toggleRow("Usage meter", Binding(get: { prefs.usage }, set: { settings.prefs.usage = $0 }))
-            toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
+                .help("How much of the 5-hour limit is used, on the bubble and in the session list.")
             toggleRow("Approve from the bubble", Binding(get: { prefs.approvals }, set: { settings.prefs.approvals = $0 }))
+                .help("Allow or deny permission prompts, and answer Claude's questions, from the bubble.")
+            divider
+            groupTitle("Alerts")
+            toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
             toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))
             HStack(spacing: 8) {
                 Text("Finish sound").foregroundStyle(dim)
