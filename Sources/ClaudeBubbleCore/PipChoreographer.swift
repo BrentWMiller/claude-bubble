@@ -237,6 +237,14 @@ public enum PipArc {
     /// Arc radius as a multiple of the orb's radius (the design's 100 / 78).
     public static let radiusScale: CGFloat = 1.28
     public static let hitTolerance: CGFloat = 7
+    /// Pips keep their size up to this orb size, then grow with the orb (so they look as they do at this size).
+    public static let fullSizeDiameter: CGFloat = 160
+
+    /// How much bigger than the design the pips are on an orb of `diameter`.
+    public static func scale(diameter: CGFloat) -> CGFloat { max(1, diameter / fullSizeDiameter) }
+
+    /// The same, from the arc's radius.
+    public static func scale(radius: CGFloat) -> CGFloat { scale(diameter: radius / radiusScale * 2) }
 
     /// `around` turns the whole arc around the orb (view degrees, y-down; 90 = hanging straight down).
     public static func position(slot: Int, slots: Int, centre: CGPoint, radius: CGFloat, around: Double = 90) -> CGPoint {
@@ -279,7 +287,7 @@ public enum PipArc {
     public static func hit(_ point: CGPoint, frame: PipsFrame, centre: CGPoint, radius: CGFloat, around: Double = 90) -> String? {
         guard frame.visible, !frame.merged else { return nil }
         let spacing = radius * CGFloat(stepDegrees(radius: radius) * .pi / 180)
-        let tolerance = min(hitTolerance, spacing / 2)
+        let tolerance = min(hitTolerance * scale(radius: radius), spacing / 2)
         var best: (id: String, distance: CGFloat)?
         for pip in frame.pips {
             guard let slot = pip.slot else { continue }

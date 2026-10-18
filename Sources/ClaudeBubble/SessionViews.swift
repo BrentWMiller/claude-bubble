@@ -52,16 +52,17 @@ struct ArcPipsView: View {
             let side = geo.size.width
             let centre = CGPoint(x: side / 2, y: side / 2)
             let radius = side * 0.3 * PipArc.radiusScale
+            let scale = PipArc.scale(radius: radius)
             let frame = model.pips
             ZStack {
                 ForEach(frame.pips, id: \.id) { pip in
                     PipDot(pip: pip, frame: frame, centre: centre, radius: radius,
                            around: model.pipAround, color: pipColor(pip),
-                           hovered: model.hoveredPip == pip.id)
+                           hovered: model.hoveredPip == pip.id, scale: scale)
                 }
                 if frame.overflow > 0 {
                     Text("+\(frame.overflow)")
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
+                        .font(.system(size: 9 * scale, weight: .medium, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.7))
                         .position(PipArc.position(slot: frame.slots - 1, slots: frame.slots, centre: centre, radius: radius, around: model.pipAround))
                         .opacity(frame.merged ? 0 : 1)
@@ -89,6 +90,8 @@ private struct PipDot: View {
     let around: Double
     let color: Color
     let hovered: Bool
+    /// Bigger on a big orb (PipArc.scale).
+    var scale: CGFloat = 1
 
     var body: some View {
         let slotPoint = pip.slot.map { PipArc.position(slot: $0, slots: frame.slots, centre: centre, radius: radius, around: around) } ?? centre
@@ -108,14 +111,14 @@ private struct PipDot: View {
             : pip.shake != 0 ? .linear(duration: 0.05) : .spring(response: 0.45, dampingFraction: 0.42)
         Circle()
             .fill(pip.flaring ? Color.white : color)
-            .frame(width: 6, height: 6)
-            .overlay(Circle().stroke(color, lineWidth: 1.2).padding(-2.5).opacity(hovered ? 1 : 0))
-            .shadow(color: pip.flaring ? .white : color.opacity(0.8), radius: pip.flaring ? 6 : 3)
+            .frame(width: 6 * scale, height: 6 * scale)
+            .overlay(Circle().stroke(color, lineWidth: 1.2 * scale).padding(-2.5 * scale).opacity(hovered ? 1 : 0))
+            .shadow(color: pip.flaring ? .white : color.opacity(0.8), radius: (pip.flaring ? 6 : 3) * scale)
             .scaleEffect(x: stretch.width, y: stretch.height)
             .rotationEffect(.radians(pip.snapping ? angle : 0))
             .animation(bounce, value: stretch)
             .animation(bounce, value: pip.snapping)
-            .offset(x: pip.shake, y: pip.hopping ? -9 : 0)
+            .offset(x: pip.shake * scale, y: pip.hopping ? -9 * scale : 0)
             .animation(bounce, value: pip.shake)
             .animation(bounce, value: pip.hopping)
             .opacity(shown ? 1 : 0)

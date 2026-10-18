@@ -62,9 +62,9 @@ final class PreferencesTests: XCTestCase {
         let loaded = BubblePreferences.load(from: defaults)
         XCTAssertEqual(loaded.diameter, 40)
         XCTAssertEqual(loaded.opacity, 0.3)
-        p.diameter = 999
+        p.diameter = 2000
         p.opacity = 7
-        XCTAssertEqual(p.clamped().diameter, 160)
+        XCTAssertEqual(p.clamped().diameter, 800)
         XCTAssertEqual(p.clamped().opacity, 1)
     }
 
@@ -75,10 +75,25 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(BubblePreferences.load(from: defaults).presetName, "Agents view")
     }
 
+    func testBigOrbsGetMoreDotsNotBiggerOnes() {
+        XCTAssertEqual(OrbGeometry.pointCount(diameter: 72), OrbGeometry.pointCount)
+        XCTAssertEqual(OrbGeometry.pointCount(diameter: 500), OrbGeometry.pointCount)
+        XCTAssertEqual(OrbGeometry.pointCount(diameter: 800), 13312, "as the area grows")
+        XCTAssertEqual(OrbGeometry.dotSizingSide(120), 120)
+        XCTAssertEqual(OrbGeometry.dotSizingSide(800 / 0.6), 500 / 0.6, accuracy: 0.001)
+    }
+
+    func testPipsGrowPastTheOldLargestOrb() {
+        XCTAssertEqual(PipArc.scale(diameter: 72), 1)
+        XCTAssertEqual(PipArc.scale(diameter: 160), 1)
+        XCTAssertEqual(PipArc.scale(diameter: 800), 5)
+        XCTAssertEqual(PipArc.scale(radius: 400 * PipArc.radiusScale), 5, accuracy: 0.0001)
+    }
+
     func testPanelSide() {
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 72), 120, accuracy: 0.001)
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 10), 40 / 0.6, accuracy: 0.001)
-        XCTAssertEqual(OrbSize.panelSide(forDiameter: 500), 160 / 0.6, accuracy: 0.001)
+        XCTAssertEqual(OrbSize.panelSide(forDiameter: 2000), 800 / 0.6, accuracy: 0.001)
     }
 
     func testSoundsAreOnByDefaultAndToggle() throws {
