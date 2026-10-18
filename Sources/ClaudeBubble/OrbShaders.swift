@@ -249,6 +249,8 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float pk = pow(max(pal, 0.), 14.) * smoothstep(.25 * R, .85 * R, length(sp)) * (.55 + .45 * step(0., p.z));
     sp += pdir * pk * pullAmt * R * .32;
     sp -= (sp - pdir * dot(sp, pdir)) * pk * max(pullAmt, 0.) * .45;
+    // The pointer's drift and the shake move the whole orb: before the squash, so its flat face stays on the edge.
+    sp += float2(u.c.z * 2. + drift.x, drift.y);
     // Edge squash (EdgeSquash), like a drop pressed on glass: the orb spreads along an edge it's pushed into, most on
     // the side touching it, and the dots past the edge flatten onto it. The spring's rebound reads past 1 (negative
     // depth), narrowing it for the jiggle.
@@ -263,7 +265,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     if (dep.z > 0.) sp.x = -smin(-sp.x, ed.z * R, soft);
     if (dep.y > 0.) sp.y = smin(sp.y, ed.y * R, soft);
     if (dep.w > 0.) sp.y = -smin(-sp.y, ed.w * R, soft);
-    o.position = float4(sp.x + u.c.z * 2. + drift.x, sp.y + drift.y, 0, 1);
+    o.position = float4(sp, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
     float2 fmp = fanMix(length(p.xy), u.n.x);
