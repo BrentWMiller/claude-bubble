@@ -61,6 +61,8 @@ public enum IslandLayout {
     public static let moreHeight: CGFloat = 20
     /// A session row's link chips (issue, pull request, artifact) add this much.
     public static let linkRowHeight: CGFloat = 28
+    /// A needs-you card with Allow and Deny: the command (two lines) and the buttons.
+    public static let approvalHeight: CGFloat = 62
 
     /// How many of the hover panel's shown rows carry link chips.
     public static func linkedRows(_ sessions: [Session]) -> Int {
@@ -80,9 +82,9 @@ public enum IslandLayout {
     /// The bar: the orb with its padding (40pt).
     public static var barHeight: CGFloat { dockedInset + orbSize + openInset }
 
-    /// `footer`: the hover panel's Today/usage line is showing.
+    /// `footer`: the hover panel's Today/usage line is showing. `approval`: the needs-you card offers Allow and Deny.
     public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int,
-                            footer: Bool = true, linked: Int = 0) -> CGSize {
+                            footer: Bool = true, linked: Int = 0, approval: Bool = false) -> CGSize {
         switch mode {
         case .quiet: return CGSize(width: quietDot, height: quietDot)
         case .tucked: return dock.isSide ? CGSize(width: 44, height: 44) : CGSize(width: 48, height: barHeight)
@@ -91,7 +93,8 @@ public enum IslandLayout {
             let more = rows > maxRows ? moreHeight : 0
             return CGSize(width: 350, height: barHeight + 2 + rowHeight * shown + linkRowHeight * CGFloat(linked) + more
                                             + (footer ? 34 : 6) + openPadding)
-        case .needs, .error: return CGSize(width: 360, height: barHeight + 54)
+        case .needs: return CGSize(width: 360, height: barHeight + 54 + (approval ? approvalHeight : 0))
+        case .error: return CGSize(width: 360, height: barHeight + 54)
         case .done: return CGSize(width: 300, height: barHeight)
         case .rest:
             if dock.isSide {

@@ -45,6 +45,8 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var islandAlong: Double
     /// Quiet mode: the bubble shrinks to a dot, toasts wait for a catch-up and sounds are muted.
     public var quiet: Bool
+    /// Permission prompts can be approved or denied from the bubble (the terminal's prompt shows too).
+    public var approvals: Bool
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
@@ -74,6 +76,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandGlow = .waves
         islandAlong = 0.5
         quiet = false
+        approvals = true
     }
 
     func with(style: BubbleStyle, dock: IslandDock, rest: IslandRest, glow: IslandGlow) -> BubblePreferences {
@@ -108,6 +111,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandGlow = (try? c.decodeIfPresent(IslandGlow.self, forKey: .islandGlow)) ?? d.islandGlow
         islandAlong = (try? c.decodeIfPresent(Double.self, forKey: .islandAlong)) ?? d.islandAlong
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? d.quiet
+        approvals = (try? c.decodeIfPresent(Bool.self, forKey: .approvals)) ?? d.approvals
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {

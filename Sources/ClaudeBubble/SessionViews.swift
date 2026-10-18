@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeBubbleCore
+import HookCore
 import SwiftUI
 
 extension BubbleState {
@@ -151,6 +152,9 @@ struct SessionRow: View {
     var pinned = false
     /// Pins or unpins the session (no pin button without it).
     var onPin: (() -> Void)?
+    /// The permission prompt it's waiting on, with Allow and Deny (none without `onDecide`).
+    var approval: ApprovalRequest?
+    var onDecide: ((ApprovalBehavior) -> Void)?
     @State private var hover = false
 
     var body: some View {
@@ -175,6 +179,7 @@ struct SessionRow: View {
                     .foregroundStyle(session.tone.color(in: palette))
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .help(approval.map { "\($0.tool): \($0.detail)" } ?? "")
                 if !session.links.isEmpty {
                     LinkChips(links: session.links).padding(.top, 6)
                 }
@@ -202,7 +207,9 @@ struct SessionRow: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.4))
                 }
-                if let tokens = session.tokens {
+                if let approval, let onDecide {
+                    ApprovalButtons(detail: approval.detail, onDecide: onDecide)
+                } else if let tokens = session.tokens {
                     Text(TokenFormat.string(tokens))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.28))
@@ -257,12 +264,18 @@ struct SessionListView: View {
         }
     }
 
+    private func decide(_ session: Session) -> ((ApprovalBehavior) -> Void)? {
+        guard let request = model.approval(for: session) else { return nil }
+        return { model.decide?(request, $0) }
+    }
+
     private func card(now: Date, age: Double) -> some View {
         VStack(spacing: 2) {
             ForEach(Array(model.sorted.enumerated()), id: \.element.id) { index, session in
                 SessionRow(session: session, now: now,
                            palette: model.palette, entrance: CardMotion.row(index, age: age),
-                           pinned: model.pinned.contains(session.id), onPin: { model.togglePin(session.id) })
+                           pinned: model.pinned.contains(session.id), onPin: { model.togglePin(session.id) },
+                           approval: model.approval(for: session), onDecide: decide(session))
                     .onTapGesture { onSelect(session) }
             }
             if model.today != nil || model.usage != nil {
@@ -361,6 +374,40 @@ struct LinkChips: View {
 /// Set when a chip opened its link, so a click the island replays to its content doesn't also focus the terminal.
 enum ChipClick {
     static var handled = false
+}
+
+/// Deny and Allow for a waiting permission prompt. Clicks only: no keyboard shortcut or default button, so nothing is
+/// approved by a stray keypress. `large` for the island's needs-you card.
+struct ApprovalButtons: View {
+    /// What's being approved, shown on hover.
+    let detail: String
+    var large = false
+    let onDecide: (ApprovalBehavior) -> Void
+
+    var body: some View {
+        HStack(spacing: large ? 8 : 5) {
+            button("Deny", .deny)
+            button("Allow", .allow)
+        }
+    }
+
+    private func button(_ title: String, _ behavior: ApprovalBehavior) -> some View {
+        let allow = behavior == .allow
+        return Button {
+            ChipClick.handled = true   // the island's click goes to the button, not the terminal
+            onDecide(behavior)
+        } label: {
+            Text(title)
+                .font(.system(size: large ? 11.5 : 10, weight: .semibold))
+                .foregroundStyle(allow ? Color.black : Color.white.opacity(0.85))
+                .padding(.horizontal, large ? 14 : 7)
+                .frame(height: large ? 24 : 17)
+                .background(Capsule().fill(allow ? Color.white.opacity(0.92) : Color.white.opacity(0.13)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("\(title): \(detail)")
+    }
 }
 
 private struct LinkChip: View {

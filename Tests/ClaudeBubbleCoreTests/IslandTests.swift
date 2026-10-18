@@ -68,6 +68,14 @@ final class IslandTests: XCTestCase {
         XCTAssertEqual(size(.hover, rows: 0).height, 42 + 51 + 34 + 10, "at least one row")
     }
 
+    func testANeedsCardWithApprovalGrows() {
+        let plain = IslandLayout.size(mode: .needs("a"), dock: .top, rest: .live, pips: 1, rows: 1)
+        let asking = IslandLayout.size(mode: .needs("a"), dock: .top, rest: .live, pips: 1, rows: 1, approval: true)
+        XCTAssertEqual(asking.height, plain.height + IslandLayout.approvalHeight)
+        XCTAssertEqual(IslandLayout.size(mode: .error("a"), dock: .top, rest: .live, pips: 1, rows: 1, approval: true).height,
+                       94, "only needs-you asks")
+    }
+
     func testSideRestIsAVerticalCapsule() {
         XCTAssertEqual(IslandLayout.size(mode: .rest, dock: .right, rest: .live, pips: 0, rows: 0), CGSize(width: 44, height: 48))
         XCTAssertEqual(IslandLayout.size(mode: .rest, dock: .left, rest: .live, pips: 1, rows: 0), CGSize(width: 44, height: 63))

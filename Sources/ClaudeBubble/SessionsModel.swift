@@ -1,6 +1,7 @@
 import AppKit
 import ClaudeBubbleCore
 import Combine
+import HookCore
 
 /// Live sessions, plus the current palette, shared by the pips and the hover list.
 final class SessionsModel: ObservableObject {
@@ -51,4 +52,14 @@ final class SessionsModel: ObservableObject {
     @Published var pipAround: Double = 90
     /// Quiet mode: the pips step aside with the orb shrunk to a dot.
     @Published var quiet = false
+    /// Permission prompts whose hooks are waiting on a click in the bubble, oldest first.
+    @Published var approvals: [ApprovalRequest] = []
+    /// Sends an Allow or Deny click to the hook that asked.
+    var decide: ((ApprovalRequest, ApprovalBehavior) -> Void)?
+
+    /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).
+    func approval(for session: Session) -> ApprovalRequest? {
+        guard session.state == .needs else { return nil }
+        return approvals.first { $0.session == session.id }
+    }
 }

@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeBubbleCore
+import HookCore
 import Combine
 import SwiftUI
 
@@ -242,7 +243,13 @@ struct IslandView: View {
     private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {
         IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
-                          footer: hasFooter, linked: IslandLayout.linkedRows(live))
+                          footer: hasFooter, linked: IslandLayout.linkedRows(live), approval: approval != nil)
+    }
+
+    /// The prompt the needs-you card offers Allow and Deny for.
+    private var approval: ApprovalRequest? {
+        guard case let .needs(id) = model.mode, let s = sessions.byID[id] else { return nil }
+        return sessions.approval(for: s)
     }
     private let spring = Animation.spring(response: 0.5, dampingFraction: 0.72)
 
@@ -422,6 +429,18 @@ struct IslandView: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.45))
                         .lineLimit(1)
+                    if let approval, model.mode == .needs(id) {
+                        // The command (or file, or URL) in full, as far as two lines go; all of it on hover.
+                        Text(approval.detail)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(Color.white.opacity(0.85))
+                            .lineLimit(2).truncationMode(.middle)
+                            .frame(height: 28, alignment: .topLeading)
+                            .help(approval.detail)
+                            .padding(.top, 4)
+                        ApprovalButtons(detail: approval.detail, large: true) { sessions.decide?(approval, $0) }
+                            .padding(.top, 2)
+                    }
                 }
                 .padding(.leading, 22 + IslandLayout.orbSize)
                 .padding(.trailing, 20)
@@ -432,8 +451,11 @@ struct IslandView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 VStack(spacing: 2) {
                     ForEach(Array(live.prefix(IslandLayout.maxRows)), id: \.id) { s in
+                        let asking = sessions.approval(for: s)
                         SessionRow(session: s, now: context.date, palette: sessions.palette,
-                                   pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) })
+                                   pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) },
+                                   approval: asking,
+                                   onDecide: asking.map { request in { sessions.decide?(request, $0) } })
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

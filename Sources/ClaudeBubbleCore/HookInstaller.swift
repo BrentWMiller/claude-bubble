@@ -20,17 +20,29 @@ public enum HookInstaller {
         }
     }
 
+    /// Seconds Claude Code lets the hook run: a moment to record, except a permission prompt, where the hook waits
+    /// for an Allow or Deny click in the bubble (the terminal's prompt shows meanwhile).
+    public static func timeout(for event: String) -> Int { event == "PermissionRequest" ? 600 : 5 }
+
     public static func merge(settings: [String: Any], command: String) -> [String: Any] {
         var settings = settings
         var hooks = settings["hooks"] as? [String: Any] ?? [:]
         for event in events {
             // [Any], not [[String: Any]]: one unrecognised entry must not cost the user the whole list.
             var groups = hooks[event] as? [Any] ?? []
-            let present = groups.contains { group in
-                ((group as? [String: Any])?["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == command }
+            var present = false
+            for (g, group) in groups.enumerated() {
+                guard var group = group as? [String: Any], var entries = group["hooks"] as? [[String: Any]] else { continue }
+                for (e, entry) in entries.enumerated() where entry["command"] as? String == command {
+                    present = true
+                    // An older install's timeout is too short to wait for a click.
+                    if (entry["timeout"] as? Int ?? 0) < timeout(for: event) { entries[e]["timeout"] = timeout(for: event) }
+                }
+                group["hooks"] = entries
+                groups[g] = group
             }
             if !present {
-                groups.append(["matcher": "", "hooks": [["type": "command", "command": command, "timeout": 5]]])
+                groups.append(["matcher": "", "hooks": [["type": "command", "command": command, "timeout": timeout(for: event)]]])
             }
             hooks[event] = groups
         }
@@ -38,16 +50,21 @@ public enum HookInstaller {
         return settings
     }
 
-    /// For settings that already run `command`: adds any events this version subscribes to that they lack.
-    /// Returns nil when nothing needs writing (or the hook was never installed, which this never does on its own).
+    /// For settings that already run `command`: adds any events this version subscribes to that they lack, and
+    /// raises timeouts that are now too short. Returns nil when nothing needs writing (or the hook was never
+    /// installed, which this never does on its own).
     public static func refreshSubscriptions(settings: [String: Any], command: String) -> [String: Any]? {
         let hooks = settings["hooks"] as? [String: Any] ?? [:]
-        func subscribed(_ event: String) -> Bool {
-            (hooks[event] as? [Any] ?? []).contains { group in
-                ((group as? [String: Any])?["hooks"] as? [[String: Any]] ?? []).contains { $0["command"] as? String == command }
+        func ours(_ event: String) -> [[String: Any]] {
+            (hooks[event] as? [Any] ?? []).flatMap { group in
+                ((group as? [String: Any])?["hooks"] as? [[String: Any]] ?? []).filter { $0["command"] as? String == command }
             }
         }
-        guard events.contains(where: subscribed), !events.allSatisfy(subscribed) else { return nil }
+        func current(_ event: String) -> Bool {
+            let entries = ours(event)
+            return !entries.isEmpty && entries.allSatisfy { ($0["timeout"] as? Int ?? 0) >= timeout(for: event) }
+        }
+        guard events.contains(where: { !ours($0).isEmpty }), !events.allSatisfy(current) else { return nil }
         return merge(settings: settings, command: command)
     }
 

@@ -39,6 +39,16 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(BubblePreferences.load(from: defaults), p)
     }
 
+    func testApprovalsAreOnByDefaultAndForOlderSettings() throws {
+        XCTAssertTrue(BubblePreferences.defaults.approvals)
+        defaults.set(Data(#"{"diameter": 90}"#.utf8), forKey: BubblePreferences.key)
+        XCTAssertTrue(BubblePreferences.load(from: defaults).approvals)
+        var p = BubblePreferences.defaults
+        p.approvals = false
+        p.save(to: defaults)
+        XCTAssertFalse(BubblePreferences.load(from: defaults).approvals)
+    }
+
     func testCorruptBlobGivesDefaults() {
         defaults.set(Data("{ nope".utf8), forKey: BubblePreferences.key)
         XCTAssertEqual(BubblePreferences.load(from: defaults), .defaults)
