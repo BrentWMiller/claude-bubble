@@ -64,7 +64,7 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(loaded.opacity, 0.3)
         p.diameter = 999
         p.opacity = 7
-        XCTAssertEqual(p.clamped().diameter, 160)
+        XCTAssertEqual(p.clamped().diameter, 280)
         XCTAssertEqual(p.clamped().opacity, 1)
     }
 
@@ -78,7 +78,7 @@ final class PreferencesTests: XCTestCase {
     func testPanelSide() {
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 72), 120, accuracy: 0.001)
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 10), 40 / 0.6, accuracy: 0.001)
-        XCTAssertEqual(OrbSize.panelSide(forDiameter: 500), 160 / 0.6, accuracy: 0.001)
+        XCTAssertEqual(OrbSize.panelSide(forDiameter: 500), 280 / 0.6, accuracy: 0.001)
     }
 
     func testSoundsAreOnByDefaultAndToggle() throws {
