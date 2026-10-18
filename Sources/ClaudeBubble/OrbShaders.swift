@@ -259,13 +259,14 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     // Most of the flow is right at the edge: the touching side runs out along it, the far side barely moves.
     float spreadY = dep.x * pow(ss(-.6, 1., rp.x), 1.5) + dep.z * pow(ss(-.6, 1., -rp.x), 1.5);
     float spreadX = dep.y * pow(ss(-.6, 1., rp.y), 1.5) + dep.w * pow(ss(-.6, 1., -rp.y), 1.5);
-    sp.x *= 1. + 1.3 * spreadX;
-    sp.y *= 1. + 1.3 * spreadY;
-    // The window ends at ±1: ease the flow in short of it rather than cutting it off.
-    float lim = .96;
-    // (Blended in with the squash, so a round orb near an edge doesn't flinch.)
-    sp.x = mix(sp.x, lim * tanh(sp.x / lim), clamp(spreadX * 4., 0., 1.));
-    sp.y = mix(sp.y, lim * tanh(sp.y / lim), clamp(spreadY * 4., 0., 1.));
+    // Each dot spreads by its share, but never past the window (it ends at ±1): only a dot that would reach it is
+    // held back, smoothly, so the outline stays round instead of squaring off.
+    float lim = .95;
+    float gx = 1.3 * spreadX, gy = 1.3 * spreadY;
+    if (gx > 0.) gx = max(smin(gx, lim / max(abs(sp.x), 1e-3) - 1., .15), 0.);
+    if (gy > 0.) gy = max(smin(gy, lim / max(abs(sp.y), 1e-3) - 1., .15), 0.);
+    sp.x *= 1. + gx;
+    sp.y *= 1. + gy;
     float soft = .12 * R;
     if (dep.x > 0.) sp.x = smin(sp.x, ed.x * R, soft);
     if (dep.z > 0.) sp.x = -smin(-sp.x, ed.z * R, soft);
