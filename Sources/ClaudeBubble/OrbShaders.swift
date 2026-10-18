@@ -20,6 +20,8 @@ struct Uniforms {
     float4 o;   // edge squash: right, top, left, bottom edges' distances from the centre, in orb radii (≥ 1 = clear)
 };
 
+float2 unsquish(float2 q, float4 ed, float R);   // below, with the particle pass's squish
+
 // Colour ripple: new colours spread from the orb's centre outward as an expanding ring. `along` is the distance from
 // the centre in orb radii (the rim is 1, the halo beyond); returns how much of the new colour shows, and the ring's
 // bright crest.
@@ -42,7 +44,9 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float2 res = u.c.xy;
     float2 frag = float2(in.position.x, res.y - in.position.y);
     // The whole orb drifts a little toward the pointer (matched in the particle pass).
-    float2 uv = (frag - .5 * res) / res.y - float2(u.c.z, 0) - u.d.xy * (.3 * .07) * u.d.z;
+    // Squished against a screen edge (matched in the particle pass): look up where this pixel was before the squish.
+    float2 raw = unsquish((frag - .5 * res) / res.y * 2., u.o, .6 * u.a.y) * .5;
+    float2 uv = raw - float2(u.c.z, 0) - u.d.xy * (.3 * .07) * u.d.z;
     float ph = u.a.x, sc = u.a.y, glowv = u.a.z, ringv = u.a.w, glitch = u.b.x;
     float3 C1 = u.c1.xyz, C2 = u.c2.xyz, C3 = u.c3.xyz, H = u.halo.xyz;
     float R = .3 * sc; float r = length(uv); float a = atan2(uv.y, uv.x);
@@ -124,6 +128,38 @@ float ss(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0., 1.)
 float angTo(float3 q, float3 d) { return acos(clamp(dot(q, normalize(d)), -1., 1.)); }
 // A smooth minimum: the lesser of a and b, rounded over k.
 float smin(float a, float b, float k) { float h = clamp(.5 + .5 * (b - a) / k, 0., 1.); return mix(b, a, h) - k * h * (1. - h); }
+
+// Edge squash (EdgeSquash), like a ball squeezed against glass. `ed`: each edge's distance from the centre in orb radii
+// (right, top, left, bottom; 1 or more is clear). Returns how much a point `sp` (clip units, from the centre; R is the
+// orb's radius there) stretches on each axis. The orb spreads along an edge it's pushed into, most on the side touching
+// it, and that side is pulled in until its rim just meets the edge, staying rounded. The spring's rebound reads past 1,
+// narrowing it for the jiggle. Never spreads a dot past the window (±1), easing off before it squares the outline.
+float2 squishScale(float2 sp, float4 ed, float R) {
+    float4 dep = clamp(1. - ed, -.35, 1.5);
+    if (all(abs(dep) < 1e-4)) return float2(1.);
+    float2 rp = sp / R;
+    float spreadY = dep.x * pow(ss(-.6, 1., rp.x), 1.5) + dep.z * pow(ss(-.6, 1., -rp.x), 1.5);
+    float spreadX = dep.y * pow(ss(-.6, 1., rp.y), 1.5) + dep.w * pow(ss(-.6, 1., -rp.y), 1.5);
+    float lim = .95;
+    float gx = 1.3 * spreadX, gy = 1.3 * spreadY;
+    if (gx > 0.) gx = max(smin(gx, lim / max(abs(sp.x), 1e-3) - 1., .15), 0.);
+    if (gy > 0.) gy = max(smin(gy, lim / max(abs(sp.y), 1e-3) - 1., .15), 0.);
+    float2 f = float2(1. + gx, 1. + gy);
+    float4 fit = clamp(ed, .2, 1.);   // the rim's new reach on each side, in radii
+    if (dep.x > 0. && sp.x > 0.) f.x *= mix(1., fit.x, ss(-.2, 1., rp.x));
+    if (dep.z > 0. && sp.x < 0.) f.x *= mix(1., fit.z, ss(-.2, 1., -rp.x));
+    if (dep.y > 0. && sp.y > 0.) f.y *= mix(1., fit.y, ss(-.2, 1., rp.y));
+    if (dep.w > 0. && sp.y < 0.) f.y *= mix(1., fit.w, ss(-.2, 1., -rp.y));
+    return f;
+}
+
+// Where a squished point `q` came from (the squish run backwards, by a few rounds of refinement), so the body, rim and
+// glow drawn per pixel squish with the dots.
+float2 unsquish(float2 q, float4 ed, float R) {
+    float2 p = q;
+    for (int i = 0; i < 6; i++) p = q / squishScale(p, ed, R);
+    return p;
+}
 float rpl(float3 q, float3 s, float pa) { float an = angTo(q, s); return pow(max(sin(an * 7. - pa * 3.5), 0.), 3.) * 1.7 * exp(-an * .45); }
 float bn(float3 b, float pa) {
     return sin(b.x + pa * 1.1) * sin(b.y * 1.2 - pa * .8) * sin(b.z * .9 + pa * .95)
@@ -251,29 +287,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     sp -= (sp - pdir * dot(sp, pdir)) * pk * max(pullAmt, 0.) * .45;
     // The pointer's drift and the shake move the whole orb: before the squash, so its flat face stays on the edge.
     sp += float2(u.c.z * 2. + drift.x, drift.y);
-    // Edge squash (EdgeSquash), like a drop pressed on glass: the orb spreads along an edge it's pushed into, most on
-    // the side touching it, and the dots past the edge flatten onto it. The spring's rebound reads past 1 (negative
-    // depth), narrowing it for the jiggle.
-    float4 ed = u.o, dep = clamp(1. - ed, -.35, 1.5);
-    float2 rp = sp / R;
-    // Most of the flow is right at the edge: the touching side runs out along it, the far side barely moves.
-    float spreadY = dep.x * pow(ss(-.6, 1., rp.x), 1.5) + dep.z * pow(ss(-.6, 1., -rp.x), 1.5);
-    float spreadX = dep.y * pow(ss(-.6, 1., rp.y), 1.5) + dep.w * pow(ss(-.6, 1., -rp.y), 1.5);
-    // Each dot spreads by its share, but never past the window (it ends at ±1): only a dot that would reach it is
-    // held back, smoothly, so the outline stays round instead of squaring off.
-    float lim = .95;
-    float gx = 1.3 * spreadX, gy = 1.3 * spreadY;
-    if (gx > 0.) gx = max(smin(gx, lim / max(abs(sp.x), 1e-3) - 1., .15), 0.);
-    if (gy > 0.) gy = max(smin(gy, lim / max(abs(sp.y), 1e-3) - 1., .15), 0.);
-    sp.x *= 1. + gx;
-    sp.y *= 1. + gy;
-    // Squish, not flatten: the touching side is pulled in until its rim just meets the edge, staying rounded (a
-    // squeezed ball), easing off toward the far side.
-    float4 fit = clamp(ed, .2, 1.);   // the rim's new reach on each side, in radii
-    if (dep.x > 0. && sp.x > 0.) sp.x *= mix(1., fit.x, ss(-.2, 1., rp.x));
-    if (dep.z > 0. && sp.x < 0.) sp.x *= mix(1., fit.z, ss(-.2, 1., -rp.x));
-    if (dep.y > 0. && sp.y > 0.) sp.y *= mix(1., fit.y, ss(-.2, 1., rp.y));
-    if (dep.w > 0. && sp.y < 0.) sp.y *= mix(1., fit.w, ss(-.2, 1., -rp.y));
+    sp *= squishScale(sp, u.o, R);
     o.position = float4(sp, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
