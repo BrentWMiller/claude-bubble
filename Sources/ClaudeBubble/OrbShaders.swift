@@ -129,35 +129,55 @@ float angTo(float3 q, float3 d) { return acos(clamp(dot(q, normalize(d)), -1., 1
 // A smooth minimum: the lesser of a and b, rounded over k.
 float smin(float a, float b, float k) { float h = clamp(.5 + .5 * (b - a) / k, 0., 1.); return mix(b, a, h) - k * h * (1. - h); }
 
-// Edge squash (EdgeSquash), like a ball squeezed against glass. `ed`: each edge's distance from the centre in orb radii
-// (right, top, left, bottom; 1 or more is clear). Returns how much a point `sp` (clip units, from the centre; R is the
-// orb's radius there) stretches on each axis. The orb spreads along an edge it's pushed into, most on the side touching
-// it, and that side is pulled in until its rim just meets the edge, staying rounded. The spring's rebound reads past 1,
-// narrowing it for the jiggle. Never spreads a dot past the window (±1), easing off before it squares the outline.
-float2 squishScale(float2 sp, float4 ed, float R) {
-    float4 dep = clamp(1. - ed, -.35, 1.5);
-    if (all(abs(dep) < 1e-4)) return float2(1.);
-    float2 rp = sp / R;
-    float spreadY = dep.x * pow(ss(-.6, 1., rp.x), 1.5) + dep.z * pow(ss(-.6, 1., -rp.x), 1.5);
-    float spreadX = dep.y * pow(ss(-.6, 1., rp.y), 1.5) + dep.w * pow(ss(-.6, 1., -rp.y), 1.5);
-    float lim = .95;
-    float gx = 1.3 * spreadX, gy = 1.3 * spreadY;
-    if (gx > 0.) gx = max(smin(gx, lim / max(abs(sp.x), 1e-3) - 1., .15), 0.);
-    if (gy > 0.) gy = max(smin(gy, lim / max(abs(sp.y), 1e-3) - 1., .15), 0.);
-    float2 f = float2(1. + gx, 1. + gy);
-    float4 fit = clamp(ed, .2, 1.);   // the rim's new reach on each side, in radii
-    if (dep.x > 0. && sp.x > 0.) f.x *= mix(1., fit.x, ss(-.2, 1., rp.x));
-    if (dep.z > 0. && sp.x < 0.) f.x *= mix(1., fit.z, ss(-.2, 1., -rp.x));
-    if (dep.y > 0. && sp.y > 0.) f.y *= mix(1., fit.y, ss(-.2, 1., rp.y));
-    if (dep.w > 0. && sp.y < 0.) f.y *= mix(1., fit.w, ss(-.2, 1., -rp.y));
-    return f;
+// Edge squash (EdgeSquash): the orb squeezed against a screen edge like a soft ball of liquid. Per edge, in clip units
+// from the centre (R: the orb's radius there), with `e` that edge's distance in radii (1 or more: clear; the spring's
+// rebound reads a little past 1). The orb compresses as a whole between the wall and its far side, so it stays round
+// and smooth; pushed further it stays on the wall, thinner, oozing out along it (a little fuller where it touches).
+// It never spreads past the window (±1). `a` runs toward the wall, `b` along it.
+struct Wall { float c; float g0; float bulge; bool on; };
+
+Wall wall(float e, float R) {
+    Wall w; w.on = abs(e - 1.) > 1e-4;
+    w.c = clamp((e + 1.) * .5, .35, 1.15);   // how much of its width is left
+    float sb = 1. + .7 * (1. / w.c - 1.);    // keeps roughly its area: spread along the wall
+    float most = .95 / (R * 1.2);            // the window's room along the wall
+    if (sb > 1.) sb = 1. + smin(sb - 1., most - 1., .2);
+    w.g0 = sb; w.bulge = max(1. - w.c, 0.) * .25;
+    return w;
 }
 
-// Where a squished point `q` came from (the squish run backwards, by a few rounds of refinement), so the body, rim and
-// glow drawn per pixel squish with the dots.
+float2 wallSquish(float a, float b, float e, float R) {
+    Wall w = wall(e, R);
+    if (!w.on) return float2(a, b);
+    float g = w.g0 * (1. + w.bulge * (2. * ss(-1., 1., a / R) - 1.));
+    float a2 = e < 1. ? e * R - (R - a) * w.c : a * w.c;   // squeezed against the wall, or the rebound's stretch
+    return float2(a2, b * g);
+}
+
+float2 wallUnsquish(float a2, float b2, float e, float R) {
+    Wall w = wall(e, R);
+    if (!w.on) return float2(a2, b2);
+    float a = e < 1. ? R - (e * R - a2) / w.c : a2 / w.c;
+    float g = w.g0 * (1. + w.bulge * (2. * ss(-1., 1., a / R) - 1.));
+    return float2(a, b2 / g);
+}
+
+// `ed`: right, top, left, bottom edges' distances. Left and bottom are the right and top mirrored.
+float2 squish(float2 p, float4 ed, float R) {
+    if (ed.x < ed.z) { float2 r = wallSquish(p.x, p.y, ed.x, R); p = r; }
+    else { float2 r = wallSquish(-p.x, p.y, ed.z, R); p = float2(-r.x, r.y); }
+    if (ed.y < ed.w) { float2 r = wallSquish(p.y, p.x, ed.y, R); p = float2(r.y, r.x); }
+    else { float2 r = wallSquish(-p.y, p.x, ed.w, R); p = float2(r.y, -r.x); }
+    return p;
+}
+
+// Where a squished point came from, so the body, rim and glow drawn per pixel squish with the dots.
 float2 unsquish(float2 q, float4 ed, float R) {
     float2 p = q;
-    for (int i = 0; i < 6; i++) p = q / squishScale(p, ed, R);
+    if (ed.y < ed.w) { float2 r = wallUnsquish(p.y, p.x, ed.y, R); p = float2(r.y, r.x); }
+    else { float2 r = wallUnsquish(-p.y, p.x, ed.w, R); p = float2(r.y, -r.x); }
+    if (ed.x < ed.z) { float2 r = wallUnsquish(p.x, p.y, ed.x, R); p = r; }
+    else { float2 r = wallUnsquish(-p.x, p.y, ed.z, R); p = float2(-r.x, r.y); }
     return p;
 }
 float rpl(float3 q, float3 s, float pa) { float an = angTo(q, s); return pow(max(sin(an * 7. - pa * 3.5), 0.), 3.) * 1.7 * exp(-an * .45); }
@@ -287,7 +307,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     sp -= (sp - pdir * dot(sp, pdir)) * pk * max(pullAmt, 0.) * .45;
     // The pointer's drift and the shake move the whole orb: before the squash, so its flat face stays on the edge.
     sp += float2(u.c.z * 2. + drift.x, drift.y);
-    sp *= squishScale(sp, u.o, R);
+    sp = squish(sp, u.o, R);
     o.position = float4(sp, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
