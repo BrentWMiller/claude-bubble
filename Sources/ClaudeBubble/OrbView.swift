@@ -87,7 +87,9 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
     private let queue: MTLCommandQueue
     private let quadPipeline: MTLRenderPipelineState
     private let pointPipeline: MTLRenderPipelineState
-    private let points: MTLBuffer
+    private var points: MTLBuffer
+    private var pointCount = OrbGeometry.pointCount
+    private let device: MTLDevice
     private var lastTime = CACurrentMediaTime()
 
     init?(view: MTKView, animator: OrbAnimator) {
@@ -120,6 +122,7 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         self.animator = animator
         self.queue = queue
         self.points = points
+        self.device = device
         super.init()
     }
 
@@ -139,7 +142,17 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         let px = Float(view.bounds.width)
         let crisp = (view as? OrbView)?.crisp ?? false
         let cr: Float = crisp && px < 120 ? px / 120 : 1
-        let pointSize = (crisp ? max(0.42, min(1, px / 200)) : max(1, px / 200)) * dpr * 1.6
+        // A big orb gets more dots rather than bigger ones.
+        let wanted = OrbGeometry.pointCount(diameter: Double(px) * 0.6)
+        if wanted != pointCount {
+            let pts = OrbGeometry.fibonacciSphere(count: wanted)
+            if let buffer = device.makeBuffer(bytes: pts, length: pts.count * MemoryLayout<Float>.stride) {
+                points = buffer
+                pointCount = wanted
+            }
+        }
+        let dotPx = Float(OrbGeometry.dotSizingSide(Double(px)))
+        let pointSize = (crisp ? max(0.42, min(1, dotPx / 200)) : max(1, dotPx / 200)) * dpr * 1.6
         var u = OrbUniforms(
             c1: SIMD4(f.params.c1, 0), c2: SIMD4(f.params.c2, 0), c3: SIMD4(f.params.c3, 0), halo: SIMD4(f.params.halo, 0),
             a: [f.phase, f.scale, f.glow * (0.35 + 0.65 * cr), f.ring * (0.6 + 0.4 * cr)],
@@ -163,7 +176,7 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
         enc.setRenderPipelineState(pointPipeline)
         enc.setVertexBytes(&u, length: len, index: 0)
         enc.setVertexBuffer(points, offset: 0, index: 1)
-        enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: OrbGeometry.pointCount)
+        enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: pointCount)
 
         enc.endEncoding()
         cmd.present(drawable)
