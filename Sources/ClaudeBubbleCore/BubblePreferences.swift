@@ -43,6 +43,8 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var islandGlow: IslandGlow
     /// Where along its edge the island sits (0…1; dragging sets it).
     public var islandAlong: Double
+    /// How wide the island is, as a multiple of the design's widths (IslandLayout.minWidth…maxWidth).
+    public var islandWidth: Double
     /// Quiet mode: the bubble shrinks to a dot, toasts wait for a catch-up and sounds are muted.
     public var quiet: Bool
     /// Permission prompts can be approved or denied from the bubble (the terminal's prompt shows too).
@@ -75,6 +77,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandRest = .live
         islandGlow = .waves
         islandAlong = 0.5
+        islandWidth = 1
         quiet = false
         approvals = true
     }
@@ -110,6 +113,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandRest = (try? c.decodeIfPresent(IslandRest.self, forKey: .islandRest)) ?? d.islandRest
         islandGlow = (try? c.decodeIfPresent(IslandGlow.self, forKey: .islandGlow)) ?? d.islandGlow
         islandAlong = (try? c.decodeIfPresent(Double.self, forKey: .islandAlong)) ?? d.islandAlong
+        islandWidth = (try? c.decodeIfPresent(Double.self, forKey: .islandWidth)) ?? d.islandWidth
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? d.quiet
         approvals = (try? c.decodeIfPresent(Bool.self, forKey: .approvals)) ?? d.approvals
     }
@@ -137,6 +141,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         p.diameter = min(max(diameter, OrbSize.minDiameter), OrbSize.maxDiameter)
         p.opacity = min(max(opacity, 0.3), 1)
         p.islandAlong = min(max(islandAlong, 0), 1)
+        p.islandWidth = min(max(islandWidth, Double(IslandLayout.minWidth)), Double(IslandLayout.maxWidth))
         if OrbPalette.preset(named: presetName) == nil { p.presetName = "Agents view" }
         if let spot = relativeSpot, spot.count != 2 { p.relativeSpot = nil }
         return p

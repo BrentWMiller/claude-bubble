@@ -288,6 +288,10 @@ struct QuickPanelView: View {
                               selection: Binding(get: { prefs.islandDock }, set: { settings.prefs.islandDock = $0 }))
                 }
                 .font(.system(size: 13))
+                sliderRow("Width", value: Binding(get: { prefs.islandWidth },
+                                                  set: { settings.prefs.islandWidth = ($0 * 20).rounded() / 20 }),
+                          range: Double(IslandLayout.minWidth)...Double(IslandLayout.maxWidth),
+                          text: "\(Int((prefs.islandWidth * 100).rounded()))%")
             }
         }
     }
