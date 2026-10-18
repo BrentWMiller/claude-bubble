@@ -75,6 +75,26 @@ final class IslandTests: XCTestCase {
                        CGSize(width: 44, height: 8 + 28 + 10 + 25 + 16 + 12), "capped at five pips")
     }
 
+    // Tucked: the circle the orb morphs into and out of
+
+    func testTuckedIsACircleAroundTheOrb() {
+        XCTAssertEqual(IslandLayout.size(mode: .tucked, dock: .top, rest: .live, pips: 3, rows: 3), CGSize(width: 48, height: 40))
+        XCTAssertEqual(IslandLayout.size(mode: .tucked, dock: .bottom, rest: .compact, pips: 0, rows: 0), CGSize(width: 48, height: 40))
+        XCTAssertEqual(IslandLayout.size(mode: .tucked, dock: .left, rest: .live, pips: 5, rows: 5), CGSize(width: 44, height: 44))
+    }
+
+    func testTuckedOrbCentre() {
+        let w = CGRect(x: 100, y: 200, width: 440, height: 600)
+        XCTAssertEqual(IslandLayout.tuckedOrbCentre(dock: .top, window: w), CGPoint(x: 320, y: 800 - 4 - 14))
+        XCTAssertEqual(IslandLayout.tuckedOrbCentre(dock: .bottom, window: w), CGPoint(x: 320, y: 200 + 4 + 14))
+        XCTAssertEqual(IslandLayout.tuckedOrbCentre(dock: .left, window: w), CGPoint(x: 100 + 22, y: 500))
+        XCTAssertEqual(IslandLayout.tuckedOrbCentre(dock: .right, window: w), CGPoint(x: 540 - 22, y: 500))
+    }
+
+    func testChooseNeverTucks() {
+        XCTAssertNotEqual(IslandMode.choose(sessions: [], now: now, hovering: false, doneAt: nil), .tucked)
+    }
+
     // Placement
 
     let visible = CGRect(x: 0, y: 50, width: 1512, height: 900)   // menu bar above, Dock below

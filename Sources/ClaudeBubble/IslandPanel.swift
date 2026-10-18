@@ -238,6 +238,7 @@ struct IslandView: View {
 
     private var live: [Session] { sessions.sorted }
     private var sideRest: Bool { model.dock.isSide && model.mode == .rest }
+    private var tucked: Bool { model.mode == .tucked }
     private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {
         IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
@@ -289,7 +290,7 @@ struct IslandView: View {
     /// The orb's centre inside the pill.
     private var orbCentre: CGPoint {
         let half = IslandLayout.orbSize / 2
-        if sideRest { return CGPoint(x: size.width / 2, y: 8 + half) }
+        if sideRest || (tucked && model.dock.isSide) { return CGPoint(x: size.width / 2, y: 8 + half) }
         let inset = IslandLayout.dockedInset
         return CGPoint(x: 10 + half, y: model.dock == .bottom ? size.height - inset - half : inset + half)
     }
@@ -311,6 +312,7 @@ struct IslandView: View {
                     if hasDetail { scrim }
                 }
                 content
+                    .opacity(tucked ? 0 : 1)
                     // A soft dark halo behind every letter, so text stays legible over the brightest glow.
                     .shadow(color: .black.opacity(model.glow == .waves ? 0.9 : 0), radius: 2.5)
             }
@@ -465,7 +467,7 @@ struct IslandView: View {
         case let .error(id): return "\(name(id)) hit an error"
         case .done: return "All sessions complete"
         case .hover: return "Sessions"
-        case .quiet: return ""
+        case .quiet, .tucked: return ""
         case .rest:
             guard !live.isEmpty else { return "No sessions" }
             let focus = SessionStore.motionFocus(live) ?? live.first!

@@ -50,6 +50,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var isIsland: Bool { applied.style == .island }
     /// While the island is being dragged: the edge and spot it's snapping to (saved on release).
     private var islandDrag: (dock: IslandDock, along: Double)?
+    /// Switching style: the orb flying into the island or out of it (nil when still).
+    private var morph: BubbleStyle?
+    /// Where the floating orb lives, put back after (or on cancelling) a flight.
+    private var morphHome: CGRect = .zero
+    /// The island's next morph step: flying out once its pill has closed, or opening once the orb has landed.
+    private var morphStep: DispatchWorkItem?
+    /// The island holds closed around its orb (the orb is arriving or leaving).
+    private var islandTucked = false
     /// Quiet mode (a Focus, a screen share, or the toggle): the bubble shrinks to a dot and toasts wait.
     private var quiet = false
     private var heldToasts: [HeldToast] = []
@@ -281,6 +289,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Shows the orb or the island (whichever the style is), or neither while hidden. Only one renders the orb.
     private func updateVisibility() {
+        endMorph()
         let showOrb = !bubbleHidden && !isIsland, showIsland = !bubbleHidden && isIsland
         if showOrb { panel.orderFrontRegardless() } else { panel.orderOut(nil) }
         panel.setRendering(showOrb)
@@ -307,6 +316,103 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         toggleItem.title = bubbleHidden ? "Show Bubble" : "Hide Bubble"
         // While hidden, a click on the menu-bar icon brings the bubble straight back (right-click still opens the menu).
         if statusItem != nil { applyState() }   // the icon shows the hidden state
+    }
+
+    // MARK: Morphing between the orb and the island
+
+    /// Switching style with the bubble showing: the orb flies between its spot and the island's orb slot, the pill
+    /// closing around it or opening from it. False when there's nothing to animate (the caller switches instantly).
+    private func morphStyle(to style: BubbleStyle) -> Bool {
+        endMorph()   // a flight still going stops at its end (the style it was heading for no longer matters)
+        guard !bubbleHidden, !quiet, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion, let island else { return false }
+        if style == .island { return morphToIsland(island) }
+        return morphToOrb(island)
+    }
+
+    /// The orb flies from its spot into a closed island, which then opens.
+    private func morphToIsland(_ island: IslandPanel) -> Bool {
+        guard panel.isVisible else { return false }
+        island.orderOut(nil)
+        let window = islandWindowFrame(mouse: NSEvent.mouseLocation)
+        island.setFrame(window, display: false)
+        island.model.mode = .tucked
+        islandTucked = true
+        morph = .island
+        morphHome = panel.frame
+        if listPanel.isShown { listPanel.popOut() }
+        if pipCard.isVisible { pipCard.hide() }
+        toastPanel.orderOut(nil)
+        panel.setPipsVisible(false)
+        let landing = StyleMorph.orbFrame(centre: IslandLayout.tuckedOrbCentre(dock: island.model.dock, window: window),
+                                          side: IslandLayout.orbSize)
+        panel.fly(from: morphHome, to: landing) { [weak self] in
+            guard let self else { return }
+            // Landed: the island (still closed, its orb exactly where this one is) takes over, then opens.
+            let home = self.morphHome
+            self.morph = nil
+            self.updateVisibility()
+            self.panel.restore(home)
+            self.panel.setPipsVisible(true, duration: 0)
+            self.islandTucked = true
+            self.island.model.mode = .tucked
+            let open = DispatchWorkItem { [weak self] in self?.islandTucked = false }
+            self.morphStep = open
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: open)
+        }
+        return true
+    }
+
+    /// The island closes around its orb, then the orb flies out to its spot.
+    private func morphToOrb(_ island: IslandPanel) -> Bool {
+        guard island.isVisible else { return false }
+        morph = .orb
+        morphHome = panel.frame
+        islandTucked = true
+        island.model.mode = .tucked
+        island.pill = IslandLayout.pillRect(size: IslandLayout.size(mode: .tucked, dock: island.model.dock, rest: .live, pips: 0, rows: 0),
+                                            dock: island.model.dock, window: island.frame)
+        toastPanel.orderOut(nil)
+        let fly = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let start = StyleMorph.orbFrame(centre: IslandLayout.tuckedOrbCentre(dock: island.model.dock, window: island.frame),
+                                            side: IslandLayout.orbSize)
+            self.panel.setPipsVisible(false, duration: 0)
+            self.panel.fly(from: start, to: self.morphHome) { [weak self] in
+                guard let self else { return }
+                self.morph = nil
+                self.islandTucked = false
+                self.updateVisibility()
+                self.panel.setPipsVisible(true)
+            }
+            // The flying orb covers the island's (frozen, so the shared animator isn't stepped twice) as it fades.
+            self.panel.orderFrontRegardless()
+            self.panel.setRendering(true)
+            island.setRendering(false)
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.18
+                island.animator().alphaValue = 0
+            }, completionHandler: { [weak self] in
+                guard let self, self.morph == .orb else { return }
+                island.orderOut(nil)
+                island.alphaValue = self.applied.opacity
+            })
+        }
+        morphStep = fly
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38, execute: fly)
+        return true
+    }
+
+    /// Ends a flight early, at its end state (the caller then shows whichever style is current).
+    private func endMorph() {
+        morphStep?.cancel()
+        morphStep = nil
+        guard morph != nil else { return }
+        morph = nil
+        islandTucked = false
+        panel.cancelFlight()
+        panel.restore(morphHome)
+        panel.setPipsVisible(true, duration: 0)
+        island.alphaValue = applied.opacity
     }
 
     /// The display the island lives on: the pointer's with Follow the Pointer, else the main one.
@@ -413,13 +519,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let over = pill(m.mode).contains(mouse)
         let wasOpen = m.mode == .hover
-        let open = islandDrag == nil
+        let open = islandDrag == nil && !islandTucked
             && hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime(),
                             openDelay: HoverTracker.islandOpenDelay)
         if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
         if open, !wasOpen { prStatus.refresh(model.sessions, looking: true) }
-        let mode = IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open,
-                                     doneAt: previewColor == .done ? Date() : islandDoneAt, quiet: quiet)
+        let mode = islandTucked ? .tucked
+            : IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open,
+                                doneAt: previewColor == .done ? Date() : islandDoneAt, quiet: quiet)
         if m.mode != mode { m.mode = mode }
         // Peeking at the session panel while quiet shows the orb at its normal size.
         animator.quiet = quiet && mode != .hover
@@ -555,8 +662,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyIslandOptions(prefs)
         if styleChanged {
             hover.dismiss()   // an open list or island panel mustn't carry over to the other style
-            updateVisibility()
-            if !bubbleHidden { appearOrb() }
+            if !morphStyle(to: prefs.style) {
+                updateVisibility()
+                if !bubbleHidden { appearOrb() }
+            }
         }
         if usageChanged {
             // Turning usage back on never announces thresholds crossed while it was off.
@@ -839,6 +948,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             updateToasts(mouse: mouse, now: CACurrentMediaTime())
             return
         }
+        guard morph == nil else { return }   // the orb is flying in from the island
         followPointer(to: mouse)
         turnPips()
         let orbScreen = BubblePanel.screen(nearest: CGPoint(x: panel.frame.midX, y: panel.frame.midY))
