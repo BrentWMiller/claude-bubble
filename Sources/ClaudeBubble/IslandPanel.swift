@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeBubbleCore
+import HookCore
 import Combine
 import SwiftUI
 
@@ -242,7 +243,14 @@ struct IslandView: View {
     private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {
         IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
-                          footer: hasFooter, linked: IslandLayout.linkedRows(live))
+                          footer: hasFooter, linked: IslandLayout.linkedRows(live),
+                          approval: sessions.islandApprovalHeight(model.mode))
+    }
+
+    /// The prompt the needs-you card offers Allow and Deny for.
+    private var approval: ApprovalRequest? {
+        guard case let .needs(id) = model.mode, let s = sessions.byID[id] else { return nil }
+        return sessions.approval(for: s)
     }
     private let spring = Animation.spring(response: 0.5, dampingFraction: 0.72)
 
@@ -412,7 +420,21 @@ struct IslandView: View {
     @ViewBuilder private var detail: some View {
         switch model.mode {
         case let .needs(id), let .error(id):
-            if let s = live.first(where: { $0.id == id }) {
+            if let s = live.first(where: { $0.id == id }), let approval, model.mode == .needs(id) {
+                // A permission prompt: what Claude wants, then the request in full with Deny and Allow.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(approval.headline)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(s.state.color(in: sessions.palette))
+                        .lineLimit(1).truncationMode(.tail)
+                        .frame(height: 18)
+                    ApprovalCard(request: approval, accent: BubbleState.needs.color(in: sessions.palette),
+                                 width: SessionsModel.needsCardWidth) { sessions.decide?(approval, $0) }
+                }
+                .padding(.leading, 22 + IslandLayout.orbSize)
+                .padding(.trailing, 20)
+                .transition(.opacity)
+            } else if let s = live.first(where: { $0.id == id }) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(s.detail.isEmpty ? (model.mode == .needs(id) ? "Needs you" : "Error") : s.detail)
                         .font(.system(size: 12.5))
@@ -432,8 +454,12 @@ struct IslandView: View {
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 VStack(spacing: 2) {
                     ForEach(Array(live.prefix(IslandLayout.maxRows)), id: \.id) { s in
+                        let asking = sessions.approval(for: s)
                         SessionRow(session: s, now: context.date, palette: sessions.palette,
-                                   pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) })
+                                   pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) },
+                                   approval: asking, expanded: asking != nil && asking?.id == sessions.expandedApproval?.id,
+                                   width: SessionsModel.islandRowWidth,
+                                   onDecide: asking.map { request in { sessions.decide?(request, $0) } })
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

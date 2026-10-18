@@ -1,5 +1,6 @@
 import AppKit
 import ClaudeBubbleCore
+import HookCore
 import SwiftUI
 
 extension BubbleState {
@@ -132,8 +133,10 @@ struct PipCardView: View {
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
+            let asking = model.approval(for: session)
             SessionRow(session: session, now: context.date,
-                       palette: model.palette)
+                       palette: model.palette, approval: asking,
+                       onDecide: asking.map { request in { model.decide?(request, $0) } })
         }
         .padding(4)
         .frame(width: 250)
@@ -151,9 +154,36 @@ struct SessionRow: View {
     var pinned = false
     /// Pins or unpins the session (no pin button without it).
     var onPin: (() -> Void)?
+    /// The permission prompt it's waiting on, with Allow and Deny (none without `onDecide`): in full on a card
+    /// under the row when `expanded` (the most recent request), else as a small Deny | Allow pill.
+    var approval: ApprovalRequest?
+    var expanded = false
+    /// The row's width, for laying out its approval card.
+    var width: CGFloat = 0
+    var onDecide: ((ApprovalBehavior) -> Void)?
     @State private var hover = false
 
+    /// The card's width under a row: the row less its padding and the pip's column.
+    static func cardWidth(row: CGFloat) -> CGFloat { row - 20 - 38 }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header
+            if let approval, let onDecide, expanded {
+                ApprovalCard(request: approval, accent: BubbleState.needs.color(in: palette),
+                             width: Self.cardWidth(row: width), onDecide: onDecide)
+                    .padding(.leading, 38)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .onHover { hover = $0 }
+        .opacity(entrance)
+        .offset(x: (1 - entrance) * 6)
+    }
+
+    private var header: some View {
         // Top-aligned so the pip and the times sit on the title's line, however tall the row grows (chips).
         HStack(alignment: .top, spacing: 12) {
             Group {
@@ -170,7 +200,8 @@ struct SessionRow: View {
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
+                Text(expanded && approval != nil ? approval!.headline
+                     : session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
                     .font(.system(size: 12))
                     .foregroundStyle(session.tone.color(in: palette))
                     .lineLimit(1)
@@ -202,7 +233,9 @@ struct SessionRow: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.4))
                 }
-                if let tokens = session.tokens {
+                if let approval, let onDecide, !expanded {
+                    ApprovalSplit(request: approval, accent: BubbleState.needs.color(in: palette), onDecide: onDecide)
+                } else if let tokens = session.tokens {
                     Text(TokenFormat.string(tokens))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.28))
@@ -210,12 +243,6 @@ struct SessionRow: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .contentShape(Rectangle())
-        .onHover { hover = $0 }
-        .opacity(entrance)
-        .offset(x: (1 - entrance) * 6)
     }
 }
 
@@ -228,6 +255,7 @@ final class CardMotionModel: ObservableObject {
 }
 
 struct SessionListView: View {
+    static let width: CGFloat = 300
     @ObservedObject var model: SessionsModel
     @ObservedObject var motion: CardMotionModel
     let onSelect: (Session) -> Void
@@ -257,12 +285,20 @@ struct SessionListView: View {
         }
     }
 
+    private func decide(_ session: Session) -> ((ApprovalBehavior) -> Void)? {
+        guard let request = model.approval(for: session) else { return nil }
+        return { model.decide?(request, $0) }
+    }
+
     private func card(now: Date, age: Double) -> some View {
         VStack(spacing: 2) {
             ForEach(Array(model.sorted.enumerated()), id: \.element.id) { index, session in
                 SessionRow(session: session, now: now,
                            palette: model.palette, entrance: CardMotion.row(index, age: age),
-                           pinned: model.pinned.contains(session.id), onPin: { model.togglePin(session.id) })
+                           pinned: model.pinned.contains(session.id), onPin: { model.togglePin(session.id) },
+                           approval: model.approval(for: session),
+                           expanded: model.approval(for: session)?.id == model.expandedApproval?.id,
+                           width: SessionListView.width - 16, onDecide: decide(session))
                     .onTapGesture { onSelect(session) }
             }
             if model.today != nil || model.usage != nil {
@@ -271,7 +307,7 @@ struct SessionListView: View {
             }
         }
         .padding(8)
-        .frame(width: 300)
+        .frame(width: Self.width)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x17 / 255, green: 0x16 / 255, blue: 0x1c / 255).opacity(0.96)))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.08), lineWidth: 1))
     }
@@ -361,6 +397,169 @@ struct LinkChips: View {
 /// Set when a chip opened its link, so a click the island replays to its content doesn't also focus the terminal.
 enum ChipClick {
     static var handled = false
+}
+
+/// A waiting permission prompt in full (design: Approve / Deny 1a, 2a, 2b): Claude's reason, the command or the
+/// diff in a code block, then Deny and Allow. Laid out to ApprovalCardLayout's exact measurements, so the island can
+/// size itself to fit. Clicks only: no keyboard shortcut or default button, so nothing is approved by a stray key.
+struct ApprovalCard: View {
+    let request: ApprovalRequest
+    let accent: Color
+    let width: CGFloat
+    let onDecide: (ApprovalBehavior) -> Void
+
+    private typealias L = ApprovalCardLayout
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: L.spacing) {
+            if let reason = request.reason {
+                Text(reason)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.white.opacity(0.8))
+                    .lineLimit(2).truncationMode(.tail)
+                    .frame(width: width, height: CGFloat(L.reasonLines(request, width: width)) * L.reasonLine, alignment: .topLeading)
+            }
+            block
+            HStack(spacing: 8) {
+                ApprovalButton(title: "Deny", filled: false, accent: accent) { onDecide(.deny) }
+                ApprovalButton(title: request.allowTitle, filled: true, accent: accent) { onDecide(.allow) }
+            }
+            .frame(height: L.buttonHeight)
+        }
+        .frame(width: width, alignment: .leading)
+    }
+
+    private var block: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text(request.blockLabel)
+                    .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                    .kerning(request.diff == nil ? 0.8 : 0)
+                    .foregroundStyle(Color.white.opacity(request.diff == nil ? 0.45 : 0.75))
+                    .lineLimit(1).truncationMode(.head)
+                Spacer(minLength: 4)
+                if let diff = request.diff {
+                    (Text("+\(diff.added)").foregroundColor(Self.added) + Text(" -\(diff.removed)").foregroundColor(Self.removed))
+                        .font(.system(size: 10.5, design: .monospaced))
+                } else {
+                    Text((request.cwd as NSString).abbreviatingWithTildeInPath)
+                        .font(.system(size: 10.5, design: .monospaced))
+                        .foregroundStyle(Color.white.opacity(0.32))
+                        .lineLimit(1).truncationMode(.head)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: L.blockHeader)
+            .overlay(alignment: .bottom) { Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1) }
+            if let diff = request.diff { diffBody(diff) } else { code }
+        }
+        .frame(width: width, height: L.blockHeight(request, width: width), alignment: .top)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Color.black.opacity(0.4)))
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+        .help(request.detail)
+    }
+
+    private var code: some View {
+        let lines = L.codeLines(request, width: width)
+        let text = request.tool == "Bash" ? Text("$ ").foregroundColor(accent) + Text(request.detail) : Text(request.detail)
+        return text
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(Color.white.opacity(0.9))
+            .lineSpacing(2)
+            .lineLimit(lines).truncationMode(.tail)
+            .frame(width: width - 20, height: CGFloat(lines) * L.codeLine, alignment: .topLeading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, L.blockPadding / 2)
+    }
+
+    static let added = Color(red: 0.42, green: 0.85, blue: 0.5)
+    static let removed = Color(red: 0.98, green: 0.45, blue: 0.42)
+
+    private func diffBody(_ diff: ApprovalDiff) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(diff.lines.enumerated()), id: \.offset) { _, line in
+                let (mark, color, fill): (String, Color, Color) = switch line.kind {
+                case .context: ("  ", Color.white.opacity(0.45), .clear)
+                case .removed: ("- ", Self.removed, Self.removed.opacity(0.13))
+                case .added: ("+ ", Self.added, Self.added.opacity(0.12))
+                }
+                Text(mark + line.text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(color)
+                    .lineLimit(1).truncationMode(.tail)
+                    .padding(.horizontal, 10)
+                    .frame(width: width, height: L.diffLine, alignment: .leading)
+                    .background(fill)
+            }
+            if diff.hidden > 0 {
+                Text("+\(diff.hidden) more line\(diff.hidden == 1 ? "" : "s")")
+                    .font(.system(size: 10.5, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.35))
+                    .padding(.horizontal, 10)
+                    .frame(width: width, height: L.moreLine, alignment: .leading)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// One of the card's buttons: Deny outlined, Allow filled with the theme's needs-you colour.
+private struct ApprovalButton: View {
+    let title: String
+    let filled: Bool
+    let accent: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button {
+            ChipClick.handled = true   // the island's click goes to the button, not the terminal
+            action()
+        } label: {
+            Text(title)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(filled ? Color.black : Color.white.opacity(0.85))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: 8).fill(filled ? accent : Color.white.opacity(0.04)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(filled ? 0 : 0.14), lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: 8))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Deny | Allow in one small pill, for a row that isn't the one expanded (design: 1b).
+struct ApprovalSplit: View {
+    let request: ApprovalRequest
+    let accent: Color
+    let onDecide: (ApprovalBehavior) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            part("Deny", filled: false) { onDecide(.deny) }
+            part("Allow", filled: true) { onDecide(.allow) }
+        }
+        .padding(2)
+        .background(Capsule().fill(Color.white.opacity(0.07)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+        .help("\(request.headline): \(request.detail)")
+    }
+
+    private func part(_ title: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        Button {
+            ChipClick.handled = true
+            action()
+        } label: {
+            Text(title)
+                .font(.system(size: 10.5, weight: .semibold))
+                .foregroundStyle(filled ? Color.black : Color.white.opacity(0.8))
+                .padding(.horizontal, 9)
+                .frame(height: 16)
+                .background(Capsule().fill(filled ? accent : .clear))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
 }
 
 private struct LinkChip: View {

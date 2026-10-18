@@ -44,6 +44,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let edgeLight = EdgeLightController()
     private let linkScanner = LinkScanner()
     private let prStatus = PRStatusFetcher()
+    /// Permission prompts approved or denied from the bubble.
+    private let approvals = ApprovalServer(directory: FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".claude-bubble"))
     private var island: IslandPanel!
     /// The all-done moment, for the island's "All sessions complete".
     private var islandDoneAt: Date?
@@ -124,6 +127,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyIslandOptions(applied)
         linkScanner.onChange = { [weak self] in self?.syncSessions() }
         prStatus.onChange = { [weak self] in self?.syncSessions() }
+        approvals.onChange = { [weak self] pending in
+            guard let self else { return }
+            self.model.approvals = pending
+            // The orb's list sizes itself when shown: refit it to a card coming or going.
+            if self.listPanel.isShown { self.listPanel.show(near: self.panel.frame) }
+        }
+        model.decide = { [weak self] request, behavior in self?.approvals.reply(request.id, behavior) }
+        if applied.approvals { approvals.start() }
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
         // re-anchor it (it may need to flip above/below or come back on screen).
@@ -514,7 +525,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             IslandLayout.pillRect(size: IslandLayout.size(mode: mode, dock: m.dock, rest: m.rest, pips: model.sessions.count,
                                                           rows: model.sessions.count,
                                                           footer: model.today != nil || model.usage != nil,
-                                                          linked: model.linkedRows),
+                                                          linked: model.linkedRows, approval: model.islandApprovalHeight(mode)),
                                   dock: m.dock, window: window)
         }
         let over = pill(m.mode).contains(mouse)
@@ -654,6 +665,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         animator.interaction = prefs.interaction
         sounds.enabled = prefs.sounds && !quiet
         if prefs.quiet != quiet { setQuiet(prefs.quiet) }
+        if prefs.approvals != applied.approvals {
+            if prefs.approvals { approvals.start() } else { approvals.stop() }
+        }
         let usageChanged = prefs.usage != applied.usage
         let styleChanged = prefs.style != applied.style
         let paletteChanged = prefs.palette != applied.palette

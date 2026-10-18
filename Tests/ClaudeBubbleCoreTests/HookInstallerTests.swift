@@ -204,6 +204,28 @@ final class HookInstallerTests: XCTestCase {
         XCTAssertNil(HookInstaller.refreshSubscriptions(settings: ["model": "opus"], command: cmd), "never installs on its own")
     }
 
+    func timeouts(_ settings: [String: Any], _ event: String) -> [Int] {
+        let groups = ((settings["hooks"] as? [String: Any])?[event] as? [Any] ?? []).compactMap { $0 as? [String: Any] }
+        return groups.flatMap { ($0["hooks"] as? [[String: Any]] ?? []).compactMap { $0["timeout"] as? Int } }
+    }
+
+    func testPermissionRequestGetsTimeToWaitForAClick() {
+        let out = HookInstaller.merge(settings: [:], command: cmd)
+        XCTAssertEqual(timeouts(out, "PermissionRequest"), [600])
+        XCTAssertEqual(timeouts(out, "Stop"), [5])
+    }
+
+    func testRefreshRaisesAnOldPermissionRequestTimeout() throws {
+        var old = HookInstaller.merge(settings: [:], command: cmd)
+        var hooks = old["hooks"] as! [String: Any]
+        hooks["PermissionRequest"] = [["matcher": "", "hooks": [["type": "command", "command": cmd, "timeout": 5]]]]
+        old["hooks"] = hooks
+        let refreshed = try XCTUnwrap(HookInstaller.refreshSubscriptions(settings: old, command: cmd))
+        XCTAssertEqual(timeouts(refreshed, "PermissionRequest"), [600])
+        XCTAssertEqual(commands(refreshed, "PermissionRequest"), [cmd], "not added twice")
+        XCTAssertNil(HookInstaller.refreshSubscriptions(settings: refreshed, command: cmd))
+    }
+
     // Launch-time upgrade of an existing install
 
     func testUpgradeWrapsTheStatusLineOfAnExistingInstall() throws {

@@ -3,11 +3,12 @@ import Foundation
 import HookCore
 
 // Claude Bubble's Claude Code hook: records the session's state for the app. Claude pipes the hook event's JSON in
-// on stdin. Never blocks or fails Claude: it prints nothing and always exits 0.
+// on stdin. Never fails Claude: it always exits 0, and prints nothing except a permission decision the user clicked
+// in the bubble (a permission prompt waits for that click alongside the terminal's own prompt; see Approval).
 
 let env = ProcessInfo.processInfo.environment
-let dir = URL(fileURLWithPath: env["CLAUDE_BUBBLE_DIR"] ?? (NSHomeDirectory() + "/.claude-bubble"))
-    .appendingPathComponent("sessions")
+let home = URL(fileURLWithPath: env["CLAUDE_BUBBLE_DIR"] ?? (NSHomeDirectory() + "/.claude-bubble"))
+let dir = home.appendingPathComponent("sessions")
 
 /// A process's parent and command name, straight from the kernel (no `ps`).
 func processInfo(_ pid: pid_t) -> (parent: pid_t, name: String)? {
@@ -46,12 +47,12 @@ func run() {
     switch HookRecorder.record(data, previous: previous, now: Date().timeIntervalSince1970, pid: owner(),
                                env: .from(env)) {
     case .ignore:
-        return
+        break
     case .delete:
         try? FileManager.default.removeItem(at: path)
     case .write(let record):
         // isValidJSONObject first: JSONSerialization raises (not throws) on anything it can't encode.
-        guard JSONSerialization.isValidJSONObject(record), let out = try? JSONSerialization.data(withJSONObject: record) else { return }
+        guard JSONSerialization.isValidJSONObject(record), let out = try? JSONSerialization.data(withJSONObject: record) else { break }
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         // Write beside it, then rename over it: the app never reads a half-written file.
         let tmp = dir.appendingPathComponent(".tmp-\(getpid())-\(UInt64(Date().timeIntervalSince1970 * 1e9))")
@@ -62,6 +63,20 @@ func run() {
         } catch {
             try? FileManager.default.removeItem(at: tmp)
         }
+    }
+    // A permission prompt: offer it to the bubble, and pass on the user's click if one comes before the terminal's.
+    // An edited file's text, for a line of context above the change (small files only: this runs on every prompt).
+    let readFile = { (file: String) -> String? in
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: file))?[.size] as? Int, size < 2_000_000 else { return nil }
+        return try? String(contentsOfFile: file, encoding: .utf8)
+    }
+    if let request = ApprovalRequest.make(data, id: UUID().uuidString, readFile: readFile) {
+        let socket = home.appendingPathComponent(Approval.socketName).path
+        let decision = request.ask(socketPath: socket, deadline: Date() + Approval.wait) {
+            let record = (try? Data(contentsOf: path)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            return Approval.stillWaiting(record: record)
+        }
+        if let decision { FileHandle.standardOutput.write(Approval.output(decision)) }
     }
 }
 
