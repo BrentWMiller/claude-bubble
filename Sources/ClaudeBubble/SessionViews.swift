@@ -164,6 +164,7 @@ struct SessionRow: View {
     /// The row's width, for laying out its approval card.
     var width: CGFloat = 0
     var onDecide: ((ApprovalBehavior) -> Void)?
+    var onAnswer: (([String: String]) -> Void)?
     @State private var hover = false
 
     /// The card's width under a row: the row less its padding and the pip's column.
@@ -174,7 +175,7 @@ struct SessionRow: View {
             header
             if let approval, let onDecide, expanded {
                 ApprovalCard(request: approval, accent: BubbleState.needs.color(in: palette),
-                             width: Self.cardWidth(row: width), onDecide: onDecide)
+                             width: Self.cardWidth(row: width), onAnswer: onAnswer, onDecide: onDecide)
                     .padding(.leading, 38)
             }
         }
@@ -236,7 +237,7 @@ struct SessionRow: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.4))
                 }
-                if let approval, let onDecide, !expanded {
+                if let approval, let onDecide, !expanded, approval.questions == nil {
                     ApprovalSplit(request: approval, accent: BubbleState.needs.color(in: palette), onDecide: onDecide)
                 } else if let tokens = session.tokens {
                     Text(TokenFormat.string(tokens))
@@ -301,7 +302,8 @@ struct SessionListView: View {
                            pinned: model.pinned.contains(session.id), onPin: { model.togglePin(session.id) },
                            approval: model.approval(for: session),
                            expanded: model.approval(for: session)?.id == model.expandedApproval?.id,
-                           width: SessionListView.width - 16, onDecide: decide(session))
+                           width: SessionListView.width - 16, onDecide: decide(session),
+                           onAnswer: model.approval(for: session).map { request in { model.answer?(request, $0) } })
                     .onTapGesture { onSelect(session) }
             }
             if model.today != nil || model.usage != nil {
@@ -409,11 +411,22 @@ struct ApprovalCard: View {
     let request: ApprovalRequest
     let accent: Color
     let width: CGFloat
+    /// A question's answers (question text → label picked); questions offer options instead of Allow and Deny.
+    var onAnswer: (([String: String]) -> Void)?
     let onDecide: (ApprovalBehavior) -> Void
 
     private typealias L = ApprovalCardLayout
 
     var body: some View {
+        if let questions = request.questions, let onAnswer {
+            QuestionCard(questions: questions, accent: accent, width: width, onAnswer: onAnswer)
+                .id(request.id)   // a new question starts from its first step
+        } else {
+            permission
+        }
+    }
+
+    private var permission: some View {
         VStack(alignment: .leading, spacing: L.spacing) {
             if let reason = request.reason {
                 Text(reason)
@@ -424,7 +437,7 @@ struct ApprovalCard: View {
             }
             block
             HStack(spacing: 8) {
-                ApprovalButton(title: "Deny", filled: false, accent: accent) { onDecide(.deny) }
+                ApprovalButton(title: request.denyTitle, filled: false, accent: accent) { onDecide(.deny) }
                 ApprovalButton(title: request.allowTitle, filled: true, accent: accent) { onDecide(.allow) }
             }
             .frame(height: L.buttonHeight)
@@ -512,12 +525,13 @@ private struct ApprovalButton: View {
     let title: String
     let filled: Bool
     let accent: Color
+    var enabled = true
     let action: () -> Void
 
     var body: some View {
         Button {
             ChipClick.handled = true   // the island's click goes to the button, not the terminal
-            action()
+            if enabled { action() }
         } label: {
             Text(title)
                 .font(.system(size: 12.5, weight: .semibold))
@@ -526,8 +540,107 @@ private struct ApprovalButton: View {
                 .background(RoundedRectangle(cornerRadius: 8).fill(filled ? accent : Color.white.opacity(0.04)))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(filled ? 0 : 0.14), lineWidth: 1))
                 .contentShape(RoundedRectangle(cornerRadius: 8))
+                .opacity(enabled ? 1 : 0.4)
         }
         .buttonStyle(.plain)
+    }
+}
+
+/// A question Claude asked (AskUserQuestion), one at a time: its options to pick, then Back, Next or Answer. Free-text
+/// answers ("Other") stay in the terminal. Sized for the longest question and the most options, so it doesn't jump.
+private struct QuestionCard: View {
+    let questions: [ApprovalQuestion]
+    let accent: Color
+    let width: CGFloat
+    let onAnswer: ([String: String]) -> Void
+    @State private var step = 0
+    /// Each question's picked options (by index).
+    @State private var picked: [Int: Set<Int>] = [:]
+
+    private typealias L = ApprovalCardLayout
+
+    var body: some View {
+        let q = questions[min(step, questions.count - 1)]
+        let chosen = picked[step] ?? []
+        let last = step == questions.count - 1
+        VStack(alignment: .leading, spacing: L.spacing) {
+            Text(stepLine(q))
+                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
+                .kerning(0.6)
+                .foregroundStyle(Color.white.opacity(0.45))
+                .lineLimit(1)
+                .frame(width: width, height: L.stepLine, alignment: .leading)
+            Text(q.question)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(Color.white.opacity(0.92))
+                .lineLimit(2).truncationMode(.tail)
+                .frame(width: width, height: CGFloat(L.questionLines(questions, width: width)) * L.reasonLine, alignment: .topLeading)
+            VStack(spacing: L.optionSpacing) {
+                ForEach(Array(q.options.enumerated()), id: \.offset) { index, option in
+                    optionButton(option, selected: chosen.contains(index), multi: q.multiSelect) { toggle(index, multi: q.multiSelect) }
+                }
+            }
+            .frame(width: width, height: L.optionsHeight(questions), alignment: .top)
+            HStack(spacing: 8) {
+                if step > 0 {
+                    ApprovalButton(title: "Back", filled: false, accent: accent) { step -= 1 }
+                }
+                ApprovalButton(title: last ? "Answer" : "Next", filled: true, accent: accent, enabled: !chosen.isEmpty) {
+                    if last { onAnswer(answers) } else { step += 1 }
+                }
+            }
+            .frame(height: L.buttonHeight)
+        }
+        .frame(width: width, alignment: .leading)
+    }
+
+    private func stepLine(_ q: ApprovalQuestion) -> String {
+        let count = questions.count > 1 ? "\(step + 1) OF \(questions.count)" : ""
+        let header = q.header.uppercased()
+        let pick = q.multiSelect ? "PICK ANY" : ""
+        return [count, header, pick].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    private func toggle(_ index: Int, multi: Bool) {
+        var set = picked[step] ?? []
+        if multi { if set.contains(index) { set.remove(index) } else { set.insert(index) } } else { set = [index] }
+        picked[step] = set
+    }
+
+    /// Question text → the label picked (several in their listed order, joined with ", ").
+    private var answers: [String: String] {
+        var out: [String: String] = [:]
+        for (i, q) in questions.enumerated() {
+            let labels = (picked[i] ?? []).sorted().map { q.options[$0].label }
+            out[q.question] = labels.joined(separator: ", ")
+        }
+        return out
+    }
+
+    private func optionButton(_ option: ApprovalQuestion.Option, selected: Bool, multi: Bool,
+                              action: @escaping () -> Void) -> some View {
+        Button {
+            ChipClick.handled = true
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: multi ? (selected ? "checkmark.square.fill" : "square") : (selected ? "largecircle.fill.circle" : "circle"))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(selected ? accent : Color.white.opacity(0.4))
+                Text(option.label)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.white.opacity(selected ? 1 : 0.85))
+                    .lineLimit(1).truncationMode(.tail)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .frame(width: width, height: L.optionHeight)
+            .background(RoundedRectangle(cornerRadius: 7).fill(selected ? accent.opacity(0.16) : Color.white.opacity(0.04)))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(selected ? accent.opacity(0.7) : Color.white.opacity(0.1), lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .help(option.description)
     }
 }
 

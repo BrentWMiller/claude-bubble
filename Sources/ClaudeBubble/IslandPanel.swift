@@ -431,7 +431,8 @@ struct IslandView: View {
                         .lineLimit(1).truncationMode(.tail)
                         .frame(height: 18)
                     ApprovalCard(request: approval, accent: BubbleState.needs.color(in: sessions.palette),
-                                 width: sessions.needsCardWidth) { sessions.decide?(approval, $0) }
+                                 width: sessions.needsCardWidth,
+                                 onAnswer: { sessions.answer?(approval, $0) }) { sessions.decide?(approval, $0) }
                 }
                 .padding(.leading, 22 + IslandLayout.orbSize)
                 .padding(.trailing, 20)
@@ -461,7 +462,8 @@ struct IslandView: View {
                                    pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) },
                                    approval: asking, expanded: asking != nil && asking?.id == sessions.expandedApproval?.id,
                                    width: sessions.islandRowWidth,
-                                   onDecide: asking.map { request in { sessions.decide?(request, $0) } })
+                                   onDecide: asking.map { request in { sessions.decide?(request, $0) } },
+                                   onAnswer: asking.map { request in { sessions.answer?(request, $0) } })
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

@@ -18,9 +18,12 @@ public struct ApprovalRequest: Codable, Equatable, Sendable {
     public var reason: String?
     /// For file edits and writes: what changes, to show as a diff.
     public var edits: [ApprovalEdit]?
+    /// For a question (AskUserQuestion): what's asked, answered by picking options instead of Allow or Deny.
+    public var questions: [ApprovalQuestion]?
 
     public init(id: String, session: String, tool: String, detail: String, cwd: String, reason: String? = nil,
-                edits: [ApprovalEdit]? = nil) {
+                edits: [ApprovalEdit]? = nil, questions: [ApprovalQuestion]? = nil) {
+        self.questions = questions
         self.id = id
         self.session = session
         self.tool = tool
@@ -37,10 +40,14 @@ public struct ApprovalRequest: Codable, Equatable, Sendable {
         guard input["hook_event_name"] as? String == "PermissionRequest",
               let session = HookRecorder.sessionID(input), let tool = input["tool_name"] as? String else { return nil }
         let toolInput = input["tool_input"] as? [String: Any] ?? [:]
+        let questions = tool == "AskUserQuestion" ? ApprovalQuestion.parse(toolInput) : nil
+        // A question the bubble can't show as options (free text, too many options) is answered in the terminal.
+        if tool == "AskUserQuestion", questions == nil { return nil }
         let reason = (toolInput["description"] as? String).map { Approval.capped($0) }.flatMap { $0.isEmpty ? nil : $0 }
         return ApprovalRequest(id: id, session: session, tool: tool, detail: Approval.detail(tool: tool, input: toolInput),
                                cwd: input["cwd"] as? String ?? "", reason: tool == "Bash" ? reason : nil,
-                               edits: ApprovalEdit.edits(tool: tool, input: toolInput, readFile: readFile))
+                               edits: ApprovalEdit.edits(tool: tool, input: toolInput, readFile: readFile),
+                               questions: questions)
     }
 }
 
@@ -94,13 +101,57 @@ public struct ApprovalEdit: Codable, Equatable, Sendable {
 
 public enum ApprovalBehavior: String, Codable, Sendable { case allow, deny }
 
+/// A question Claude asks with AskUserQuestion, and the options to pick from.
+public struct ApprovalQuestion: Codable, Equatable, Sendable {
+    public struct Option: Codable, Equatable, Sendable {
+        public let label: String
+        public let description: String
+        public init(label: String, description: String = "") {
+            self.label = label
+            self.description = description
+        }
+    }
+    public let question: String
+    public let header: String
+    public let multiSelect: Bool
+    public let options: [Option]
+
+    public init(question: String, header: String = "", multiSelect: Bool = false, options: [Option]) {
+        self.question = question
+        self.header = header
+        self.multiSelect = multiSelect
+        self.options = options
+    }
+
+    /// The tool's questions; nil unless every one has options to pick (anything else is answered in the terminal).
+    static func parse(_ input: [String: Any]) -> [ApprovalQuestion]? {
+        let raw = input["questions"] as? [[String: Any]] ?? []
+        let questions = raw.compactMap { q -> ApprovalQuestion? in
+            guard let text = q["question"] as? String else { return nil }
+            let options = (q["options"] as? [[String: Any]] ?? []).compactMap { o in
+                (o["label"] as? String).map { Option(label: $0, description: o["description"] as? String ?? "") }
+            }
+            guard !options.isEmpty else { return nil }
+            return ApprovalQuestion(question: text, header: q["header"] as? String ?? "",
+                                    multiSelect: q["multiSelect"] as? Bool ?? false, options: options)
+        }
+        // Only what the card can show (up to four options each); anything else is answered in the terminal.
+        guard !questions.isEmpty, questions.count == raw.count,
+              questions.allSatisfy({ $0.options.count <= ApprovalCardLayout.maxOptions }) else { return nil }
+        return questions
+    }
+}
+
 public struct ApprovalReply: Codable, Equatable, Sendable {
     public let id: String
     public let behavior: ApprovalBehavior
+    /// For a question: each question's text and the label picked (several joined with ", " for multi-select).
+    public var answers: [String: String]?
 
-    public init(id: String, behavior: ApprovalBehavior) {
+    public init(id: String, behavior: ApprovalBehavior, answers: [String: String]? = nil) {
         self.id = id
         self.behavior = behavior
+        self.answers = answers
     }
 }
 
@@ -114,7 +165,7 @@ public enum Approval {
     /// What the user is approving, in full: the command for Bash, the path for file tools, the URL for fetches,
     /// else the tool's input as JSON.
     public static func detail(tool: String, input: [String: Any]) -> String {
-        let keys = ["command", "file_path", "notebook_path", "url", "path", "pattern", "query"]
+        let keys = ["command", "file_path", "notebook_path", "url", "path", "pattern", "query", "plan"]
         let text: String
         if let key = keys.first(where: { input[$0] is String }), let value = input[key] as? String {
             text = value
@@ -131,10 +182,25 @@ public enum Approval {
         text.count > maxDetail ? String(text.prefix(maxDetail)) + "…" : text
     }
 
+    /// Tools that ask the user something rather than for permission: allowing them alone does nothing, so an allow
+    /// passes their input back, with the answers for a question.
+    public static let interactiveTools: Set = ["AskUserQuestion", "ExitPlanMode"]
+
+    /// The hook's stdout for the user's reply to `tool` (whose input was `toolInput`).
+    public static func output(_ reply: ApprovalReply, tool: String, toolInput: [String: Any]) -> Data {
+        guard reply.behavior == .allow, interactiveTools.contains(tool) else { return output(reply.behavior) }
+        var input = toolInput
+        if let answers = reply.answers { input["answers"] = answers }
+        return output(.allow, updatedInput: input)
+    }
+
     /// The hook's stdout for a decision.
-    public static func output(_ behavior: ApprovalBehavior) -> Data {
+    public static func output(_ behavior: ApprovalBehavior, updatedInput: [String: Any]? = nil) -> Data {
         var decision: [String: Any] = ["behavior": behavior.rawValue]
         if behavior == .deny { decision["message"] = "Denied from Claude Bubble." }
+        if behavior == .allow, let updatedInput, JSONSerialization.isValidJSONObject(updatedInput) {
+            decision["updatedInput"] = updatedInput
+        }
         let out: [String: Any] = ["hookSpecificOutput": ["hookEventName": "PermissionRequest", "decision": decision]]
         return (try? JSONSerialization.data(withJSONObject: out, options: [.sortedKeys])) ?? Data()
     }
@@ -249,13 +315,13 @@ public enum UnixSocket {
 extension ApprovalRequest {
     /// Asks the app at `socketPath` and waits for the user's click. Nil means no decision (the terminal's prompt
     /// stands): no app listening, the user answered in the terminal (`stillWaiting` turned false), or time ran out.
-    public func ask(socketPath: String, deadline: Date, stillWaiting: () -> Bool) -> ApprovalBehavior? {
+    public func ask(socketPath: String, deadline: Date, stillWaiting: () -> Bool) -> ApprovalReply? {
         guard let fd = UnixSocket.connect(socketPath) else { return nil }
         defer { close(fd) }
         guard UnixSocket.write(fd, Approval.line(self)),
               let line = UnixSocket.readLine(fd, deadline: deadline, keepWaiting: stillWaiting),
               let reply = try? JSONDecoder().decode(ApprovalReply.self, from: line), reply.id == id else { return nil }
-        return reply.behavior
+        return reply
     }
 }
 
@@ -315,6 +381,10 @@ extension ApprovalRequest {
         case "WebFetch": return "Wants to fetch a page"
         case "WebSearch": return "Wants to search the web"
         case "Task", "Agent": return "Wants to start an agent"
+        case "AskUserQuestion":
+            let n = questions?.count ?? 1
+            return n == 1 ? "Has a question" : "Has \(n) questions"
+        case "ExitPlanMode": return "Wants to start on the plan"
         default:
             let parts = tool.components(separatedBy: "__")
             if parts.count >= 3, parts[0] == "mcp" { return "Wants to use \(parts[1])'s \(parts[2...].joined(separator: "__"))" }
@@ -323,13 +393,20 @@ extension ApprovalRequest {
     }
 
     /// The Allow button's title.
-    public var allowTitle: String { edits == nil ? "Allow" : tool == "Write" ? "Allow write" : "Allow edit" }
+    public var allowTitle: String {
+        if tool == "ExitPlanMode" { return "Approve plan" }
+        return edits == nil ? "Allow" : tool == "Write" ? "Allow write" : "Allow edit"
+    }
+
+    /// The Deny button's title.
+    public var denyTitle: String { tool == "ExitPlanMode" ? "Keep planning" : "Deny" }
 
     /// The diff for an edit or write.
     public var diff: ApprovalDiff? { edits.map { ApprovalDiff($0) } }
 
     /// The code block's label: the tool, or the file being changed (relative to the session's folder).
     public var blockLabel: String {
+        if tool == "ExitPlanMode" { return "PLAN" }
         guard edits != nil else { return tool.hasPrefix("mcp__") ? "MCP" : tool.uppercased() }
         let base = cwd.hasSuffix("/") ? cwd : cwd + "/"
         return !cwd.isEmpty && detail.hasPrefix(base) ? String(detail.dropFirst(base.count)) : detail
@@ -373,14 +450,41 @@ public enum ApprovalCardLayout {
         return blockHeader + Double(codeLines(r, width: width)) * codeLine + blockPadding
     }
 
-    /// The whole card: reason, code block, buttons.
+    // A question card: "1 of 2 · Header", the question, its options, then Back / Next or Answer. Sized for its
+    // longest question and most options, so it doesn't jump between questions.
+    public static let stepLine: Double = 16
+    public static let optionHeight: Double = 26
+    public static let optionSpacing: Double = 4
+
+    public static func questionLines(_ questions: [ApprovalQuestion], width: Double) -> Int {
+        questions.map { lines($0.question, width: width, glyph: textGlyph, limit: 2) }.max() ?? 1
+    }
+
+    public static func optionsHeight(_ questions: [ApprovalQuestion]) -> Double {
+        let most = Double(questions.map(\.options.count).max() ?? 1)
+        return most * optionHeight + (most - 1) * optionSpacing
+    }
+
+    /// The whole card: reason, code block, buttons (or for a question, its step, text, options and buttons).
     public static func height(_ r: ApprovalRequest, width: Double) -> Double {
+        if let questions = r.questions {
+            return stepLine + spacing + Double(questionLines(questions, width: width)) * reasonLine + spacing
+                + optionsHeight(questions) + spacing + buttonHeight
+        }
         let reason = reasonLines(r, width: width)
         return (reason > 0 ? Double(reason) * reasonLine + spacing : 0) + blockHeight(r, width: width) + spacing + buttonHeight
     }
 
-    /// The tallest a card gets (two reason lines, a full diff with "more").
+    /// The most options a question has (AskUserQuestion allows 2 to 4).
+    public static let maxOptions = 4
+
+    /// The tallest a card gets: two reason lines and a full diff with "more", or a question with two lines and
+    /// four options.
     public static var maxHeight: Double {
-        2 * reasonLine + spacing + blockHeader + Double(ApprovalDiff.maxLines) * diffLine + 8 + moreLine + spacing + buttonHeight
+        let diff = 2 * reasonLine + spacing + blockHeader + Double(ApprovalDiff.maxLines) * diffLine + 8 + moreLine
+            + spacing + buttonHeight
+        let question = stepLine + spacing + 2 * reasonLine + spacing
+            + Double(maxOptions) * optionHeight + Double(maxOptions - 1) * optionSpacing + spacing + buttonHeight
+        return max(diff, question)
     }
 }

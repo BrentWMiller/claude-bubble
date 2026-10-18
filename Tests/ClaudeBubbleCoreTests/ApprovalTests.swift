@@ -82,13 +82,13 @@ final class ApprovalTests: XCTestCase {
 
     func testTheAppsAnswerComesBack() throws {
         let served = try serve { ApprovalReply(id: $0.id, behavior: .allow) }
-        XCTAssertEqual(request().ask(socketPath: path, deadline: Date() + 5, stillWaiting: { true }), .allow)
+        XCTAssertEqual(request().ask(socketPath: path, deadline: Date() + 5, stillWaiting: { true })?.behavior, .allow)
         wait(for: [served], timeout: 5)
     }
 
     func testDeny() throws {
         let served = try serve { ApprovalReply(id: $0.id, behavior: .deny) }
-        XCTAssertEqual(request().ask(socketPath: path, deadline: Date() + 5, stillWaiting: { true }), .deny)
+        XCTAssertEqual(request().ask(socketPath: path, deadline: Date() + 5, stillWaiting: { true })?.behavior, .deny)
         wait(for: [served], timeout: 5)
     }
 
@@ -231,5 +231,83 @@ final class ApprovalCardTests: XCTestCase {
 
     func testTheIslandWindowHasRoomForTheTallestCard() {
         XCTAssertLessThanOrEqual(ApprovalCardLayout.maxHeight, Double(IslandLayout.maxApprovalHeight))
+    }
+}
+
+final class QuestionCardTests: XCTestCase {
+    let toolInput: [String: Any] = ["questions": [
+        ["question": "How should the island be resized?", "header": "Resize how", "multiSelect": false,
+         "options": [["label": "Width slider", "description": "A slider"], ["label": "Drag its ends", "description": "Drag"]]],
+        ["question": "Which widths?", "header": "Applies to", "multiSelect": true,
+         "options": [["label": "Resting bar"], ["label": "Hover panel"], ["label": "Cards"]]],
+    ]]
+
+    func request(_ input: [String: Any]? = nil) -> ApprovalRequest {
+        ApprovalRequest.make(["hook_event_name": "PermissionRequest", "session_id": "s", "cwd": "/", "tool_name": "AskUserQuestion",
+                              "tool_input": input ?? toolInput], id: "r")!
+    }
+
+    func testQuestionsAreParsed() throws {
+        let r = request()
+        let qs = try XCTUnwrap(r.questions)
+        XCTAssertEqual(qs.count, 2)
+        XCTAssertEqual(qs[0].header, "Resize how")
+        XCTAssertEqual(qs[0].options.map(\.label), ["Width slider", "Drag its ends"])
+        XCTAssertEqual(qs[0].options[0].description, "A slider")
+        XCTAssertTrue(qs[1].multiSelect)
+        XCTAssertEqual(r.headline, "Has 2 questions")
+    }
+
+    func testQuestionsWithoutOptionsStayInTheTerminal() {
+        func make(_ input: [String: Any]) -> ApprovalRequest? {
+            ApprovalRequest.make(["hook_event_name": "PermissionRequest", "session_id": "s", "cwd": "/",
+                                  "tool_name": "AskUserQuestion", "tool_input": input], id: "r")
+        }
+        XCTAssertNil(make(["questions": [["question": "Name?"]]]), "no options: the hook doesn't offer it")
+        XCTAssertNil(make(["questions": [["question": "Pick", "options": (1...5).map { ["label": "\($0)"] }]]]),
+                     "more options than the card shows")
+    }
+
+    func testAnsweringPassesTheQuestionsBackWithTheAnswers() throws {
+        let reply = ApprovalReply(id: "r", behavior: .allow,
+                                  answers: ["How should the island be resized?": "Width slider", "Which widths?": "Resting bar, Cards"])
+        let out = try XCTUnwrap(JSONSerialization.jsonObject(with: Approval.output(reply, tool: "AskUserQuestion", toolInput: toolInput)) as? [String: Any])
+        let decision = try XCTUnwrap((out["hookSpecificOutput"] as? [String: Any])?["decision"] as? [String: Any])
+        XCTAssertEqual(decision["behavior"] as? String, "allow")
+        let updated = try XCTUnwrap(decision["updatedInput"] as? [String: Any])
+        XCTAssertEqual((updated["questions"] as? [Any])?.count, 2, "the questions go back unchanged")
+        XCTAssertEqual(updated["answers"] as? [String: String], reply.answers)
+    }
+
+    func testPlanApprovalPassesThePlanBack() throws {
+        let out = try XCTUnwrap(JSONSerialization.jsonObject(with: Approval.output(ApprovalReply(id: "r", behavior: .allow),
+                                                                                   tool: "ExitPlanMode", toolInput: ["plan": "1. Do it"])) as? [String: Any])
+        let decision = (out["hookSpecificOutput"] as? [String: Any])?["decision"] as? [String: Any]
+        XCTAssertEqual((decision?["updatedInput"] as? [String: Any])?["plan"] as? String, "1. Do it")
+    }
+
+    func testOrdinaryToolsDontEchoTheirInput() throws {
+        let out = try XCTUnwrap(JSONSerialization.jsonObject(with: Approval.output(ApprovalReply(id: "r", behavior: .allow),
+                                                                                   tool: "Bash", toolInput: ["command": "ls"])) as? [String: Any])
+        let decision = (out["hookSpecificOutput"] as? [String: Any])?["decision"] as? [String: Any]
+        XCTAssertNil(decision?["updatedInput"])
+    }
+
+    func testDenyingAPlanKeepsPlanning() {
+        let r = ApprovalRequest.make(["hook_event_name": "PermissionRequest", "session_id": "s", "cwd": "/", "tool_name": "ExitPlanMode",
+                                      "tool_input": ["plan": "1. Do it"]], id: "r")!
+        XCTAssertEqual(r.headline, "Wants to start on the plan")
+        XCTAssertEqual(r.allowTitle, "Approve plan")
+        XCTAssertEqual(r.denyTitle, "Keep planning")
+        XCTAssertEqual(r.detail, "1. Do it")
+        XCTAssertEqual(r.blockLabel, "PLAN")
+    }
+
+    func testQuestionCardHeight() {
+        let r = request()
+        // Step line, one line of question (the longest), three options (the most), the buttons.
+        let expected: Double = 16 + 8 + 16 + 8 + (3 * 26 + 2 * 4) + 8 + 30
+        XCTAssertEqual(ApprovalCardLayout.height(r, width: 290), expected)
+        XCTAssertLessThanOrEqual(ApprovalCardLayout.height(r, width: 290), ApprovalCardLayout.maxHeight)
     }
 }
