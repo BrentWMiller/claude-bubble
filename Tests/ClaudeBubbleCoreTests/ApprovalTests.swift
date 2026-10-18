@@ -145,7 +145,7 @@ final class ApprovalCardTests: XCTestCase {
     func testBashCarriesItsReason() {
         let r = make("Bash", ["command": "npm test -- hooks/", "description": "Run the hook tests"])
         XCTAssertEqual(r.reason, "Run the hook tests")
-        XCTAssertEqual(r.headline, "Wants to run a Bash command")
+        XCTAssertEqual(r.headline, "Wants to run a command")
         XCTAssertEqual(r.blockLabel, "BASH")
         XCTAssertEqual(r.allowTitle, "Allow")
         XCTAssertNil(r.diff)

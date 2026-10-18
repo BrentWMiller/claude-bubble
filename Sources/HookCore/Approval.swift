@@ -308,7 +308,7 @@ extension ApprovalRequest {
     /// What Claude wants, in a few words.
     public var headline: String {
         switch tool {
-        case "Bash": return "Wants to run a Bash command"
+        case "Bash": return "Wants to run a command"
         case "Edit", "MultiEdit", "NotebookEdit": return "Wants to edit a file"
         case "Write": return "Wants to write a file"
         case "Read": return "Wants to read a file"
