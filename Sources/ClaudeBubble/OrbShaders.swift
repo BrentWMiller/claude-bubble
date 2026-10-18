@@ -17,7 +17,10 @@ struct Uniforms {
     float4 i;   // three tick amplitudes, unused
     float4 j, k, l, m;   // colour fan: the c1, c2, c3 and halo it sweeps away from
     float4 n;   // colour fan progress 0…1 (< 0 = settled), unused
+    float4 o;   // edge squash: right, top, left, bottom edges' distances from the centre, in orb radii (≥ 1 = clear)
 };
+
+float2 unsquish(float2 q, float4 ed, float R, float ph);   // below, with the particle pass's squish
 
 // Colour ripple: new colours spread from the orb's centre outward as an expanding ring. `along` is the distance from
 // the centre in orb radii (the rim is 1, the halo beyond); returns how much of the new colour shows, and the ring's
@@ -41,7 +44,10 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float2 res = u.c.xy;
     float2 frag = float2(in.position.x, res.y - in.position.y);
     // The whole orb drifts a little toward the pointer (matched in the particle pass).
-    float2 uv = (frag - .5 * res) / res.y - float2(u.c.z, 0) - u.d.xy * (.3 * .07) * u.d.z;
+    // Squished against a screen edge (matched in the particle pass): look up where this pixel was before the squish.
+    float2 clip = (frag - .5 * res) / res.y * 2.;
+    float2 raw = unsquish(clip, u.o, .6 * u.a.y, u.a.x) * .5;
+    float2 uv = raw - float2(u.c.z, 0) - u.d.xy * (.3 * .07) * u.d.z;
     float ph = u.a.x, sc = u.a.y, glowv = u.a.z, ringv = u.a.w, glitch = u.b.x;
     float3 C1 = u.c1.xyz, C2 = u.c2.xyz, C3 = u.c3.xyz, H = u.halo.xyz;
     float R = .3 * sc; float r = length(uv); float a = atan2(uv.y, uv.x);
@@ -106,6 +112,8 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     }
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
     col *= 1. - smoothstep(.36, .5, r);
+    // Squished, the glow can reach the window's sides: fade it out before them, never a hard edge.
+    col *= (1. - smoothstep(.8, .99, abs(clip.x))) * (1. - smoothstep(.8, .99, abs(clip.y)));
     col = 1. - exp(-col * 1.4);
     return float4(col, max(col.r, max(col.g, col.b)));
 }
@@ -121,6 +129,81 @@ float hs(float3 v) { return fract(sin(dot(v, float3(12.9898, 78.233, 37.719))) *
 // smoothstep that also runs downhill (edge0 > edge1), as the design's GLSL relies on.
 float ss(float a, float b, float x) { float t = clamp((x - a) / (b - a), 0., 1.); return t * t * (3. - 2. * t); }
 float angTo(float3 q, float3 d) { return acos(clamp(dot(q, normalize(d)), -1., 1.)); }
+// A smooth minimum: the lesser of a and b, rounded over k.
+float smin(float a, float b, float k) { float h = clamp(.5 + .5 * (b - a) / k, 0., 1.); return mix(b, a, h) - k * h * (1. - h); }
+
+// Edge squash (EdgeSquash): the orb squeezed against a screen edge like a soft ball of liquid. Per edge, in clip units
+// from the centre (R: the orb's radius there), with `e` that edge's distance in radii (1 or more: clear; the spring's
+// rebound reads a little past 1). The orb compresses as a whole between the wall and its far side, so it stays round
+// and smooth; pushed further it stays on the wall, thinner, oozing out along it (a little fuller where it touches).
+// It never spreads past the window (±1). `a` runs toward the wall, `b` along it.
+struct Wall { float c; float g0; float bulge; float sag; float most; bool on; };
+
+// A partial squish: the orb is squeezed only halfway to the wall, so the rest of it reaches past and lies flat on it.
+float reach(float e) { return e < 1. ? mix(e, 1., .5) : e; }
+
+// `ph`: the orb's phase, for a slow sway; `sags`: a side wall, where the drop slumps downward.
+Wall wall(float e, float R, float ph, bool sags) {
+    Wall w; w.on = abs(e - 1.) > 1e-4;
+    w.c = clamp((reach(e) + 1.) * .5, .6, 1.15);   // how much of its width is left
+    float sb = 1. + .55 * (1. / w.c - 1.);   // keeps roughly its area: spread along the wall
+    w.most = .93 / (R * 1.15);               // the window's room along the wall
+    if (sb > 1.) sb = 1. + smin(sb - 1., w.most - 1., .2);
+    float squeezed = max(1. - w.c, 0.);
+    w.g0 = sb;
+    w.bulge = squeezed * .6 * (1. + .12 * sin(ph * 1.7));   // pressed flat and wide where it touches, swaying
+    w.sag = sags ? squeezed * .35 * R : 0.;
+    return w;
+}
+
+// How wide the drop is at `a` (toward the wall), and how far it slumps there.
+float2 wallSpread(Wall w, float a, float R) {
+    float t = ss(-1., 1., a / R);
+    float g = w.g0 * (1. + w.bulge * (t * t * 2. - .6));
+    g = min(g, 1. + smin(g - 1., w.most - 1., .2));
+    return float2(g, w.sag * t);
+}
+
+float2 wallSquish(float a, float b, float e, float R, float ph, bool sags) {
+    Wall w = wall(e, R, ph, sags);
+    if (!w.on) return float2(a, b);
+    float2 gs = wallSpread(w, a, R);
+    // Squeezed toward the wall (or the rebound's stretch), then what reaches past it lies flat on it, the corners of
+    // the flat rounded. (The per-pixel pass skips the flattening: past the wall is off screen, so the screen's edge
+    // makes the same flat face.)
+    float a2 = e < 1. ? reach(e) * R - (R - a) * w.c : a * w.c;
+    // The flat lies just past the edge, so the dots piled on it sit off screen, not as a bright line along it.
+    if (e < 1.) a2 = smin(a2, (e + .08) * R, .1 * R);
+    return float2(a2, b * gs.x - gs.y);
+}
+
+float2 wallUnsquish(float a2, float b2, float e, float R, float ph, bool sags) {
+    Wall w = wall(e, R, ph, sags);
+    if (!w.on) return float2(a2, b2);
+    float a = e < 1. ? R - (reach(e) * R - a2) / w.c : a2 / w.c;
+    float2 gs = wallSpread(w, a, R);
+    return float2(a, (b2 + gs.y) / gs.x);
+}
+
+// `ed`: right, top, left, bottom edges' distances. Left and bottom are the right and top mirrored.
+float2 squish(float2 p, float4 ed, float R, float ph) {
+    // Side walls: the drop slumps down (y up, so its along-wall offset is subtracted). Top and bottom: no slump.
+    if (ed.x < ed.z) { float2 r = wallSquish(p.x, p.y, ed.x, R, ph, true); p = r; }
+    else { float2 r = wallSquish(-p.x, p.y, ed.z, R, ph, true); p = float2(-r.x, r.y); }
+    if (ed.y < ed.w) { float2 r = wallSquish(p.y, p.x, ed.y, R, ph, false); p = float2(r.y, r.x); }
+    else { float2 r = wallSquish(-p.y, p.x, ed.w, R, ph, false); p = float2(r.y, -r.x); }
+    return p;
+}
+
+// Where a squished point came from, so the body, rim and glow drawn per pixel squish with the dots.
+float2 unsquish(float2 q, float4 ed, float R, float ph) {
+    float2 p = q;
+    if (ed.y < ed.w) { float2 r = wallUnsquish(p.y, p.x, ed.y, R, ph, false); p = float2(r.y, r.x); }
+    else { float2 r = wallUnsquish(-p.y, p.x, ed.w, R, ph, false); p = float2(r.y, -r.x); }
+    if (ed.x < ed.z) { float2 r = wallUnsquish(p.x, p.y, ed.x, R, ph, true); p = r; }
+    else { float2 r = wallUnsquish(-p.x, p.y, ed.z, R, ph, true); p = float2(-r.x, r.y); }
+    return p;
+}
 float rpl(float3 q, float3 s, float pa) { float an = angTo(q, s); return pow(max(sin(an * 7. - pa * 3.5), 0.), 3.) * 1.7 * exp(-an * .45); }
 float bn(float3 b, float pa) {
     return sin(b.x + pa * 1.1) * sin(b.y * 1.2 - pa * .8) * sin(b.z * .9 + pa * .95)
@@ -246,7 +329,10 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float pk = pow(max(pal, 0.), 14.) * smoothstep(.25 * R, .85 * R, length(sp)) * (.55 + .45 * step(0., p.z));
     sp += pdir * pk * pullAmt * R * .32;
     sp -= (sp - pdir * dot(sp, pdir)) * pk * max(pullAmt, 0.) * .45;
-    o.position = float4(sp.x + u.c.z * 2. + drift.x, sp.y + drift.y, 0, 1);
+    // The pointer's drift and the shake move the whole orb: before the squash, so its flat face stays on the edge.
+    sp += float2(u.c.z * 2. + drift.x, drift.y);
+    sp = squish(sp, u.o, R, ph);
+    o.position = float4(sp, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
     float2 fmp = fanMix(length(p.xy), u.n.x);
@@ -310,4 +396,6 @@ struct OrbUniforms {
     var m: SIMD4<Float> = .zero
     /// No colour fan by default.
     var n: SIMD4<Float> = [-1, 0, 0, 0]
+    /// No edge close enough to squash by default.
+    var o: SIMD4<Float> = SIMD4(repeating: 1)   // EdgeSquash.far
 }

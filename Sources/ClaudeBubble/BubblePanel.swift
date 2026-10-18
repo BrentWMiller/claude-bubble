@@ -11,6 +11,7 @@ final class BubblePanel: NSPanel {
     init(animator: OrbAnimator, model: SessionsModel, diameter: Double) {
         let side = OrbSize.panelSide(forDiameter: diameter)
         orbView = OrbView(frame: NSRect(x: 0, y: 0, width: side, height: side), animator: animator)
+        orbView.squashesAtEdges = true
         super.init(contentRect: NSRect(origin: Self.initialOrigin(side: side), size: NSSize(width: side, height: side)),
                    styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         isFloatingPanel = true

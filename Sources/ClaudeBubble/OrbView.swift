@@ -12,6 +12,8 @@ final class OrbView: MTKView {
     override func hitTest(_ point: NSPoint) -> NSView? { passesMouseThrough ? nil : super.hitTest(point) }
     /// Tiny orbs (the island's): finer dots and a softer glow, ring and brightness, as the design's `crisp` does.
     var crisp = false
+    /// Squashes against the screen's edges like liquid (the floating orb; not the island's).
+    var squashesAtEdges = false
     private var renderer: OrbRenderer?
     private var pendingClick: NSEvent?
     /// The centre guides shown while dragging, and the snap to the screen's middle.
@@ -72,8 +74,10 @@ final class OrbView: MTKView {
         wanted.x = snap.apply(wanted.x + side / 2, centre: centre) - side / 2
         guides?.show(on: screen.frame, axis: .vertical, at: SnapGuide.lines(centre: centre, extent: side * 0.6),
                      snapped: snap.snapped, below: window)
+        let others = NSScreen.screens.filter { $0 != screen }.map(\.frame)
         window.setFrameOrigin(BubblePlacement.clampedOrigin(wanted, side: side, screen: screen.frame,
-                                                            visible: screen.visibleFrame))
+                                                            visible: screen.visibleFrame,
+                                                            shared: EdgeLight.sharedEdges(of: screen.frame, among: others)))
     }
 
     override func mouseUp(with event: NSEvent) {
@@ -131,10 +135,31 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {}
 
+    private var squash = EdgeSquash.Spring()
+
+    /// How far the screen's edges are from the orb (in its radii, as drawn), springing toward where they are now.
+    /// Far for an orb that doesn't squash, or one flying between styles.
+    private func edgeSquash(_ view: MTKView, scale: Float, dt: Float) -> SIMD4<Float> {
+        var target = SIMD4<Float>(repeating: EdgeSquash.far)
+        if (view as? OrbView)?.squashesAtEdges == true, let window = view.window as? BubblePanel, !window.isFlying {
+            let frame = window.frame
+            let centre = CGPoint(x: frame.midX, y: frame.midY)
+            if let screen = BubblePanel.screen(nearest: centre) {
+                let others = NSScreen.screens.filter { $0 != screen }.map(\.frame)
+                target = EdgeSquash.edges(centre: centre, radius: frame.width * 0.3 * CGFloat(max(scale, 0.05)),
+                                          screen: screen.frame, top: screen.visibleFrame.maxY,
+                                          shared: EdgeLight.sharedEdges(of: screen.frame, among: others))
+            }
+        }
+        squash.step(toward: target, dt: dt)
+        return squash.value
+    }
+
     func draw(in view: MTKView) {
         PerfMeter.shared.count(.orbFrame)
         let now = CACurrentMediaTime()
-        let f = animator.step(dt: now - lastTime)
+        let dt = now - lastTime
+        let f = animator.step(dt: dt)
         lastTime = now
         guard let pass = view.currentRenderPassDescriptor,
               let drawable = view.currentDrawable,
@@ -169,7 +194,8 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             h: SIMD4(f.tickAges, 0),
             i: SIMD4(f.tickAmps, 0),
             j: SIMD4(f.fanFrom.c1, 0), k: SIMD4(f.fanFrom.c2, 0), l: SIMD4(f.fanFrom.c3, 0), m: SIMD4(f.fanFrom.halo, 0),
-            n: [f.fan, 0, 0, 0]
+            n: [f.fan, 0, 0, 0],
+            o: edgeSquash(view, scale: f.scale, dt: Float(dt))
         )
         let len = MemoryLayout<OrbUniforms>.stride
 
