@@ -56,6 +56,8 @@ final class SessionsModel: ObservableObject {
     @Published var approvals: [ApprovalRequest] = []
     /// Sends an Allow or Deny click to the hook that asked.
     var decide: ((ApprovalRequest, ApprovalBehavior) -> Void)?
+    /// Sends a question's answers (question text → the label picked) to the hook that asked.
+    var answer: ((ApprovalRequest, [String: String]) -> Void)?
 
     /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).
     func approval(for session: Session) -> ApprovalRequest? {

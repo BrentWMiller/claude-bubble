@@ -72,11 +72,14 @@ func run() {
     }
     if let request = ApprovalRequest.make(data, id: UUID().uuidString, readFile: readFile) {
         let socket = home.appendingPathComponent(Approval.socketName).path
-        let decision = request.ask(socketPath: socket, deadline: Date() + Approval.wait) {
+        let reply = request.ask(socketPath: socket, deadline: Date() + Approval.wait) {
             let record = (try? Data(contentsOf: path)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
             return Approval.stillWaiting(record: record)
         }
-        if let decision { FileHandle.standardOutput.write(Approval.output(decision)) }
+        if let reply {
+            FileHandle.standardOutput.write(Approval.output(reply, tool: request.tool,
+                                                            toolInput: data["tool_input"] as? [String: Any] ?? [:]))
+        }
     }
 }
 

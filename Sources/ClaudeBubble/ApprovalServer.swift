@@ -49,10 +49,10 @@ final class ApprovalServer {
     }
 
     /// The user's click: sent to the hook that asked, which hands it to Claude Code.
-    func reply(_ id: String, _ behavior: ApprovalBehavior) {
+    func reply(_ id: String, _ behavior: ApprovalBehavior, answers: [String: String]? = nil) {
         queue.async { [self] in
             guard let fd = order.first(where: { connections[$0]?.request?.id == id }) else { return }
-            UnixSocket.write(fd, Approval.line(ApprovalReply(id: id, behavior: behavior)))
+            UnixSocket.write(fd, Approval.line(ApprovalReply(id: id, behavior: behavior, answers: answers)))
             drop(fd)
             publish()
         }

@@ -323,8 +323,6 @@ struct IslandView: View {
                 }
                 content
                     .opacity(tucked ? 0 : 1)
-                    // A soft dark halo behind every letter, so text stays legible over the brightest glow.
-                    .shadow(color: .black.opacity(model.glow == .waves ? 0.9 : 0), radius: 2.5)
             }
             // Always in the hierarchy (one Metal view), just hidden while quiet.
             Group {
@@ -402,6 +400,9 @@ struct IslandView: View {
                     .foregroundStyle(barColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    // A soft dark halo behind every letter, so the bar's text stays legible over the brightest glow.
+                    // Only here: below the bar the scrim darkens the glow, and a halo would smudge buttons and chips.
+                    .shadow(color: .black.opacity(model.glow == .waves ? 0.9 : 0), radius: 2.5)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity)
             } else {
@@ -431,7 +432,8 @@ struct IslandView: View {
                         .lineLimit(1).truncationMode(.tail)
                         .frame(height: 18)
                     ApprovalCard(request: approval, accent: BubbleState.needs.color(in: sessions.palette),
-                                 width: sessions.needsCardWidth) { sessions.decide?(approval, $0) }
+                                 width: sessions.needsCardWidth,
+                                 onAnswer: { sessions.answer?(approval, $0) }) { sessions.decide?(approval, $0) }
                 }
                 .padding(.leading, 22 + IslandLayout.orbSize)
                 .padding(.trailing, 20)
@@ -461,7 +463,8 @@ struct IslandView: View {
                                    pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) },
                                    approval: asking, expanded: asking != nil && asking?.id == sessions.expandedApproval?.id,
                                    width: sessions.islandRowWidth,
-                                   onDecide: asking.map { request in { sessions.decide?(request, $0) } })
+                                   onDecide: asking.map { request in { sessions.decide?(request, $0) } },
+                                   onAnswer: asking.map { request in { sessions.answer?(request, $0) } })
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

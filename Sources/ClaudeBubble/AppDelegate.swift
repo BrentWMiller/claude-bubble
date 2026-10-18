@@ -134,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if self.listPanel.isShown { self.listPanel.show(near: self.panel.frame) }
         }
         model.decide = { [weak self] request, behavior in self?.approvals.reply(request.id, behavior) }
+        model.answer = { [weak self] request, answers in self?.approvals.reply(request.id, .allow, answers: answers) }
         if applied.approvals { approvals.start() }
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,
