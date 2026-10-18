@@ -139,10 +139,13 @@ float smin(float a, float b, float k) { float h = clamp(.5 + .5 * (b - a) / k, 0
 // It never spreads past the window (±1). `a` runs toward the wall, `b` along it.
 struct Wall { float c; float g0; float bulge; float sag; float most; bool on; };
 
+// A partial squish: the orb is squeezed only halfway to the wall, so the rest of it reaches past and lies flat on it.
+float reach(float e) { return e < 1. ? mix(e, 1., .5) : e; }
+
 // `ph`: the orb's phase, for a slow sway; `sags`: a side wall, where the drop slumps downward.
 Wall wall(float e, float R, float ph, bool sags) {
     Wall w; w.on = abs(e - 1.) > 1e-4;
-    w.c = clamp((e + 1.) * .5, .6, 1.15);    // how much of its width is left (dragging stops at .6: EdgeSquash.deepest)
+    w.c = clamp((reach(e) + 1.) * .5, .6, 1.15);   // how much of its width is left
     float sb = 1. + .55 * (1. / w.c - 1.);   // keeps roughly its area: spread along the wall
     w.most = .93 / (R * 1.15);               // the window's room along the wall
     if (sb > 1.) sb = 1. + smin(sb - 1., w.most - 1., .2);
@@ -165,14 +168,18 @@ float2 wallSquish(float a, float b, float e, float R, float ph, bool sags) {
     Wall w = wall(e, R, ph, sags);
     if (!w.on) return float2(a, b);
     float2 gs = wallSpread(w, a, R);
-    float a2 = e < 1. ? e * R - (R - a) * w.c : a * w.c;   // squeezed against the wall, or the rebound's stretch
+    // Squeezed toward the wall (or the rebound's stretch), then what reaches past it lies flat on it, the corners of
+    // the flat rounded. (The per-pixel pass skips the flattening: past the wall is off screen, so the screen's edge
+    // makes the same flat face.)
+    float a2 = e < 1. ? reach(e) * R - (R - a) * w.c : a * w.c;
+    if (e < 1.) a2 = smin(a2, e * R, .1 * R);
     return float2(a2, b * gs.x - gs.y);
 }
 
 float2 wallUnsquish(float a2, float b2, float e, float R, float ph, bool sags) {
     Wall w = wall(e, R, ph, sags);
     if (!w.on) return float2(a2, b2);
-    float a = e < 1. ? R - (e * R - a2) / w.c : a2 / w.c;
+    float a = e < 1. ? R - (reach(e) * R - a2) / w.c : a2 / w.c;
     float2 gs = wallSpread(w, a, R);
     return float2(a, (b2 + gs.y) / gs.x);
 }
