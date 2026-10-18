@@ -285,8 +285,20 @@ struct QuickPanelView: View {
                                              settings.prefs = p
                                          }),
                       fill: true, large: true)
-            // The style's own controls, right under the choice: the orb's size, pointer watching and edge light, or
-            // the island's dock and width.
+            // The style's own controls, under a heading, right below the choice: the orb's size, pointer watching and
+            // edge light, or the island's dock and width. None while quiet (it's a dot either way).
+            if !prefs.quiet {
+                VStack(spacing: 10) {
+                    divider.padding(.vertical, -4)
+                    groupTitle(isOrb ? "Orb" : "Island")
+                    styleControls
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var styleControls: some View {
+        Group {
             if isOrb {
                 sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
                           range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
