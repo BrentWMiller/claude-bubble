@@ -83,6 +83,13 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(OrbGeometry.dotSizingSide(800 / 0.6), 500 / 0.6, accuracy: 0.001)
     }
 
+    func testPipsGrowPastTheOldLargestOrb() {
+        XCTAssertEqual(PipArc.scale(diameter: 72), 1)
+        XCTAssertEqual(PipArc.scale(diameter: 160), 1)
+        XCTAssertEqual(PipArc.scale(diameter: 800), 5)
+        XCTAssertEqual(PipArc.scale(radius: 400 * PipArc.radiusScale), 5, accuracy: 0.0001)
+    }
+
     func testPanelSide() {
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 72), 120, accuracy: 0.001)
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 10), 40 / 0.6, accuracy: 0.001)
