@@ -6,6 +6,11 @@ public enum OrbSize {
     public static let maxDiameter: Double = 800
     public static let defaultDiameter: Double = 72
 
+    /// How far quiet shrinks an orb of `diameter`: to the island's orb, the same small dot whatever the orb's size.
+    public static func quietScale(forDiameter diameter: Double) -> Double {
+        min(1, Double(IslandLayout.orbSize) * 0.6 / min(max(diameter, minDiameter), maxDiameter))
+    }
+
     /// The orb fills 60% of its panel; the rest is room for the halo and pips.
     public static func panelSide(forDiameter diameter: Double) -> CGFloat {
         CGFloat(min(max(diameter, minDiameter), maxDiameter) / 0.6)

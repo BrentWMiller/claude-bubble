@@ -181,6 +181,7 @@ final class BubblePanel: NSPanel {
         setFrame(frame, display: false)
         isFlying = false
         layoutPips()
+        if !orbView.isPaused { orbView.draw() }   // a fresh frame at the new size, not the last one's
     }
 
     @objc private func didMove() {
