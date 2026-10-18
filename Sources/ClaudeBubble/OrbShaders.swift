@@ -20,7 +20,7 @@ struct Uniforms {
     float4 o;   // edge squash: right, top, left, bottom edges' distances from the centre, in orb radii (≥ 1 = clear)
 };
 
-float2 unsquish(float2 q, float4 ed, float R);   // below, with the particle pass's squish
+float2 unsquish(float2 q, float4 ed, float R, float ph);   // below, with the particle pass's squish
 
 // Colour ripple: new colours spread from the orb's centre outward as an expanding ring. `along` is the distance from
 // the centre in orb radii (the rim is 1, the halo beyond); returns how much of the new colour shows, and the ring's
@@ -45,7 +45,8 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float2 frag = float2(in.position.x, res.y - in.position.y);
     // The whole orb drifts a little toward the pointer (matched in the particle pass).
     // Squished against a screen edge (matched in the particle pass): look up where this pixel was before the squish.
-    float2 raw = unsquish((frag - .5 * res) / res.y * 2., u.o, .6 * u.a.y) * .5;
+    float2 clip = (frag - .5 * res) / res.y * 2.;
+    float2 raw = unsquish(clip, u.o, .6 * u.a.y, u.a.x) * .5;
     float2 uv = raw - float2(u.c.z, 0) - u.d.xy * (.3 * .07) * u.d.z;
     float ph = u.a.x, sc = u.a.y, glowv = u.a.z, ringv = u.a.w, glitch = u.b.x;
     float3 C1 = u.c1.xyz, C2 = u.c2.xyz, C3 = u.c3.xyz, H = u.halo.xyz;
@@ -111,6 +112,8 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     }
     col += H * glowv * .12 * (1. - smoothstep(0., R, r));
     col *= 1. - smoothstep(.36, .5, r);
+    // Squished, the glow can reach the window's sides: fade it out before them, never a hard edge.
+    col *= (1. - smoothstep(.8, .99, abs(clip.x))) * (1. - smoothstep(.8, .99, abs(clip.y)));
     col = 1. - exp(-col * 1.4);
     return float4(col, max(col.r, max(col.g, col.b)));
 }
@@ -134,50 +137,63 @@ float smin(float a, float b, float k) { float h = clamp(.5 + .5 * (b - a) / k, 0
 // rebound reads a little past 1). The orb compresses as a whole between the wall and its far side, so it stays round
 // and smooth; pushed further it stays on the wall, thinner, oozing out along it (a little fuller where it touches).
 // It never spreads past the window (±1). `a` runs toward the wall, `b` along it.
-struct Wall { float c; float g0; float bulge; bool on; };
+struct Wall { float c; float g0; float bulge; float sag; float most; bool on; };
 
-Wall wall(float e, float R) {
+// `ph`: the orb's phase, for a slow sway; `sags`: a side wall, where the drop slumps downward.
+Wall wall(float e, float R, float ph, bool sags) {
     Wall w; w.on = abs(e - 1.) > 1e-4;
     w.c = clamp((e + 1.) * .5, .35, 1.15);   // how much of its width is left
-    float sb = 1. + .7 * (1. / w.c - 1.);    // keeps roughly its area: spread along the wall
-    float most = .95 / (R * 1.2);            // the window's room along the wall
-    if (sb > 1.) sb = 1. + smin(sb - 1., most - 1., .2);
-    w.g0 = sb; w.bulge = max(1. - w.c, 0.) * .25;
+    float sb = 1. + .55 * (1. / w.c - 1.);   // keeps roughly its area: spread along the wall
+    w.most = .93 / (R * 1.15);               // the window's room along the wall
+    if (sb > 1.) sb = 1. + smin(sb - 1., w.most - 1., .2);
+    float squeezed = max(1. - w.c, 0.);
+    w.g0 = sb;
+    w.bulge = squeezed * .75 * (1. + .12 * sin(ph * 1.7));   // pressed flat and wide where it touches, swaying
+    w.sag = sags ? squeezed * .35 * R : 0.;
     return w;
 }
 
-float2 wallSquish(float a, float b, float e, float R) {
-    Wall w = wall(e, R);
-    if (!w.on) return float2(a, b);
-    float g = w.g0 * (1. + w.bulge * (2. * ss(-1., 1., a / R) - 1.));
-    float a2 = e < 1. ? e * R - (R - a) * w.c : a * w.c;   // squeezed against the wall, or the rebound's stretch
-    return float2(a2, b * g);
+// How wide the drop is at `a` (toward the wall), and how far it slumps there.
+float2 wallSpread(Wall w, float a, float R) {
+    float t = ss(-1., 1., a / R);
+    float g = w.g0 * (1. + w.bulge * (t * t * 2. - .6));
+    g = min(g, 1. + smin(g - 1., w.most - 1., .2));
+    return float2(g, w.sag * t);
 }
 
-float2 wallUnsquish(float a2, float b2, float e, float R) {
-    Wall w = wall(e, R);
+float2 wallSquish(float a, float b, float e, float R, float ph, bool sags) {
+    Wall w = wall(e, R, ph, sags);
+    if (!w.on) return float2(a, b);
+    float2 gs = wallSpread(w, a, R);
+    float a2 = e < 1. ? e * R - (R - a) * w.c : a * w.c;   // squeezed against the wall, or the rebound's stretch
+    return float2(a2, b * gs.x - gs.y);
+}
+
+float2 wallUnsquish(float a2, float b2, float e, float R, float ph, bool sags) {
+    Wall w = wall(e, R, ph, sags);
     if (!w.on) return float2(a2, b2);
     float a = e < 1. ? R - (e * R - a2) / w.c : a2 / w.c;
-    float g = w.g0 * (1. + w.bulge * (2. * ss(-1., 1., a / R) - 1.));
-    return float2(a, b2 / g);
+    float2 gs = wallSpread(w, a, R);
+    return float2(a, (b2 + gs.y) / gs.x);
 }
 
 // `ed`: right, top, left, bottom edges' distances. Left and bottom are the right and top mirrored.
-float2 squish(float2 p, float4 ed, float R) {
-    if (ed.x < ed.z) { float2 r = wallSquish(p.x, p.y, ed.x, R); p = r; }
-    else { float2 r = wallSquish(-p.x, p.y, ed.z, R); p = float2(-r.x, r.y); }
-    if (ed.y < ed.w) { float2 r = wallSquish(p.y, p.x, ed.y, R); p = float2(r.y, r.x); }
-    else { float2 r = wallSquish(-p.y, p.x, ed.w, R); p = float2(r.y, -r.x); }
+float2 squish(float2 p, float4 ed, float R, float ph) {
+    // Side walls: the drop slumps down (y up, so its along-wall offset is subtracted). Top and bottom: no slump.
+    if (ed.x < ed.z) { float2 r = wallSquish(p.x, p.y, ed.x, R, ph, true); p = r; }
+    else { float2 r = wallSquish(-p.x, p.y, ed.z, R, ph, true); p = float2(-r.x, r.y); }
+    if (ed.y < ed.w) { float2 r = wallSquish(p.y, p.x, ed.y, R, ph, false); p = float2(r.y, r.x); }
+    else { float2 r = wallSquish(-p.y, p.x, ed.w, R, ph, false); p = float2(r.y, -r.x); }
     return p;
 }
 
 // Where a squished point came from, so the body, rim and glow drawn per pixel squish with the dots.
-float2 unsquish(float2 q, float4 ed, float R) {
+float2 unsquish(float2 q, float4 ed, float R, float ph) {
     float2 p = q;
-    if (ed.y < ed.w) { float2 r = wallUnsquish(p.y, p.x, ed.y, R); p = float2(r.y, r.x); }
-    else { float2 r = wallUnsquish(-p.y, p.x, ed.w, R); p = float2(r.y, -r.x); }
-    if (ed.x < ed.z) { float2 r = wallUnsquish(p.x, p.y, ed.x, R); p = r; }
-    else { float2 r = wallUnsquish(-p.x, p.y, ed.z, R); p = float2(-r.x, r.y); }
+    if (ed.y < ed.w) { float2 r = wallUnsquish(p.y, p.x, ed.y, R, ph, false); p = float2(r.y, r.x); }
+    else { float2 r = wallUnsquish(-p.y, p.x, ed.w, R, ph, false); p = float2(r.y, -r.x); }
+    if (ed.x < ed.z) { float2 r = wallUnsquish(p.x, p.y, ed.x, R, ph, true); p = r; }
+    else { float2 r = wallUnsquish(-p.x, p.y, ed.z, R, ph, true); p = float2(-r.x, r.y); }
     return p;
 }
 float rpl(float3 q, float3 s, float pa) { float an = angTo(q, s); return pow(max(sin(an * 7. - pa * 3.5), 0.), 3.) * 1.7 * exp(-an * .45); }
@@ -307,7 +323,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     sp -= (sp - pdir * dot(sp, pdir)) * pk * max(pullAmt, 0.) * .45;
     // The pointer's drift and the shake move the whole orb: before the squash, so its flat face stays on the edge.
     sp += float2(u.c.z * 2. + drift.x, drift.y);
-    sp = squish(sp, u.o, R);
+    sp = squish(sp, u.o, R, ph);
     o.position = float4(sp, 0, 1);
     float limb = 1. - abs(p.z);
     float front = step(0., p.z);
