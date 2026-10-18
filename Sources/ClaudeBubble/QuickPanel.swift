@@ -290,7 +290,7 @@ struct QuickPanelView: View {
             if !prefs.quiet {
                 VStack(spacing: 10) {
                     divider.padding(.vertical, -4)
-                    groupTitle(isOrb ? "Orb" : "Island")
+                    groupTitle(isOrb ? "Orb Customization" : "Island Customization")
                     styleControls
                 }
             }
