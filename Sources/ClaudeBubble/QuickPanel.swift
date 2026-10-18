@@ -95,12 +95,17 @@ final class QuickPanel: NSPanel {
         }
     }
 
-    /// The pages differ in height: keep the top-left where it opened as the content resizes.
+    /// The content changed height (another page, another style's controls): keep the top-left where it was, unless
+    /// that would run off the bottom of the screen; then it moves up to stay whole.
     func refit() {
         guard isVisible else { return }
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
-        setFrame(CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height), display: true)
+        var target = CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height)
+        if let visible = (screen ?? NSScreen.main)?.visibleFrame {
+            target.origin.y = min(max(target.minY, visible.minY + 8), visible.maxY - size.height - 8)
+        }
+        setFrame(target, display: true)
     }
 
     func dismiss() {
@@ -173,6 +178,10 @@ struct QuickPanelView: View {
         .scaleEffect(state.shown ? 1 : 0.95, anchor: .topLeading)
         .opacity(state.shown ? 1 : 0)
         .environment(\.colorScheme, .dark)
+        // Switching style (or quiet) shows different controls: fit the window to them.
+        .onChange(of: prefs.style) { state.resized() }
+        .onChange(of: prefs.quiet) { state.resized() }
+        .onChange(of: updater.available?.version.description) { state.resized() }
     }
 
     private var mainPage: some View {
