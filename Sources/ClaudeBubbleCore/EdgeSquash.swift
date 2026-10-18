@@ -5,6 +5,9 @@ import CoreGraphics
 public enum EdgeSquash {
     /// The value for an edge too far away to touch (an edge's distance never needs to read further than this).
     public static let far: Float = 1
+    /// The furthest the orb can be pushed into an edge: its centre this far from it, in radii (squeezed to 60% of its
+    /// width; the shader's squeeze stops there too).
+    public static let deepest: Float = 0.2
 
     /// How far each edge of `screen` is from the orb's centre, in orb radii: right, top, left, bottom. Under 1 the
     /// orb reaches past that edge. `top` is where the top edge is (under the menu bar); edges in `shared` continue

@@ -74,8 +74,10 @@ final class OrbView: MTKView {
         wanted.x = snap.apply(wanted.x + side / 2, centre: centre) - side / 2
         guides?.show(on: screen.frame, axis: .vertical, at: SnapGuide.lines(centre: centre, extent: side * 0.6),
                      snapped: snap.snapped, below: window)
+        let others = NSScreen.screens.filter { $0 != screen }.map(\.frame)
         window.setFrameOrigin(BubblePlacement.clampedOrigin(wanted, side: side, screen: screen.frame,
-                                                            visible: screen.visibleFrame))
+                                                            visible: screen.visibleFrame,
+                                                            shared: EdgeLight.sharedEdges(of: screen.frame, among: others)))
     }
 
     override func mouseUp(with event: NSEvent) {

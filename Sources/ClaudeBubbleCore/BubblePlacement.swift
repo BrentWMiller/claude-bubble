@@ -6,15 +6,20 @@ public enum BubblePlacement {
         CGPoint(x: visibleFrame.midX - size / 2, y: visibleFrame.minY + 56)
     }
 
-    /// The orb may hang almost wholly off the left, right and bottom of a screen: its centre can go 0.8 of a radius
-    /// past an edge (a tenth of its width still showing to grab). Past a corner the limit is 0.5 of a radius from
-    /// the corner, so the pips still fit on screen. At the top it stays wholly below the menu bar.
-    public static func clampedOrigin(_ origin: CGPoint, side: CGFloat, screen: CGRect, visible: CGRect) -> CGPoint {
+    /// Pushed into the left, right or bottom of a screen the orb squishes against it (EdgeSquash), and stops once
+    /// its centre is `EdgeSquash.deepest` of a radius from the edge. Edges in `shared` continue onto another display:
+    /// there its centre can go 0.8 of a radius past, on its way across. Past a corner of those the limit is 0.5 of a
+    /// radius from the corner, so the pips still fit on screen. At the top it stays wholly below the menu bar.
+    public static func clampedOrigin(_ origin: CGPoint, side: CGFloat, screen: CGRect, visible: CGRect,
+                                     shared: Set<EdgeStrip.Edge> = []) -> CGPoint {
         let radius = side * 0.3
-        let edge = radius * 0.8, corner = radius * 0.5
+        func allow(_ edge: EdgeStrip.Edge) -> CGFloat {
+            shared.contains(edge) ? radius * 0.8 : -radius * CGFloat(EdgeSquash.deepest)
+        }
+        let corner = radius * 0.5
         let top = visible.maxY - radius
-        var cx = min(max(origin.x + side / 2, screen.minX - edge), screen.maxX + edge)
-        var cy = min(max(origin.y + side / 2, screen.minY - edge), top)
+        var cx = min(max(origin.x + side / 2, screen.minX - allow(.left)), screen.maxX + allow(.right))
+        var cy = min(max(origin.y + side / 2, screen.minY - allow(.bottom)), top)
         // Past two edges at once: keep within `corner` of that corner.
         let px = cx < screen.minX ? screen.minX : cx > screen.maxX ? screen.maxX : cx
         let py = cy < screen.minY ? screen.minY : cy

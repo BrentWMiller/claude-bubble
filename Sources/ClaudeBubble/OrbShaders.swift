@@ -142,13 +142,13 @@ struct Wall { float c; float g0; float bulge; float sag; float most; bool on; };
 // `ph`: the orb's phase, for a slow sway; `sags`: a side wall, where the drop slumps downward.
 Wall wall(float e, float R, float ph, bool sags) {
     Wall w; w.on = abs(e - 1.) > 1e-4;
-    w.c = clamp((e + 1.) * .5, .35, 1.15);   // how much of its width is left
+    w.c = clamp((e + 1.) * .5, .6, 1.15);    // how much of its width is left (dragging stops at .6: EdgeSquash.deepest)
     float sb = 1. + .55 * (1. / w.c - 1.);   // keeps roughly its area: spread along the wall
     w.most = .93 / (R * 1.15);               // the window's room along the wall
     if (sb > 1.) sb = 1. + smin(sb - 1., w.most - 1., .2);
     float squeezed = max(1. - w.c, 0.);
     w.g0 = sb;
-    w.bulge = squeezed * .75 * (1. + .12 * sin(ph * 1.7));   // pressed flat and wide where it touches, swaying
+    w.bulge = squeezed * .6 * (1. + .12 * sin(ph * 1.7));   // pressed flat and wide where it touches, swaying
     w.sag = sags ? squeezed * .35 * R : 0.;
     return w;
 }

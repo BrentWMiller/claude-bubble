@@ -110,25 +110,37 @@ final class EdgesTests: XCTestCase {
 
     // Further off screen, and pips further on
 
-    func testDragClampLetsAlmostAllOfTheOrbOffScreen() {
+    func testDragClampStopsWhereTheSquishDoes() {
         let side: CGFloat = 120, radius = side * 0.3   // 36
         let visible = CGRect(x: 0, y: 80, width: 1000, height: 690)
+        let deepest = radius * CGFloat(EdgeSquash.deepest)
         func centre(_ o: CGPoint) -> CGPoint { CGPoint(x: o.x + side / 2, y: o.y + side / 2) }
-        // Off the right: the centre stops 0.8 of a radius past the edge, so a tenth of the width shows.
+        // Pushed into the right edge: the centre stops just inside it, the orb squished against it.
         let right = centre(BubblePlacement.clampedOrigin(CGPoint(x: 2000, y: 300), side: side, screen: screen, visible: visible))
-        XCTAssertEqual(right.x, screen.maxX + radius * 0.8, accuracy: 0.001)
-        XCTAssertEqual((screen.maxX - (right.x - radius)) / (2 * radius), 0.1, accuracy: 0.001)
+        XCTAssertEqual(right.x, screen.maxX - deepest, accuracy: 0.001)
+        let left = centre(BubblePlacement.clampedOrigin(CGPoint(x: -2000, y: 300), side: side, screen: screen, visible: visible))
+        XCTAssertEqual(left.x, screen.minX + deepest, accuracy: 0.001)
         let bottom = centre(BubblePlacement.clampedOrigin(CGPoint(x: 300, y: -900), side: side, screen: screen, visible: visible))
-        XCTAssertEqual(bottom.y, screen.minY - radius * 0.8, accuracy: 0.001)
-        // In a corner the limit is measured from the corner, so the pips still fit on screen.
-        let corner = centre(BubblePlacement.clampedOrigin(CGPoint(x: 3000, y: -3000), side: side, screen: screen, visible: visible))
-        XCTAssertEqual(hypot(corner.x - screen.maxX, corner.y - screen.minY), radius * 0.5, accuracy: 0.01)
+        XCTAssertEqual(bottom.y, screen.minY + deepest, accuracy: 0.001)
         // The top keeps the whole orb below the menu bar.
         let top = BubblePlacement.clampedOrigin(CGPoint(x: 400, y: 2000), side: side, screen: screen, visible: visible)
         XCTAssertEqual(top.y + side / 2, visible.maxY - radius)
         // Inside: untouched.
         XCTAssertEqual(BubblePlacement.clampedOrigin(CGPoint(x: 300, y: 300), side: side, screen: screen, visible: visible),
                        CGPoint(x: 300, y: 300))
+    }
+
+    func testAnEdgeSharedWithAnotherDisplayLetsTheOrbAcross() {
+        let side: CGFloat = 120, radius = side * 0.3
+        let visible = CGRect(x: 0, y: 80, width: 1000, height: 690)
+        func centre(_ o: CGPoint) -> CGPoint { CGPoint(x: o.x + side / 2, y: o.y + side / 2) }
+        let right = centre(BubblePlacement.clampedOrigin(CGPoint(x: 2000, y: 300), side: side, screen: screen, visible: visible,
+                                                         shared: [.right]))
+        XCTAssertEqual(right.x, screen.maxX + radius * 0.8, accuracy: 0.001)
+        // In a corner of two shared edges the limit is measured from the corner, so the pips still fit on screen.
+        let corner = centre(BubblePlacement.clampedOrigin(CGPoint(x: 3000, y: -3000), side: side, screen: screen, visible: visible,
+                                                          shared: [.right, .bottom]))
+        XCTAssertEqual(hypot(corner.x - screen.maxX, corner.y - screen.minY), radius * 0.5, accuracy: 0.01)
     }
 
     func testSavedSpotPartlyOffScreenIsKept() {

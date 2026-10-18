@@ -52,11 +52,11 @@ final class PointerFollowTests: XCTestCase {
                                                panelFrame: hanging, displays: [a, b], spot: CGPoint(x: 0.5, y: 0.5)))
     }
 
-    func testOffEdgeSpotLandsHangingOffTheOtherDisplay() {
-        // A spot past the right edge (the orb was hanging off it) keeps hanging off b's right edge.
+    func testOffEdgeSpotLandsPressedAgainstTheOtherDisplaysEdge() {
+        // A spot past the right edge (from when the orb could hang off it) lands squished against b's right edge.
         let spot = CGPoint(x: 1 + 20.0 / 2560, y: 0.5)
         let o = PointerFollow.destination(enabled: true, buttonDown: false, mouse: CGPoint(x: 3000, y: 400),
                                           panelFrame: panelOnA, displays: [a, b], spot: spot)
-        XCTAssertEqual(try XCTUnwrap(o).x + 60, b.frame.maxX + 20 * 1440 / 2560, accuracy: 0.5)
+        XCTAssertEqual(try XCTUnwrap(o).x + 60, b.frame.maxX - 120 * 0.3 * CGFloat(EdgeSquash.deepest), accuracy: 0.5)
     }
 }
