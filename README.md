@@ -7,9 +7,9 @@ you can look away until one needs you.
 
 - Its colour and motion show whether Claude is working, needs you, hit an error, or is done.
 - Hover it to see every session, with its GitHub issue or pull request.
-- Float it anywhere, or dock it as an island at the edge of the screen:
+- Float it anywhere as an orb, or dock it at the edge of the screen:
 
-![The island docked at the top of the screen](docs/images/dock.png)
+![Docked at the top of the screen](docs/images/dock.png)
 
 ![The session list](docs/images/sessions.png)
 

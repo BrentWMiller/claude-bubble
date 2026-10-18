@@ -222,7 +222,7 @@ struct QuickPanelView: View {
             .padding(.bottom, 4)
             divider
             if prefs.style == .island {
-                sectionTitle("Island")
+                sectionTitle("Dock")
                 VStack(spacing: 6) {
                     HStack {
                         Text("At rest").foregroundStyle(dim)
@@ -282,7 +282,7 @@ struct QuickPanelView: View {
 
     private var top: some View {
         VStack(spacing: 10) {
-            Segmented(options: [(Mode.orb, nil, "Orb"), (.island, nil, "Island"), (.quiet, nil, "Quiet")],
+            Segmented(options: [(Mode.orb, nil, "Orb"), (.island, nil, "Dock"), (.quiet, nil, "Quiet")],
                       selection: Binding(get: { prefs.quiet ? .quiet : prefs.style == .island ? .island : .orb },
                                          set: { mode in
                                              var p = settings.prefs
@@ -299,7 +299,7 @@ struct QuickPanelView: View {
             if !prefs.quiet {
                 VStack(spacing: 10) {
                     divider.padding(.vertical, -4)
-                    groupTitle(isOrb ? "Orb Customization" : "Island Customization")
+                    groupTitle(isOrb ? "Orb Customization" : "Dock Customization")
                     styleControls
                 }
             }
@@ -321,7 +321,7 @@ struct QuickPanelView: View {
                 }
             } else {
                 HStack {
-                    Text("Dock").foregroundStyle(dim)
+                    Text("Edge").foregroundStyle(dim)
                     Spacer()
                     Segmented(options: IslandDock.allCases.map { ($0, icon(for: $0), $0.rawValue.capitalized) },
                               selection: Binding(get: { prefs.islandDock }, set: { settings.prefs.islandDock = $0 }))
@@ -342,7 +342,7 @@ struct QuickPanelView: View {
             toggleRow("Move to the pointer's display", Binding(get: { prefs.followPointer },
                                                                set: { settings.setFollowPointer($0) }))
                 .help(isOrb ? "The orb jumps to whichever display the pointer is on, in the same spot."
-                            : "The island moves to whichever display the pointer is on.")
+                            : "The dock moves to whichever display the pointer is on.")
         }
     }
 

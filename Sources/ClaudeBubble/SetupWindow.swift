@@ -233,7 +233,7 @@ private struct DemoBanner: View {
                     }
                     Text("LIVE PREVIEW").font(.system(size: 10.5, weight: .bold)).tracking(1.2)
                         .foregroundStyle(Color.white.opacity(0.7))
-                    Text("· watch your \(island ? "island" : "bubble")").font(.system(size: 11)).foregroundStyle(Color.white.opacity(0.4))
+                    Text("· watch your \(island ? "dock" : "bubble")").font(.system(size: 11)).foregroundStyle(Color.white.opacity(0.4))
                     Spacer()
                     Text("\(Self.clock(elapsed)) / \(Self.clock(total))")
                         .font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.white.opacity(0.45))
@@ -309,7 +309,7 @@ private struct StylePicker: View {
 
     var body: some View {
         HStack(spacing: 2) {
-            ForEach([(BubbleStyle.orb, "Orb"), (.island, "Island")], id: \.0) { style, name in
+            ForEach([(BubbleStyle.orb, "Orb"), (.island, "Dock")], id: \.0) { style, name in
                 Button { selection = style } label: {
                     Text(name).font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(selection == style ? Color.black : Color.white.opacity(0.75))
