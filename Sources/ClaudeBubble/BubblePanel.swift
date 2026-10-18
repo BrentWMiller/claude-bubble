@@ -129,7 +129,62 @@ final class BubblePanel: NSPanel {
         }
     }
 
+    // MARK: Flying between styles
+
+    /// Mid-flight (switching to or from the island): moves aren't the user's and aren't saved.
+    private(set) var isFlying = false
+    private var flight: Timer?
+
+    /// Fades the pip arc (hidden while the orb flies, as the island draws its own).
+    func setPipsVisible(_ visible: Bool, duration: Double = 0.18) {
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = duration
+            pips.animator().alphaValue = visible ? 1 : 0
+        }
+    }
+
+    /// Flies the panel (so the live orb draws all the way) from `start` to `end` along a gentle arc, resizing as it
+    /// goes; `done` runs on landing, not if the flight is cancelled.
+    func fly(from start: CGRect, to end: CGRect, duration: Double = 0.55, done: @escaping () -> Void) {
+        cancelFlight()
+        isFlying = true
+        setFrame(start, display: true)
+        let a = CGPoint(x: start.midX, y: start.midY), b = CGPoint(x: end.midX, y: end.midY)
+        let control = StyleMorph.arcControl(from: a, to: b)
+        let began = CACurrentMediaTime()
+        let timer = Timer(timeInterval: 1.0 / 120, repeats: true) { [weak self] timer in
+            guard let self else { return timer.invalidate() }
+            let t = min(1, (CACurrentMediaTime() - began) / duration)
+            let e = StyleMorph.ease(t)
+            let centre = StyleMorph.point(on: a, control, b, at: e)
+            let side = start.width + (end.width - start.width) * e
+            self.setFrame(CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side), display: true)
+            guard t >= 1 else { return }
+            self.cancelFlight()
+            self.setFrame(end, display: true)
+            done()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        flight = timer
+    }
+
+    /// Stops a flight where it is (the caller puts the panel where it belongs).
+    func cancelFlight() {
+        flight?.invalidate()
+        flight = nil
+        isFlying = false
+    }
+
+    /// Puts the panel back without it counting as a move (after a flight, while hidden).
+    func restore(_ frame: CGRect) {
+        isFlying = true
+        setFrame(frame, display: false)
+        isFlying = false
+        layoutPips()
+    }
+
     @objc private func didMove() {
+        if isFlying { return }
         UserDefaults.standard.set(NSStringFromPoint(frame.origin), forKey: Self.originKey)
         if let expected = expectedOrigin, abs(expected.x - frame.origin.x) < 0.5, abs(expected.y - frame.origin.y) < 0.5 {
             expectedOrigin = nil

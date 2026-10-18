@@ -24,6 +24,8 @@ public enum IslandMode: Equatable, Sendable {
     case hover
     /// Quiet mode (a Focus, a screen share, or the toggle): a single dot.
     case quiet
+    /// Closed to a circle around the orb, as the floating orb flies in or out (switching style). Never chosen.
+    case tucked
 
     public static let errorShown: TimeInterval = 3.5
     public static let doneShown: TimeInterval = 4.5
@@ -83,6 +85,7 @@ public enum IslandLayout {
                             footer: Bool = true, linked: Int = 0) -> CGSize {
         switch mode {
         case .quiet: return CGSize(width: quietDot, height: quietDot)
+        case .tucked: return dock.isSide ? CGSize(width: 44, height: 44) : CGSize(width: 48, height: barHeight)
         case .hover:
             let shown = CGFloat(max(shownRows(rows), 1))
             let more = rows > maxRows ? moreHeight : 0
@@ -127,6 +130,17 @@ public enum IslandLayout {
     /// Window-server window bounds (top-left origin on the main display) as a screen rect.
     public static func cocoaRect(fromWindowBounds b: CGRect, mainHeight: CGFloat) -> CGRect {
         CGRect(x: b.minX, y: mainHeight - b.maxY, width: b.width, height: b.height)
+    }
+
+    /// Where the orb sits on screen while the island is tucked (in the middle of its circle, against the docked edge).
+    public static func tuckedOrbCentre(dock: IslandDock, window: CGRect) -> CGPoint {
+        let pill = pillRect(size: size(mode: .tucked, dock: dock, rest: .live, pips: 0, rows: 0), dock: dock, window: window)
+        let inset = dockedInset + orbSize / 2
+        switch dock {
+        case .top: return CGPoint(x: pill.midX, y: pill.maxY - inset)
+        case .bottom: return CGPoint(x: pill.midX, y: pill.minY + inset)
+        case .left, .right: return CGPoint(x: pill.midX, y: pill.midY)
+        }
     }
 
     /// Dragging: the edge nearest `point`, and how far along it the point is (0…1).
