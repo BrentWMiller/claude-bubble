@@ -62,9 +62,9 @@ final class PreferencesTests: XCTestCase {
         let loaded = BubblePreferences.load(from: defaults)
         XCTAssertEqual(loaded.diameter, 40)
         XCTAssertEqual(loaded.opacity, 0.3)
-        p.diameter = 999
+        p.diameter = 2000
         p.opacity = 7
-        XCTAssertEqual(p.clamped().diameter, 280)
+        XCTAssertEqual(p.clamped().diameter, 800)
         XCTAssertEqual(p.clamped().opacity, 1)
     }
 
@@ -78,7 +78,7 @@ final class PreferencesTests: XCTestCase {
     func testPanelSide() {
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 72), 120, accuracy: 0.001)
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 10), 40 / 0.6, accuracy: 0.001)
-        XCTAssertEqual(OrbSize.panelSide(forDiameter: 500), 280 / 0.6, accuracy: 0.001)
+        XCTAssertEqual(OrbSize.panelSide(forDiameter: 2000), 800 / 0.6, accuracy: 0.001)
     }
 
     func testSoundsAreOnByDefaultAndToggle() throws {

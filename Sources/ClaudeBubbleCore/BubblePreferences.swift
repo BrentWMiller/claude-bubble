@@ -3,7 +3,7 @@ import Foundation
 
 public enum OrbSize {
     public static let minDiameter: Double = 40
-    public static let maxDiameter: Double = 280
+    public static let maxDiameter: Double = 800
     public static let defaultDiameter: Double = 72
 
     /// The orb fills 60% of its panel; the rest is room for the halo and pips.
