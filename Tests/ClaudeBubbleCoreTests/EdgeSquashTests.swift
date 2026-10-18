@@ -57,6 +57,15 @@ final class EdgeSquashTests: XCTestCase {
         XCTAssertEqual(s.value.x, 1, accuracy: 0.02, "and settles round")
     }
 
+    func testPressingInFollowsAtOnce() {
+        // However fast the orb is pushed into an edge, the squish keeps up: it stays on the edge, never lagging off it.
+        var s = EdgeSquash.Spring()
+        s.step(toward: [0.3, 1, 1, 1], dt: 1 / 120)
+        XCTAssertEqual(s.value.x, 0.3)
+        s.step(toward: [-0.2, 1, 1, 1], dt: 1 / 120)
+        XCTAssertEqual(s.value.x, -0.2)
+    }
+
     func testALongFrameStaysStable() {
         var s = EdgeSquash.Spring()
         s.step(toward: [0.2, 1, 1, 1], dt: 5)

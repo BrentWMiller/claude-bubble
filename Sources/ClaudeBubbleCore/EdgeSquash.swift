@@ -22,17 +22,23 @@ public enum EdgeSquash {
                 distance(c.x - s.minX, .left), distance(c.y - s.minY, .bottom)]
     }
 
-    /// A springy follow of the edges, so a squash eases in and a release wobbles back round.
+    /// A springy follow of the edges: a squash keeps up with the edge exactly, a release wobbles back round.
     public struct Spring: Sendable {
         public private(set) var value = SIMD4<Float>(repeating: EdgeSquash.far)
         private var velocity = SIMD4<Float>(repeating: 0)
         /// About 5 wobbles a second, losing most of its swing in three.
         public static let stiffness: Float = 950
-        public static let damping: Float = 20
+        public static let damping: Float = 16
 
         public init() {}
 
         public mutating func step(toward target: SIMD4<Float>, dt: Float) {
+            // Pressing into an edge follows it at once, so the orb never comes loose from the edge however fast it's
+            // pushed; only letting go springs (the jiggle).
+            for i in 0..<4 where target[i] < value[i] {
+                value[i] = target[i]
+                velocity[i] = min(velocity[i], 0)
+            }
             // Small steps, so a long frame can't make it blow up.
             var left = min(max(dt, 0), 0.1)
             while left > 0 {
