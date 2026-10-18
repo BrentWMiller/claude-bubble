@@ -280,10 +280,18 @@ struct QuickPanelView: View {
                                              settings.prefs = p
                                          }),
                       fill: true, large: true)
-            // The style's own controls, right under the choice: the orb's size, or the island's dock and width.
+            // The style's own controls, right under the choice: the orb's size, pointer watching and edge light, or
+            // the island's dock and width.
             if isOrb {
                 sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
                           range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
+                VStack(spacing: 6) {
+                    toggleRow("Look at the pointer", Binding(get: { prefs.interaction != .off },
+                                                             set: { settings.prefs.interaction = $0 ? .attention : .off }))
+                        .help("The orb leans toward the pointer as it comes close.")
+                    toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
+                        .help("A light along the screen's edge when the orb is near it.")
+                }
             } else {
                 HStack {
                     Text("Dock").foregroundStyle(dim)
@@ -396,14 +404,6 @@ struct QuickPanelView: View {
 
     private var toggles: some View {
         VStack(spacing: 6) {
-            // The style's own switches first, then the ones both share.
-            if isOrb {
-                toggleRow("Look at the pointer", Binding(get: { prefs.interaction != .off },
-                                                         set: { settings.prefs.interaction = $0 ? .attention : .off }))
-                    .help("The orb leans toward the pointer as it comes close.")
-                toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
-                    .help("A light along the screen's edge when the orb is near it.")
-            }
             // Only matters with more than one display.
             if NSScreen.screens.count > 1 {
                 toggleRow("Move to the pointer's display", Binding(get: { prefs.followPointer },
