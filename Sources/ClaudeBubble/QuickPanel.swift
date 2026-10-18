@@ -280,7 +280,11 @@ struct QuickPanelView: View {
                                              settings.prefs = p
                                          }),
                       fill: true, large: true)
-            if prefs.style == .island {
+            // The style's own controls, right under the choice: the orb's size, or the island's dock and width.
+            if isOrb {
+                sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
+                          range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
+            } else {
                 HStack {
                     Text("Dock").foregroundStyle(dim)
                     Spacer()
@@ -373,31 +377,12 @@ struct QuickPanelView: View {
 
     private var sliders: some View {
         VStack(spacing: 12) {
-            if isOrb {
-                sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
-                          range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
-            }
             sliderRow("Opacity", value: Binding(get: { prefs.opacity }, set: { settings.prefs.opacity = $0 }),
                       range: 0.3...1, text: "\(Int((prefs.opacity * 100).rounded()))%")
-            VStack(spacing: 6) {
-                if isOrb {
-                    toggleRow("Look at the pointer", Binding(get: { prefs.interaction != .off },
-                                                             set: { settings.prefs.interaction = $0 ? .attention : .off }))
-                        .help("The orb leans toward the pointer as it comes close.")
-                }
-                // Only matters with more than one display.
-                if NSScreen.screens.count > 1 {
-                    toggleRow("Move to the pointer's display", Binding(get: { prefs.followPointer },
-                                                                       set: { settings.setFollowPointer($0) }))
-                        .help(isOrb ? "The orb jumps to whichever display the pointer is on, in the same spot."
-                                    : "The island moves to whichever display the pointer is on.")
-                }
-            }
         }
         .padding(.top, 14)
     }
 
-    /// Off: the orb ignores the pointer. Watch: it turns its attention to it. Follow: and it hops to the pointer's display.
     private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, text: String) -> some View {
         HStack(spacing: 10) {
             Text(title).foregroundStyle(dim).frame(width: 64, alignment: .leading)
@@ -411,11 +396,23 @@ struct QuickPanelView: View {
 
     private var toggles: some View {
         VStack(spacing: 6) {
+            // The style's own switches first, then the ones both share.
+            if isOrb {
+                toggleRow("Look at the pointer", Binding(get: { prefs.interaction != .off },
+                                                         set: { settings.prefs.interaction = $0 ? .attention : .off }))
+                    .help("The orb leans toward the pointer as it comes close.")
+                toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
+                    .help("A light along the screen's edge when the orb is near it.")
+            }
+            // Only matters with more than one display.
+            if NSScreen.screens.count > 1 {
+                toggleRow("Move to the pointer's display", Binding(get: { prefs.followPointer },
+                                                                   set: { settings.setFollowPointer($0) }))
+                    .help(isOrb ? "The orb jumps to whichever display the pointer is on, in the same spot."
+                                : "The island moves to whichever display the pointer is on.")
+            }
             toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
             toggleRow("Usage meter", Binding(get: { prefs.usage }, set: { settings.prefs.usage = $0 }))
-            if isOrb {
-                toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
-            }
             toggleRow("Approve from the bubble", Binding(get: { prefs.approvals }, set: { settings.prefs.approvals = $0 }))
             toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))
             HStack(spacing: 8) {
