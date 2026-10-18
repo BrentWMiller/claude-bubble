@@ -256,10 +256,16 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     // depth), narrowing it for the jiggle.
     float4 ed = u.o, dep = clamp(1. - ed, -.35, 1.5);
     float2 rp = sp / R;
-    float spreadY = dep.x * ss(-1., 1., rp.x) + dep.z * ss(-1., 1., -rp.x);
-    float spreadX = dep.y * ss(-1., 1., rp.y) + dep.w * ss(-1., 1., -rp.y);
-    sp.x *= 1. + .55 * spreadX;
-    sp.y *= 1. + .55 * spreadY;
+    // Most of the flow is right at the edge: the touching side runs out along it, the far side barely moves.
+    float spreadY = dep.x * pow(ss(-.6, 1., rp.x), 1.5) + dep.z * pow(ss(-.6, 1., -rp.x), 1.5);
+    float spreadX = dep.y * pow(ss(-.6, 1., rp.y), 1.5) + dep.w * pow(ss(-.6, 1., -rp.y), 1.5);
+    sp.x *= 1. + 1.3 * spreadX;
+    sp.y *= 1. + 1.3 * spreadY;
+    // The window ends at ±1: ease the flow in short of it rather than cutting it off.
+    float lim = .96;
+    // (Blended in with the squash, so a round orb near an edge doesn't flinch.)
+    sp.x = mix(sp.x, lim * tanh(sp.x / lim), clamp(spreadX * 4., 0., 1.));
+    sp.y = mix(sp.y, lim * tanh(sp.y / lim), clamp(spreadY * 4., 0., 1.));
     float soft = .12 * R;
     if (dep.x > 0.) sp.x = smin(sp.x, ed.x * R, soft);
     if (dep.z > 0.) sp.x = -smin(-sp.x, ed.z * R, soft);
