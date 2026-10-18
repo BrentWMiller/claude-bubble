@@ -363,7 +363,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Quiet's orb is the island orb's size: swap it for a full-size orb in a panel that small, then fly that.
         let start = fromQuiet ? StyleMorph.orbFrame(centre: CGPoint(x: morphHome.midX, y: morphHome.midY), side: IslandLayout.orbSize)
                               : morphHome
-        if fromQuiet { animator.settleQuiet() }
         panel.fly(from: start, to: landing) { [weak self] in
             guard let self else { return }
             // Landed: the island (still closed, its orb exactly where this one is) takes over, then opens.
@@ -378,6 +377,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.morphStep = open
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.06, execute: open)
         }
+        if fromQuiet { animator.settleQuiet() }   // now the panel is small: full size in it is the same orb
         return true
     }
 
@@ -405,10 +405,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.morph = nil
                 self.islandTucked = false
                 if toQuiet {
-                    // Landed: the full panel with quiet's orb, which is drawn exactly the size this one was.
-                    self.panel.restore(home)
+                    // Landed: the full panel with quiet's orb, which is drawn exactly the size this one was (quiet
+                    // first, so the panel's first frame at full size is already the small orb).
                     self.animator.quiet = self.quiet
                     self.animator.settleQuiet()
+                    self.panel.restore(home)
                 }
                 self.updateVisibility()
                 self.panel.setPipsVisible(true)

@@ -22,6 +22,9 @@ final class OrbView: MTKView {
         super.init(frame: frame, device: MTLCreateSystemDefaultDevice())
         wantsLayer = true
         layer?.isOpaque = false
+        // When the window resizes (flying between styles, quiet), the last frame stays its size, centred, until the
+        // next is drawn; stretched, a small orb's frame flashed up as a full-size orb.
+        layer?.contentsGravity = .center
         colorPixelFormat = .bgra8Unorm
         clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
         preferredFramesPerSecond = 60
