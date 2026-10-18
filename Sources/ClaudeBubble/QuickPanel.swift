@@ -379,34 +379,25 @@ struct QuickPanelView: View {
             }
             sliderRow("Opacity", value: Binding(get: { prefs.opacity }, set: { settings.prefs.opacity = $0 }),
                       range: 0.3...1, text: "\(Int((prefs.opacity * 100).rounded()))%")
-            HStack {
-                Text("Pointer").foregroundStyle(dim)
-                Spacer()
-                // The island doesn't watch the pointer; Follow takes it to the pointer's display.
-                Segmented(options: isOrb ? [(PointerMode.off, nil, "Off"), (.watch, nil, "Watch"), (.follow, nil, "Follow")]
-                                         : [(PointerMode.off, nil, "Off"), (.follow, nil, "Follow")],
-                          selection: Binding(get: { pointerMode }, set: setPointer))
+            VStack(spacing: 6) {
+                if isOrb {
+                    toggleRow("Look at the pointer", Binding(get: { prefs.interaction != .off },
+                                                             set: { settings.prefs.interaction = $0 ? .attention : .off }))
+                        .help("The orb leans toward the pointer as it comes close.")
+                }
+                // Only matters with more than one display.
+                if NSScreen.screens.count > 1 {
+                    toggleRow("Move to the pointer's display", Binding(get: { prefs.followPointer },
+                                                                       set: { settings.setFollowPointer($0) }))
+                        .help(isOrb ? "The orb jumps to whichever display the pointer is on, in the same spot."
+                                    : "The island moves to whichever display the pointer is on.")
+                }
             }
-            .font(.system(size: 13))
-            .help(isOrb ? "Watch: the orb looks toward the pointer. Follow: it also moves to the pointer's display."
-                        : "Follow: the island moves to the display the pointer is on.")
         }
         .padding(.top, 14)
     }
 
     /// Off: the orb ignores the pointer. Watch: it turns its attention to it. Follow: and it hops to the pointer's display.
-    private enum PointerMode: Hashable { case off, watch, follow }
-
-    private var pointerMode: PointerMode {
-        prefs.followPointer ? .follow : !isOrb || prefs.interaction == .off ? .off : .watch
-    }
-
-    private func setPointer(_ mode: PointerMode) {
-        // The island's Off and Follow leave the orb's watching as it was.
-        if isOrb { settings.prefs.interaction = mode == .off ? .off : .attention }
-        settings.setFollowPointer(mode == .follow)
-    }
-
     private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, text: String) -> some View {
         HStack(spacing: 10) {
             Text(title).foregroundStyle(dim).frame(width: 64, alignment: .leading)
