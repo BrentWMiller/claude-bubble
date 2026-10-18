@@ -69,9 +69,13 @@ final class SessionsModel: ObservableObject {
     }
 
     /// The island's needs-you card's approval card width (the card less the orb's column and the right margin).
-    static let needsCardWidth: CGFloat = 360 - (22 + IslandLayout.orbSize) - 20
-    /// The island's session rows' width (the 350pt panel less its padding).
-    static let islandRowWidth: CGFloat = 350 - 16
+    var needsCardWidth: CGFloat { IslandLayout.size(mode: .needs(""), dock: .top, rest: .live, pips: 0, rows: 0,
+                                                    width: islandWidth).width - (22 + IslandLayout.orbSize) - 20 }
+    /// The island's session rows' width (the hover panel less its padding).
+    var islandRowWidth: CGFloat { IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 0, rows: 0,
+                                                    width: islandWidth).width - 16 }
+    /// The island's Width setting (IslandModel.width mirrors it for the island's own views).
+    var islandWidth: CGFloat = 1
 
     /// The approval card's height the island needs in `mode` (see IslandLayout.size), 0 for none.
     func islandApprovalHeight(_ mode: IslandMode) -> CGFloat {
@@ -79,10 +83,10 @@ final class SessionsModel: ObservableObject {
         switch mode {
         case let .needs(id):
             guard let s = byID[id], let r = approval(for: s) else { return 0 }
-            return height(r, Self.needsCardWidth)
+            return height(r, needsCardWidth)
         case .hover:
             guard let r = expandedApproval, sorted.prefix(IslandLayout.maxRows).contains(where: { $0.id == r.session }) else { return 0 }
-            return height(r, SessionRow.cardWidth(row: Self.islandRowWidth))
+            return height(r, SessionRow.cardWidth(row: islandRowWidth))
         default:
             return 0
         }

@@ -90,6 +90,17 @@ final class PreferencesTests: XCTestCase {
         XCTAssertEqual(PipArc.scale(radius: 400 * PipArc.radiusScale), 5, accuracy: 0.0001)
     }
 
+    func testIslandWidth() {
+        XCTAssertEqual(BubblePreferences.defaults.islandWidth, 1)
+        var p = BubblePreferences.defaults
+        p.islandWidth = 9
+        XCTAssertEqual(p.clamped().islandWidth, IslandLayout.maxWidth)
+        p.islandWidth = 0.1
+        XCTAssertEqual(p.clamped().islandWidth, IslandLayout.minWidth)
+        defaults.set(Data(#"{"diameter": 90}"#.utf8), forKey: BubblePreferences.key)
+        XCTAssertEqual(BubblePreferences.load(from: defaults).islandWidth, 1, "older settings")
+    }
+
     func testPanelSide() {
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 72), 120, accuracy: 0.001)
         XCTAssertEqual(OrbSize.panelSide(forDiameter: 10), 40 / 0.6, accuracy: 0.001)

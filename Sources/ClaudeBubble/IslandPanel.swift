@@ -10,6 +10,8 @@ final class IslandModel: ObservableObject {
     @Published var dock: IslandDock = .top
     @Published var rest: IslandRest = .live
     @Published var glow: IslandGlow = .waves
+    /// The Width setting (a multiple of the design's widths).
+    @Published var width: CGFloat = 1
     /// The look the orb is showing (drives the glow colour and pace); `.idle` with `done` shows the success green.
     @Published var state: BubbleState = .idle
     /// Recent tool-complete ticks (seconds, CACurrentMediaTime) that brighten the wave. Not published: the glow's
@@ -244,7 +246,7 @@ struct IslandView: View {
     private var size: CGSize {
         IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
                           footer: hasFooter, linked: IslandLayout.linkedRows(live),
-                          approval: sessions.islandApprovalHeight(model.mode))
+                          approval: sessions.islandApprovalHeight(model.mode), width: model.width)
     }
 
     /// The prompt the needs-you card offers Allow and Deny for.
@@ -429,7 +431,7 @@ struct IslandView: View {
                         .lineLimit(1).truncationMode(.tail)
                         .frame(height: 18)
                     ApprovalCard(request: approval, accent: BubbleState.needs.color(in: sessions.palette),
-                                 width: SessionsModel.needsCardWidth) { sessions.decide?(approval, $0) }
+                                 width: sessions.needsCardWidth) { sessions.decide?(approval, $0) }
                 }
                 .padding(.leading, 22 + IslandLayout.orbSize)
                 .padding(.trailing, 20)
@@ -458,7 +460,7 @@ struct IslandView: View {
                         SessionRow(session: s, now: context.date, palette: sessions.palette,
                                    pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) },
                                    approval: asking, expanded: asking != nil && asking?.id == sessions.expandedApproval?.id,
-                                   width: SessionsModel.islandRowWidth,
+                                   width: sessions.islandRowWidth,
                                    onDecide: asking.map { request in { sessions.decide?(request, $0) } })
                     }
                     if live.count > IslandLayout.maxRows {

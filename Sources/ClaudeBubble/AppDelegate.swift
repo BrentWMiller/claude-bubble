@@ -505,6 +505,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if m.dock != prefs.islandDock { m.dock = prefs.islandDock }
         if m.rest != prefs.islandRest { m.rest = prefs.islandRest }
         if m.glow != prefs.islandGlow { m.glow = prefs.islandGlow }
+        let width = CGFloat(prefs.islandWidth)
+        model.islandWidth = width   // before the island's model: its views read the card widths from here
+        if m.width != width { m.width = width }
     }
 
     /// Places the island on its display and picks its mode: hover, needs, error, done or rest.
@@ -525,7 +528,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             IslandLayout.pillRect(size: IslandLayout.size(mode: mode, dock: m.dock, rest: m.rest, pips: model.sessions.count,
                                                           rows: model.sessions.count,
                                                           footer: model.today != nil || model.usage != nil,
-                                                          linked: model.linkedRows, approval: model.islandApprovalHeight(mode)),
+                                                          linked: model.linkedRows, approval: model.islandApprovalHeight(mode),
+                                                          width: m.width),
                                   dock: m.dock, window: window)
         }
         let over = pill(m.mode).contains(mouse)

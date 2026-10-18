@@ -80,6 +80,25 @@ final class IslandTests: XCTestCase {
                        hover.height + 108, "a row's card")
     }
 
+    func testWidthScalesEveryHorizontalShape() {
+        func size(_ m: IslandMode, _ d: IslandDock = .top, _ r: IslandRest = .live, width: CGFloat) -> CGSize {
+            IslandLayout.size(mode: m, dock: d, rest: r, pips: 3, rows: 3, width: width)
+        }
+        XCTAssertEqual(size(.rest, width: 1.5), CGSize(width: 435, height: 40))
+        XCTAssertEqual(size(.rest, .top, .compact, width: 0.8), CGSize(width: 104, height: 40))
+        XCTAssertEqual(size(.hover, width: 1.2).width, 420)
+        XCTAssertEqual(size(.needs("a"), width: 1.2).width, 432)
+        XCTAssertEqual(size(.done, width: 1.2).width, 360)
+        XCTAssertEqual(size(.rest, .left, width: 1.5), size(.rest, .left, width: 1), "the side capsule is just the orb's column")
+        XCTAssertEqual(size(.tucked, width: 1.5), size(.tucked, width: 1))
+        XCTAssertEqual(size(.quiet, width: 1.5), size(.quiet, width: 1))
+    }
+
+    func testTheWindowFitsTheWidestIsland() {
+        let widest = IslandLayout.size(mode: .needs("a"), dock: .top, rest: .live, pips: 0, rows: 0, width: IslandLayout.maxWidth)
+        XCTAssertGreaterThanOrEqual(IslandLayout.windowSize.width, widest.width + 40, "room for the shadow")
+    }
+
     func testSideRestIsAVerticalCapsule() {
         XCTAssertEqual(IslandLayout.size(mode: .rest, dock: .right, rest: .live, pips: 0, rows: 0), CGSize(width: 44, height: 48))
         XCTAssertEqual(IslandLayout.size(mode: .rest, dock: .left, rest: .live, pips: 1, rows: 0), CGSize(width: 44, height: 63))

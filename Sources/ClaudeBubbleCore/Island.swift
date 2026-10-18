@@ -50,8 +50,12 @@ public enum IslandLayout {
     public static var windowSize: CGSize {
         let tallest = size(mode: .hover, dock: .top, rest: .live, pips: 0, rows: maxRows + 1, linked: maxRows,
                            approval: maxApprovalHeight)
-        return CGSize(width: 440, height: (tallest.height + 50).rounded(.up))
+        let widest = size(mode: .needs(""), dock: .top, rest: .live, pips: 0, rows: 0, width: maxWidth)
+        return CGSize(width: max(440, (widest.width + 80).rounded(.up)), height: (tallest.height + 50).rounded(.up))
     }
+    /// The Width setting's range: a multiple of the design's widths.
+    public static let minWidth: CGFloat = 0.8
+    public static let maxWidth: CGFloat = 1.5
     public static let orbSize: CGFloat = 28
     public static let pipSize: CGFloat = 5
     public static let maxPips = 5
@@ -87,26 +91,28 @@ public enum IslandLayout {
 
     /// `footer`: the hover panel's Today/usage line is showing. `approval`: the height of the approval card showing
     /// (on the needs-you card, or under one row of the hover panel), 0 for none.
+    /// `width`: the Width setting, scaling every horizontal shape (not the side capsule, the tucked circle or the dot).
     public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int,
-                            footer: Bool = true, linked: Int = 0, approval: CGFloat = 0) -> CGSize {
+                            footer: Bool = true, linked: Int = 0, approval: CGFloat = 0, width: CGFloat = 1) -> CGSize {
+        let w = { (design: CGFloat) in (design * width).rounded() }
         switch mode {
         case .quiet: return CGSize(width: quietDot, height: quietDot)
         case .tucked: return dock.isSide ? CGSize(width: 44, height: 44) : CGSize(width: 48, height: barHeight)
         case .hover:
             let shown = CGFloat(max(shownRows(rows), 1))
             let more = rows > maxRows ? moreHeight : 0
-            return CGSize(width: 350, height: barHeight + 2 + rowHeight * shown + linkRowHeight * CGFloat(linked) + more
+            return CGSize(width: w(350), height: barHeight + 2 + rowHeight * shown + linkRowHeight * CGFloat(linked) + more
                                             + (approval > 0 ? approval + 8 : 0) + (footer ? 34 : 6) + openPadding)
-        case .needs: return CGSize(width: 360, height: barHeight + (approval > 0 ? approvalChrome + approval : 54))
-        case .error: return CGSize(width: 360, height: barHeight + 54)
-        case .done: return CGSize(width: 300, height: barHeight)
+        case .needs: return CGSize(width: w(360), height: barHeight + (approval > 0 ? approvalChrome + approval : 54))
+        case .error: return CGSize(width: w(360), height: barHeight + 54)
+        case .done: return CGSize(width: w(300), height: barHeight)
         case .rest:
             if dock.isSide {
                 let n = CGFloat(min(pips, maxPips))
                 let column = n > 0 ? 10 + n * pipSize + (n - 1) * 4 : 0
                 return CGSize(width: 44, height: 8 + orbSize + column + 12)
             }
-            return CGSize(width: rest == .compact ? 130 : 290, height: barHeight)
+            return CGSize(width: w(rest == .compact ? 130 : 290), height: barHeight)
         }
     }
 
