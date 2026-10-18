@@ -63,10 +63,21 @@ final class QuietTests: XCTestCase {
         quiet.quiet = true
         var q = quiet.step(dt: 0.02), p = plain.step(dt: 0.02)
         for _ in 0..<200 { q = quiet.step(dt: 0.02); p = plain.step(dt: 0.02) }
-        XCTAssertEqual(q.scale / p.scale, 0.28, accuracy: 0.01)
+        XCTAssertEqual(q.scale / p.scale, 0.28, accuracy: 0.01, "the default")
         quiet.quiet = false
         for _ in 0..<200 { q = quiet.step(dt: 0.02); p = plain.step(dt: 0.02) }
         XCTAssertEqual(q.scale / p.scale, 1, accuracy: 0.01)
+    }
+
+    func testQuietOrbIsTheIslandsOrbSizeWhateverTheOrbsSize() {
+        XCTAssertEqual(OrbSize.quietScale(forDiameter: 72) * 72, IslandLayout.orbSize * 0.6, accuracy: 0.001)
+        XCTAssertEqual(OrbSize.quietScale(forDiameter: 400) * 400, IslandLayout.orbSize * 0.6, accuracy: 0.001)
+        let a = OrbAnimator(state: .working, random: { 0.5 }), plain = OrbAnimator(state: .working, random: { 0.5 })
+        a.quietScale = Float(OrbSize.quietScale(forDiameter: 200))
+        a.quiet = true
+        var q = a.step(dt: 0.02), p = plain.step(dt: 0.02)
+        for _ in 0..<200 { q = a.step(dt: 0.02); p = plain.step(dt: 0.02) }
+        XCTAssertEqual(q.scale / p.scale, Float(OrbSize.quietScale(forDiameter: 200)), accuracy: 0.002)
     }
 
     // Preference

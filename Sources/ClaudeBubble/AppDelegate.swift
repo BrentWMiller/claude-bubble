@@ -50,7 +50,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var island: IslandPanel!
     /// The all-done moment, for the island's "All sessions complete".
     private var islandDoneAt: Date?
-    private var isIsland: Bool { applied.style == .island }
+    /// Quiet looks the same from either style: the small floating orb (at the island orb's size), not the island.
+    private var isIsland: Bool { applied.style == .island && !quiet }
     /// While the island is being dragged: the edge and spot it's snapping to (saved on release).
     private var islandDrag: (dock: IslandDock, along: Double)?
     /// Switching style: the orb flying into the island or out of it (nil when still).
@@ -99,6 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         animator.interaction = applied.interaction
         sounds.enabled = applied.sounds && !quiet
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
+        animator.quietScale = Float(OrbSize.quietScale(forDiameter: applied.diameter))
         panel.alphaValue = applied.opacity
         panel.onClick = { [weak self] in self?.focusTerminal() }
         panel.onUserMoved = { [weak self] _ in self?.rememberSpot() }
@@ -665,11 +667,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             animator.palette = shown(prefs.palette)
             model.palette = shown(prefs.palette)
         }
-        if prefs.diameter != applied.diameter { panel.setDiameter(prefs.diameter) }
+        if prefs.diameter != applied.diameter {
+            panel.setDiameter(prefs.diameter)
+            animator.quietScale = Float(OrbSize.quietScale(forDiameter: prefs.diameter))
+        }
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
         animator.interaction = prefs.interaction
         sounds.enabled = prefs.sounds && !quiet
-        if prefs.quiet != quiet { setQuiet(prefs.quiet) }
         if prefs.approvals != applied.approvals {
             if prefs.approvals { approvals.start() } else { approvals.stop() }
         }
@@ -677,6 +681,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let styleChanged = prefs.style != applied.style
         let paletteChanged = prefs.palette != applied.palette
         applied = prefs
+        // After `applied`: leaving quiet for the other style is that style's switch (below), not a flash of this one.
+        if prefs.quiet != quiet { setQuiet(prefs.quiet) }
         if paletteChanged { applyState() }   // menu-bar icon color
         applyIslandOptions(prefs)
         if styleChanged {
@@ -817,6 +823,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         animator.quiet = on
         model.quiet = on
         sounds.enabled = applied.sounds && !on
+        // From the island, quiet swaps it for the small orb (and back).
+        if applied.style == .island {
+            hover.dismiss()
+            animator.settleQuiet()   // the orb shows already small (or full size), not shrinking (growing) into it
+            updateVisibility()
+        }
         if on {
             hover.dismiss()
             if listPanel.isShown { listPanel.popOut() }

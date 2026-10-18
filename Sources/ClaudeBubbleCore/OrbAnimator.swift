@@ -74,6 +74,11 @@ public final class OrbAnimator {
     public var motion: Motion = .generating
     /// Quiet mode: the orb eases down to a small dot with a calmer glow.
     public var quiet = false
+    /// The scale quiet shrinks the orb to (OrbSize.quietScale: the island orb's size).
+    public var quietScale: Float = 0.28
+
+    /// Jumps straight to quiet's size (or back to full), for an orb that's only now appearing.
+    public func settleQuiet() { quietness = quiet ? 1 : 0 }
     private var quietness: Float = 0
     /// Seconds the current motion has run (bash settles with it).
     public var motionElapsed: Double = 0
@@ -253,7 +258,7 @@ public final class OrbAnimator {
 
         let here = max(0, presence)
         quietness += ((quiet ? 1 : 0) - quietness) * (1 - expf(-dt / 0.25))
-        var scale = current.scale * (1 + bounce) * here * (1 - 0.12 * lowUsage) * (1 - 0.72 * quietness)
+        var scale = current.scale * (1 + bounce) * here * (1 - 0.12 * lowUsage) * (1 - (1 - quietScale) * quietness)
         var glow = current.glow * min(here, 1) * (1 + 0.6 * flash) * (1 - 0.4 * lowUsage) * (1 - 0.5 * quietness)
         var ring = current.ring * (1 + 0.4 * flash)
         switch state {
