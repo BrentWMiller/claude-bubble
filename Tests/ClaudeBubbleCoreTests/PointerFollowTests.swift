@@ -54,7 +54,7 @@ final class PointerFollowTests: XCTestCase {
 
     func testOffEdgeSpotLandsPressedAgainstTheOtherDisplaysEdge() {
         // A spot past the right edge (from when the orb could hang off it) lands squished against b's right edge.
-        let spot = CGPoint(x: 1 + 20.0 / 2560, y: 0.5)
+        let spot = CGPoint(x: 1 + 60.0 / 2560, y: 0.5)
         let o = PointerFollow.destination(enabled: true, buttonDown: false, mouse: CGPoint(x: 3000, y: 400),
                                           panelFrame: panelOnA, displays: [a, b], spot: spot)
         XCTAssertEqual(try XCTUnwrap(o).x + 60, b.frame.maxX - 120 * 0.3 * CGFloat(EdgeSquash.deepest), accuracy: 0.5)
