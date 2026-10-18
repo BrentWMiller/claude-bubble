@@ -243,7 +243,8 @@ struct IslandView: View {
     private var hasFooter: Bool { sessions.today != nil || sessions.usage != nil }
     private var size: CGSize {
         IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
-                          footer: hasFooter, linked: IslandLayout.linkedRows(live), approval: approval != nil)
+                          footer: hasFooter, linked: IslandLayout.linkedRows(live),
+                          approval: sessions.islandApprovalHeight(model.mode))
     }
 
     /// The prompt the needs-you card offers Allow and Deny for.
@@ -419,7 +420,21 @@ struct IslandView: View {
     @ViewBuilder private var detail: some View {
         switch model.mode {
         case let .needs(id), let .error(id):
-            if let s = live.first(where: { $0.id == id }) {
+            if let s = live.first(where: { $0.id == id }), let approval, model.mode == .needs(id) {
+                // A permission prompt: what Claude wants, then the request in full with Deny and Allow.
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(approval.headline)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(s.state.color(in: sessions.palette))
+                        .lineLimit(1).truncationMode(.tail)
+                        .frame(height: 18)
+                    ApprovalCard(request: approval, accent: BubbleState.needs.color(in: sessions.palette),
+                                 width: SessionsModel.needsCardWidth) { sessions.decide?(approval, $0) }
+                }
+                .padding(.leading, 22 + IslandLayout.orbSize)
+                .padding(.trailing, 20)
+                .transition(.opacity)
+            } else if let s = live.first(where: { $0.id == id }) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(s.detail.isEmpty ? (model.mode == .needs(id) ? "Needs you" : "Error") : s.detail)
                         .font(.system(size: 12.5))
@@ -429,18 +444,6 @@ struct IslandView: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(Color.white.opacity(0.45))
                         .lineLimit(1)
-                    if let approval, model.mode == .needs(id) {
-                        // The command (or file, or URL) in full, as far as two lines go; all of it on hover.
-                        Text(approval.detail)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(Color.white.opacity(0.85))
-                            .lineLimit(2).truncationMode(.middle)
-                            .frame(height: 28, alignment: .topLeading)
-                            .help(approval.detail)
-                            .padding(.top, 4)
-                        ApprovalButtons(detail: approval.detail, large: true) { sessions.decide?(approval, $0) }
-                            .padding(.top, 2)
-                    }
                 }
                 .padding(.leading, 22 + IslandLayout.orbSize)
                 .padding(.trailing, 20)
@@ -454,7 +457,8 @@ struct IslandView: View {
                         let asking = sessions.approval(for: s)
                         SessionRow(session: s, now: context.date, palette: sessions.palette,
                                    pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) },
-                                   approval: asking,
+                                   approval: asking, expanded: asking != nil && asking?.id == sessions.expandedApproval?.id,
+                                   width: SessionsModel.islandRowWidth,
                                    onDecide: asking.map { request in { sessions.decide?(request, $0) } })
                     }
                     if live.count > IslandLayout.maxRows {

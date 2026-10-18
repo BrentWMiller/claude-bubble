@@ -70,10 +70,14 @@ final class IslandTests: XCTestCase {
 
     func testANeedsCardWithApprovalGrows() {
         let plain = IslandLayout.size(mode: .needs("a"), dock: .top, rest: .live, pips: 1, rows: 1)
-        let asking = IslandLayout.size(mode: .needs("a"), dock: .top, rest: .live, pips: 1, rows: 1, approval: true)
-        XCTAssertEqual(asking.height, plain.height + IslandLayout.approvalHeight)
-        XCTAssertEqual(IslandLayout.size(mode: .error("a"), dock: .top, rest: .live, pips: 1, rows: 1, approval: true).height,
+        let asking = IslandLayout.size(mode: .needs("a"), dock: .top, rest: .live, pips: 1, rows: 1, approval: 100)
+        XCTAssertEqual(plain.height, 94)
+        XCTAssertEqual(asking.height, 40 + IslandLayout.approvalChrome + 100)
+        XCTAssertEqual(IslandLayout.size(mode: .error("a"), dock: .top, rest: .live, pips: 1, rows: 1, approval: 100).height,
                        94, "only needs-you asks")
+        let hover = IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 1, rows: 1)
+        XCTAssertEqual(IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 1, rows: 1, approval: 100).height,
+                       hover.height + 108, "a row's card")
     }
 
     func testSideRestIsAVerticalCapsule() {

@@ -65,7 +65,12 @@ func run() {
         }
     }
     // A permission prompt: offer it to the bubble, and pass on the user's click if one comes before the terminal's.
-    if let request = ApprovalRequest.make(data, id: UUID().uuidString) {
+    // An edited file's text, for a line of context above the change (small files only: this runs on every prompt).
+    let readFile = { (file: String) -> String? in
+        guard let size = (try? FileManager.default.attributesOfItem(atPath: file))?[.size] as? Int, size < 2_000_000 else { return nil }
+        return try? String(contentsOfFile: file, encoding: .utf8)
+    }
+    if let request = ApprovalRequest.make(data, id: UUID().uuidString, readFile: readFile) {
         let socket = home.appendingPathComponent(Approval.socketName).path
         let decision = request.ask(socketPath: socket, deadline: Date() + Approval.wait) {
             let record = (try? Data(contentsOf: path)).flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }

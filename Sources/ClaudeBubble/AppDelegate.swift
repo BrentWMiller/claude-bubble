@@ -127,7 +127,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         applyIslandOptions(applied)
         linkScanner.onChange = { [weak self] in self?.syncSessions() }
         prStatus.onChange = { [weak self] in self?.syncSessions() }
-        approvals.onChange = { [weak self] pending in self?.model.approvals = pending }
+        approvals.onChange = { [weak self] pending in
+            guard let self else { return }
+            self.model.approvals = pending
+            // The orb's list sizes itself when shown: refit it to a card coming or going.
+            if self.listPanel.isShown { self.listPanel.show(near: self.panel.frame) }
+        }
         model.decide = { [weak self] request, behavior in self?.approvals.reply(request.id, behavior) }
         if applied.approvals { approvals.start() }
         toastModel.palette = applied.palette
@@ -516,15 +521,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
         let m = island.model
-        func asking(_ mode: IslandMode) -> Bool {
-            guard case let .needs(id) = mode, let s = model.byID[id] else { return false }
-            return model.approval(for: s) != nil
-        }
         func pill(_ mode: IslandMode) -> CGRect {
             IslandLayout.pillRect(size: IslandLayout.size(mode: mode, dock: m.dock, rest: m.rest, pips: model.sessions.count,
                                                           rows: model.sessions.count,
                                                           footer: model.today != nil || model.usage != nil,
-                                                          linked: model.linkedRows, approval: asking(mode)),
+                                                          linked: model.linkedRows, approval: model.islandApprovalHeight(mode)),
                                   dock: m.dock, window: window)
         }
         let over = pill(m.mode).contains(mouse)

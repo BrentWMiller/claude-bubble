@@ -48,7 +48,8 @@ public enum IslandLayout {
     /// The island's window: large enough for the biggest pill (the open panel at its tallest: every row with link
     /// chips, "+N more" and the footer) plus room for its drop shadow to fade out, so it never moves or resizes.
     public static var windowSize: CGSize {
-        let tallest = size(mode: .hover, dock: .top, rest: .live, pips: 0, rows: maxRows + 1, linked: maxRows)
+        let tallest = size(mode: .hover, dock: .top, rest: .live, pips: 0, rows: maxRows + 1, linked: maxRows,
+                           approval: maxApprovalHeight)
         return CGSize(width: 440, height: (tallest.height + 50).rounded(.up))
     }
     public static let orbSize: CGFloat = 28
@@ -61,8 +62,10 @@ public enum IslandLayout {
     public static let moreHeight: CGFloat = 20
     /// A session row's link chips (issue, pull request, artifact) add this much.
     public static let linkRowHeight: CGFloat = 28
-    /// A needs-you card with Allow and Deny: the command (two lines) and the buttons.
-    public static let approvalHeight: CGFloat = 62
+    /// The tallest approval card (see ApprovalCardLayout), which the window leaves room for.
+    public static let maxApprovalHeight: CGFloat = 240
+    /// A needs-you card with an approval card: the bar, the headline, the card and padding.
+    public static let approvalChrome: CGFloat = 44
 
     /// How many of the hover panel's shown rows carry link chips.
     public static func linkedRows(_ sessions: [Session]) -> Int {
@@ -82,9 +85,10 @@ public enum IslandLayout {
     /// The bar: the orb with its padding (40pt).
     public static var barHeight: CGFloat { dockedInset + orbSize + openInset }
 
-    /// `footer`: the hover panel's Today/usage line is showing. `approval`: the needs-you card offers Allow and Deny.
+    /// `footer`: the hover panel's Today/usage line is showing. `approval`: the height of the approval card showing
+    /// (on the needs-you card, or under one row of the hover panel), 0 for none.
     public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int,
-                            footer: Bool = true, linked: Int = 0, approval: Bool = false) -> CGSize {
+                            footer: Bool = true, linked: Int = 0, approval: CGFloat = 0) -> CGSize {
         switch mode {
         case .quiet: return CGSize(width: quietDot, height: quietDot)
         case .tucked: return dock.isSide ? CGSize(width: 44, height: 44) : CGSize(width: 48, height: barHeight)
@@ -92,8 +96,8 @@ public enum IslandLayout {
             let shown = CGFloat(max(shownRows(rows), 1))
             let more = rows > maxRows ? moreHeight : 0
             return CGSize(width: 350, height: barHeight + 2 + rowHeight * shown + linkRowHeight * CGFloat(linked) + more
-                                            + (footer ? 34 : 6) + openPadding)
-        case .needs: return CGSize(width: 360, height: barHeight + 54 + (approval ? approvalHeight : 0))
+                                            + (approval > 0 ? approval + 8 : 0) + (footer ? 34 : 6) + openPadding)
+        case .needs: return CGSize(width: 360, height: barHeight + (approval > 0 ? approvalChrome + approval : 54))
         case .error: return CGSize(width: 360, height: barHeight + 54)
         case .done: return CGSize(width: 300, height: barHeight)
         case .rest:

@@ -62,4 +62,29 @@ final class SessionsModel: ObservableObject {
         guard session.state == .needs else { return nil }
         return approvals.first { $0.session == session.id }
     }
+
+    /// The one request shown in full (the newest still waiting); any others show as a small Deny | Allow pill.
+    var expandedApproval: ApprovalRequest? {
+        approvals.reversed().first { r in byID[r.session].map { approval(for: $0)?.id == r.id } ?? false }
+    }
+
+    /// The island's needs-you card's approval card width (the card less the orb's column and the right margin).
+    static let needsCardWidth: CGFloat = 360 - (22 + IslandLayout.orbSize) - 20
+    /// The island's session rows' width (the 350pt panel less its padding).
+    static let islandRowWidth: CGFloat = 350 - 16
+
+    /// The approval card's height the island needs in `mode` (see IslandLayout.size), 0 for none.
+    func islandApprovalHeight(_ mode: IslandMode) -> CGFloat {
+        func height(_ r: ApprovalRequest, _ width: CGFloat) -> CGFloat { CGFloat(ApprovalCardLayout.height(r, width: Double(width))) }
+        switch mode {
+        case let .needs(id):
+            guard let s = byID[id], let r = approval(for: s) else { return 0 }
+            return height(r, Self.needsCardWidth)
+        case .hover:
+            guard let r = expandedApproval, sorted.prefix(IslandLayout.maxRows).contains(where: { $0.id == r.session }) else { return 0 }
+            return height(r, SessionRow.cardWidth(row: Self.islandRowWidth))
+        default:
+            return 0
+        }
+    }
 }
