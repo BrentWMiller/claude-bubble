@@ -151,7 +151,8 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
                 pointCount = wanted
             }
         }
-        let dotPx = Float(OrbGeometry.dotSizingSide(Double(px)))
+        // Dots sized for the orb as drawn: shrunk (quiet, popping in or out), they shrink too, or they'd pile up.
+        let dotPx = Float(OrbGeometry.dotSizingSide(Double(px) * Double(min(1, f.scale))))
         let pointSize = (crisp ? max(0.42, min(1, dotPx / 200)) : max(1, dotPx / 200)) * dpr * 1.6
         var u = OrbUniforms(
             c1: SIMD4(f.params.c1, 0), c2: SIMD4(f.params.c2, 0), c3: SIMD4(f.params.c3, 0), halo: SIMD4(f.params.halo, 0),
