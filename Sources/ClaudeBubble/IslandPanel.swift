@@ -323,8 +323,6 @@ struct IslandView: View {
                 }
                 content
                     .opacity(tucked ? 0 : 1)
-                    // A soft dark halo behind every letter, so text stays legible over the brightest glow.
-                    .shadow(color: .black.opacity(model.glow == .waves ? 0.9 : 0), radius: 2.5)
             }
             // Always in the hierarchy (one Metal view), just hidden while quiet.
             Group {
@@ -402,6 +400,9 @@ struct IslandView: View {
                     .foregroundStyle(barColor)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    // A soft dark halo behind every letter, so the bar's text stays legible over the brightest glow.
+                    // Only here: below the bar the scrim darkens the glow, and a halo would smudge buttons and chips.
+                    .shadow(color: .black.opacity(model.glow == .waves ? 0.9 : 0), radius: 2.5)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .transition(.opacity)
             } else {
