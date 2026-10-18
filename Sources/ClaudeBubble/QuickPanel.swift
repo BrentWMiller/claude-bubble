@@ -254,6 +254,11 @@ struct QuickPanelView: View {
         }
     }
 
+    /// A group's heading on the main page, like Theme's.
+    private func groupTitle(_ text: String) -> some View {
+        Text(text).font(.system(size: 13)).foregroundStyle(dim).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 2)
+    }
+
     private func sectionTitle(_ text: String) -> some View {
         Text(text).font(.system(size: 13)).foregroundStyle(dim).padding(.bottom, 6)
     }
@@ -291,6 +296,7 @@ struct QuickPanelView: View {
                         .help("The orb leans toward the pointer as it comes close.")
                     toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
                         .help("A light along the screen's edge when the orb is near it.")
+                    followToggle
                 }
             } else {
                 HStack {
@@ -304,7 +310,18 @@ struct QuickPanelView: View {
                                                   set: { settings.prefs.islandWidth = ($0 * 20).rounded() / 20 }),
                           range: Double(IslandLayout.minWidth)...Double(IslandLayout.maxWidth),
                           text: "\(Int((prefs.islandWidth * 100).rounded()))%")
+                followToggle
             }
+        }
+    }
+
+    /// Only matters with more than one display.
+    @ViewBuilder private var followToggle: some View {
+        if NSScreen.screens.count > 1 {
+            toggleRow("Move to the pointer's display", Binding(get: { prefs.followPointer },
+                                                               set: { settings.setFollowPointer($0) }))
+                .help(isOrb ? "The orb jumps to whichever display the pointer is on, in the same spot."
+                            : "The island moves to whichever display the pointer is on.")
         }
     }
 
@@ -404,16 +421,14 @@ struct QuickPanelView: View {
 
     private var toggles: some View {
         VStack(spacing: 6) {
-            // Only matters with more than one display.
-            if NSScreen.screens.count > 1 {
-                toggleRow("Move to the pointer's display", Binding(get: { prefs.followPointer },
-                                                                   set: { settings.setFollowPointer($0) }))
-                    .help(isOrb ? "The orb jumps to whichever display the pointer is on, in the same spot."
-                                : "The island moves to whichever display the pointer is on.")
-            }
-            toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
+            groupTitle("Sessions")
             toggleRow("Usage meter", Binding(get: { prefs.usage }, set: { settings.prefs.usage = $0 }))
+                .help("How much of the 5-hour limit is used, on the bubble and in the session list.")
             toggleRow("Approve from the bubble", Binding(get: { prefs.approvals }, set: { settings.prefs.approvals = $0 }))
+                .help("Allow or deny permission prompts, and answer Claude's questions, from the bubble.")
+            divider
+            groupTitle("Alerts")
+            toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
             toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))
             HStack(spacing: 8) {
                 Text("Finish sound").foregroundStyle(dim)
