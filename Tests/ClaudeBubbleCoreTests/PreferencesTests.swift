@@ -119,6 +119,20 @@ final class PreferencesTests: XCTestCase {
                       "settings saved before sounds existed default to on")
     }
 
+    func testSoundVolumeDefaultsFullAndClamps() throws {
+        XCTAssertEqual(BubblePreferences.defaults.soundVolume, 1)
+        var p = BubblePreferences.defaults
+        p.soundVolume = 0.4
+        p.save(to: defaults)
+        XCTAssertEqual(BubblePreferences.load(from: defaults).soundVolume, 0.4)
+        p.soundVolume = 3
+        XCTAssertEqual(p.clamped().soundVolume, 1)
+        p.soundVolume = -1
+        XCTAssertEqual(p.clamped().soundVolume, 0)
+        let old = Data(#"{"diameter": 90}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: old).soundVolume, 1, "older settings")
+    }
+
     func testUsageDefaultsOnAndSurvivesOlderSettings() throws {
         XCTAssertTrue(BubblePreferences.defaults.usage)
         let old = Data(#"{"diameter": 90, "toasts": false}"#.utf8)

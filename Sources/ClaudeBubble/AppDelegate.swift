@@ -99,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.palette = applied.palette
         animator.interaction = applied.interaction
         sounds.enabled = applied.sounds && !quiet
+        sounds.volume = Float(applied.soundVolume)
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
         animator.quietScale = Float(OrbSize.quietScale(forDiameter: applied.diameter))
         panel.alphaValue = applied.opacity
@@ -691,6 +692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if prefs.opacity != applied.opacity { panel.alphaValue = prefs.opacity }
         animator.interaction = prefs.interaction
         sounds.enabled = prefs.sounds && !quiet
+        sounds.volume = Float(prefs.soundVolume)
         if prefs.approvals != applied.approvals {
             if prefs.approvals { approvals.start() } else { approvals.stop() }
         }
