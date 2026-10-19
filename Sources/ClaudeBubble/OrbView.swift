@@ -40,6 +40,13 @@ final class OrbView: MTKView {
 
     required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    /// AppKit leaves the Metal layer's scale behind when the window moves to a display of another density; with the
+    /// centred gravity, a 1x drawable at the old 2x scale showed the orb at half size.
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if let scale = window?.backingScaleFactor, layer?.contentsScale != scale { layer?.contentsScale = scale }
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     // A press becomes a drag once it moves a few points; otherwise it's a click.
     override func mouseDown(with event: NSEvent) {
