@@ -390,10 +390,12 @@ struct LinkChips: View {
     let links: [SessionLink]
 
     var body: some View {
-        // Status words when they fit on one line; otherwise just their icons.
+        // Status words when they fit on one line; otherwise just their icons; failing that, labels cut short (left at
+        // full size, too many chips would widen the row and shove the whole session list off the island).
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 5) { ForEach(links, id: \.self) { LinkChip(link: $0, compact: false) } }
             HStack(spacing: 5) { ForEach(links, id: \.self) { LinkChip(link: $0, compact: true) } }
+            HStack(spacing: 5) { ForEach(links, id: \.self) { LinkChip(link: $0, compact: true, squeezed: true) } }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -681,6 +683,8 @@ struct ApprovalSplit: View {
 private struct LinkChip: View {
     let link: SessionLink
     let compact: Bool
+    /// The label gives up width (truncating) so the chips fit their row.
+    var squeezed = false
     @State private var hover = false
     @State private var cardTimer: Timer?
     @State private var owner = UUID()
@@ -768,8 +772,9 @@ private struct LinkChip: View {
                 Image(systemName: icon).font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
                 Text(link.label).font(.system(size: 11, weight: .medium, design: .monospaced)).lineLimit(1)
                     .foregroundStyle(Color.white.opacity(hover ? 1 : 0.85))
+                    .truncationMode(.tail)
                     .frame(maxWidth: compact ? 90 : 130, alignment: .leading)
-                    .fixedSize(horizontal: true, vertical: false)
+                    .fixedSize(horizontal: !squeezed, vertical: false)
                 if compact {
                     if let (name, color) = statusIcon {
                         Image(systemName: name).font(.system(size: 9.5, weight: .bold)).foregroundStyle(color)
@@ -787,6 +792,8 @@ private struct LinkChip: View {
             .background { if !snapshot { ScreenFrameReader(box: place) } }
         }
         .buttonStyle(.plain)
+        // Squeezed, an artifact's title gives way before issue and PR numbers do.
+        .layoutPriority(link.kind == .artifact ? 0 : 1)
         .onHover { inside in
             hover = inside
             cardTimer?.invalidate()
