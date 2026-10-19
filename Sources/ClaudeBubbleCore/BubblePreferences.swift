@@ -33,6 +33,8 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var interaction: PointerInteraction
     /// Pip sounds on or off.
     public var sounds: Bool
+    /// How loud pip sounds play (0…1).
+    public var soundVolume: Double
     /// What plays when every session finishes.
     public var completionSound: CompletionSound
     /// Toasts under the orb on or off.
@@ -73,6 +75,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         self.relativeSpot = relativeSpot
         self.interaction = interaction
         self.sounds = sounds
+        soundVolume = 1
         self.completionSound = completionSound
         self.toasts = toasts
         self.usage = usage
@@ -109,6 +112,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         relativeSpot = try c.decodeIfPresent([Double].self, forKey: .relativeSpot)
         interaction = (try? c.decodeIfPresent(PointerInteraction.self, forKey: .interaction)) ?? d.interaction
         sounds = try c.decodeIfPresent(Bool.self, forKey: .sounds) ?? d.sounds
+        soundVolume = (try? c.decodeIfPresent(Double.self, forKey: .soundVolume)) ?? d.soundVolume
         completionSound = (try? c.decodeIfPresent(CompletionSound.self, forKey: .completionSound)) ?? d.completionSound
         toasts = try c.decodeIfPresent(Bool.self, forKey: .toasts) ?? d.toasts
         usage = try c.decodeIfPresent(Bool.self, forKey: .usage) ?? d.usage
@@ -145,6 +149,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         var p = self
         p.diameter = min(max(diameter, OrbSize.minDiameter), OrbSize.maxDiameter)
         p.opacity = min(max(opacity, 0.3), 1)
+        p.soundVolume = min(max(soundVolume, 0), 1)
         p.islandAlong = min(max(islandAlong, 0), 1)
         p.islandWidth = min(max(islandWidth, Double(IslandLayout.minWidth)), Double(IslandLayout.maxWidth))
         if OrbPalette.preset(named: presetName) == nil { p.presetName = "Agents view" }

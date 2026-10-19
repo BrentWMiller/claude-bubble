@@ -9,6 +9,11 @@ final class SoundPlayer {
     private var nextVoice = 0
     private let queue = DispatchQueue(label: "claude-bubble.sounds", qos: .userInitiated)
     var enabled = true
+    /// 0…1, applied at the mixer so it also reaches sounds already ringing.
+    var volume: Float {
+        get { engine.mainMixerNode.outputVolume }
+        set { engine.mainMixerNode.outputVolume = newValue }
+    }
 
     init() {
         for _ in 0..<6 {

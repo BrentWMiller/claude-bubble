@@ -451,6 +451,18 @@ struct QuickPanelView: View {
             groupTitle("Alerts")
             toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
             toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))
+            if prefs.sounds {
+                HStack(spacing: 10) {
+                    Image(systemName: "speaker.fill").font(.system(size: 11)).foregroundStyle(dim)
+                    // Letting go plays the finish sound at the new level.
+                    Slider(value: Binding(get: { prefs.soundVolume }, set: { settings.prefs.soundVolume = $0 }), in: 0...1) { editing in
+                        if !editing { actions.previewSound(prefs.completionSound) }
+                    }
+                    .controlSize(.small).tint(.white)
+                    Image(systemName: "speaker.wave.3.fill").font(.system(size: 11)).foregroundStyle(dim)
+                }
+                .help("Sound volume")
+            }
             HStack(spacing: 8) {
                 Text("Finish sound").foregroundStyle(dim)
                 Spacer()
