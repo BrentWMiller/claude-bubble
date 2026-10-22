@@ -195,9 +195,9 @@ struct SessionRow: View {
         .onHover { inside in withAnimation(.easeOut(duration: 0.18)) { hover = inside } }
         // Design (Session Card): a faint fill on hover; while you talk to it (or drop on it), a blue wash and ring.
         .background(RoundedRectangle(cornerRadius: 12)
-            .fill(talking || dropTarget ? TalkColors.blue.opacity(0.07) : Color.white.opacity(hover ? 0.04 : 0)))
+            .fill(talking || dropTarget ? tc.accent.opacity(0.07) : Color.white.opacity(hover ? 0.04 : 0)))
         .overlay(RoundedRectangle(cornerRadius: 12)
-            .strokeBorder(TalkColors.blue.opacity(talking || dropTarget ? 0.22 : 0), lineWidth: 1))
+            .strokeBorder(tc.accent.opacity(talking || dropTarget ? 0.22 : 0), lineWidth: 1))
         .animation(.easeOut(duration: 0.25), value: talking || dropTarget)
         .overlay(alignment: .top) {
             if dividerAbove {
@@ -208,6 +208,8 @@ struct SessionRow: View {
         .opacity(entrance)
         .offset(x: (1 - entrance) * 6)
     }
+
+    private var tc: TalkColors { TalkColors(palette) }
 
     /// Listening to you for this session (the mic held, or still settling the last words).
     private var talking: Bool {
@@ -230,7 +232,7 @@ struct SessionRow: View {
         HStack(alignment: .top, spacing: 12) {
             Group {
                 // A pip, coloured like the ones under the orb; blue while you talk to it.
-                let color = talking || sent ? TalkColors.blue : session.pipColor(in: palette)
+                let color = talking || sent ? tc.accent : session.pipColor(in: palette)
                 Circle().fill(color).frame(width: 9, height: 9)
                     .shadow(color: color.opacity(session.tone == .idle && !talking && !sent ? 0 : 0.8), radius: 4)
                     .animation(.easeOut(duration: 0.25), value: talking || sent)
@@ -262,7 +264,7 @@ struct SessionRow: View {
                     }
                     Text(talkClock ?? ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(talkClock != nil ? TalkColors.blue : Color.white.opacity(0.4))
+                        .foregroundStyle(talkClock != nil ? tc.accent : Color.white.opacity(0.4))
                 }
                 .frame(height: 17)   // the title's line, so the controls don't push the row taller
                 if let approval, let onDecide, !expanded, approval.questions == nil {
@@ -287,9 +289,9 @@ struct SessionRow: View {
     @ViewBuilder private var statusLine: some View {
         if talking {
             HStack(spacing: 10) {
-                VoiceBars()
+                VoiceBars(color: tc.bars)
                 if heard.isEmpty {
-                    Text("Listening").foregroundStyle(TalkColors.text).fixedSize()
+                    Text("Listening").foregroundStyle(tc.text).fixedSize()
                     Text("Release to edit").foregroundStyle(Color.white.opacity(0.4)).lineLimit(1).truncationMode(.tail)
                 } else {
                     // What it's heard, latest words showing.
@@ -322,9 +324,9 @@ struct SessionRow: View {
                     .frame(width: 12, height: 12)
                     .foregroundStyle(talking ? Color(red: 0x06 / 255, green: 0x12 / 255, blue: 0x1f / 255) : Color.white.opacity(0.6))
                     .frame(width: 22, height: 22)
-                    .background(Circle().fill(talking ? TalkColors.blue : Color.clear))
-                    .overlay(Circle().stroke(TalkColors.blue.opacity(talking ? 0.2 : 0), lineWidth: 3).padding(-1.5))
-                    .shadow(color: TalkColors.blue.opacity(talking ? 0.55 : 0), radius: 7)
+                    .background(Circle().fill(talking ? tc.accent : Color.clear))
+                    .overlay(Circle().stroke(tc.accent.opacity(talking ? 0.2 : 0), lineWidth: 3).padding(-1.5))
+                    .shadow(color: tc.accent.opacity(talking ? 0.55 : 0), radius: 7)
                     .contentShape(Circle())
                     .gesture(DragGesture(minimumDistance: 0)
                         .onChanged { _ in
@@ -375,17 +377,27 @@ struct SessionRow: View {
 
     private func talkColor(_ talk: TalkState) -> Color {
         switch talk {
-        case .listening, .drafting, .sending, .sent: TalkColors.blue
+        case .listening, .drafting, .sending, .sent: tc.accent
         case .failed: BubbleState.error.color(in: palette)
         }
     }
 }
 
-/// The talking blue (design: Session Card, oklch(0.8 0.12 235)), its bars' and its "Listening" shades.
-enum TalkColors {
-    static let blue = Color(red: 0.41, green: 0.79, blue: 1)
-    static let bars = Color(red: 0.47, green: 0.82, blue: 1)
-    static let text = Color(red: 0.55, green: 0.84, blue: 1)
+/// The colour of talking to a session (design: Session Card's listening blue, here the theme's working colour, as
+/// the orb's voice look wears), with the lighter shades its bars and "Listening" take.
+struct TalkColors {
+    let accent, bars, text: Color
+
+    init(_ palette: OrbPalette) {
+        let c = palette[.working].swatch
+        func lighter(_ t: Float) -> Color {
+            let m = c + (SIMD3<Float>(repeating: 1) - c) * t
+            return Color(red: Double(m.x), green: Double(m.y), blue: Double(m.z))
+        }
+        accent = lighter(0)
+        bars = lighter(0.12)
+        text = lighter(0.25)
+    }
 }
 
 /// How loud you are while you talk to a session, for the row's bars (the orb has its own, eased).
@@ -402,6 +414,7 @@ final class VoiceBarsModel: ObservableObject {
 
 /// Sixteen bars, tallest in the middle, moving with your voice (design: Session Card).
 struct VoiceBars: View {
+    var color: Color
     @ObservedObject private var meter = VoiceBarsModel.shared
     static let count = 16
 
@@ -412,7 +425,7 @@ struct VoiceBars: View {
                 ForEach(0..<Self.count, id: \.self) { k in
                     let env = sin(.pi * (Double(k) + 0.5) / Double(Self.count))
                     let v = (0.12 + 0.88 * Double(meter.level)) * (0.35 + 0.65 * abs(sin(t * 7.5 + Double(k) * 0.7)))
-                    Capsule().fill(TalkColors.bars)
+                    Capsule().fill(color)
                         .opacity(0.45 + 0.55 * env)
                         .frame(width: 2, height: max(2, 2 + 14 * env * v))
                 }

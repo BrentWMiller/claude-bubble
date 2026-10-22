@@ -146,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self else { return }
             // Opens where the mic was let go, to check and edit before it goes.
             self.draftPanel.show(words, to: session.displayName, at: NSEvent.mouseLocation,
-                                 send: { [weak self] text in self?.talk.send(draft: text, to: session) },
+                                 palette: self.applied.palette, send: { [weak self] text in self?.talk.send(draft: text, to: session) },
                                  cancel: { [weak self] in self?.talk.send(draft: nil, to: session) })
         }
         talk.onSent = { [weak self] session in

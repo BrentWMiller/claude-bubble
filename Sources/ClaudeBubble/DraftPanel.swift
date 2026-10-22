@@ -33,11 +33,12 @@ final class DraftPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { model.cancel() }
 
     /// Opens with `text` to edit for `name`, its top-right under `point` (where the mic was let go), on screen.
-    func show(_ text: String, to name: String, at point: CGPoint,
+    func show(_ text: String, to name: String, at point: CGPoint, palette: OrbPalette,
               send: @escaping (String) -> Void, cancel: @escaping () -> Void) {
         model.cancel()   // one draft at a time: an open one is dropped
         model.text = text
         model.name = name
+        model.palette = palette
         model.onSend = { [weak self] text in self?.orderOut(nil); send(text) }
         model.onCancel = { [weak self] in self?.orderOut(nil); cancel() }
         host.layoutSubtreeIfNeeded()
@@ -68,6 +69,7 @@ final class DraftModel: ObservableObject {
         didSet { DispatchQueue.main.async { self.onResize?() } }   // after the field lays out its new line count
     }
     @Published var name = ""
+    @Published var palette: OrbPalette = .agentsView
     /// Bumped to put the cursor in the field.
     @Published var focus = 0
     var onSend: ((String) -> Void)?
@@ -97,11 +99,12 @@ final class DraftModel: ObservableObject {
 struct DraftView: View {
     @ObservedObject var model: DraftModel
     @FocusState private var focused: Bool
+    private var tc: TalkColors { TalkColors(model.palette) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Circle().fill(TalkColors.blue).frame(width: 8, height: 8).shadow(color: TalkColors.blue.opacity(0.8), radius: 4)
+                Circle().fill(tc.accent).frame(width: 8, height: 8).shadow(color: tc.accent.opacity(0.8), radius: 4)
                 Text("To ").foregroundStyle(Color.white.opacity(0.5))
                     + Text(model.name).foregroundStyle(Color.white).fontWeight(.semibold)
             }
@@ -117,15 +120,15 @@ struct DraftView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.05)))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(TalkColors.blue.opacity(focused ? 0.35 : 0.12), lineWidth: 1))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(tc.accent.opacity(focused ? 0.35 : 0.12), lineWidth: 1))
             HStack(spacing: 8) {
                 Text("⏎ send · ⌥⏎ new line · esc cancel")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundStyle(Color.white.opacity(0.35))
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                DraftButton(title: "Cancel", filled: false) { model.cancel() }
-                DraftButton(title: "Send", filled: true) { model.send() }
+                DraftButton(title: "Cancel", filled: false, accent: tc.accent) { model.cancel() }
+                DraftButton(title: "Send", filled: true, accent: tc.accent) { model.send() }
             }
         }
         .padding(12)
@@ -139,6 +142,7 @@ struct DraftView: View {
 private struct DraftButton: View {
     let title: String
     let filled: Bool
+    let accent: Color
     let action: () -> Void
 
     var body: some View {
@@ -148,7 +152,7 @@ private struct DraftButton: View {
                 .foregroundStyle(filled ? Color(red: 0x06 / 255, green: 0x12 / 255, blue: 0x1f / 255) : Color.white.opacity(0.85))
                 .padding(.horizontal, 12)
                 .frame(height: 26)
-                .background(RoundedRectangle(cornerRadius: 7).fill(filled ? TalkColors.blue : Color.white.opacity(0.08)))
+                .background(RoundedRectangle(cornerRadius: 7).fill(filled ? accent : Color.white.opacity(0.08)))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
