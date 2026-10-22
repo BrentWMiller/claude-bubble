@@ -164,7 +164,7 @@ struct DraftView: View {
                 // How long you talked.
                 Text(Self.clock(model.duration))
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(tc.accent)
+                    .foregroundStyle(tc.text)
             }
             TextField("Say or type a message", text: $model.text, axis: .vertical)
                 .textFieldStyle(.plain)
@@ -186,8 +186,8 @@ struct DraftView: View {
                     .lineLimit(1)
                     .layoutPriority(-1)   // the buttons keep their width; the hint gives way
                 Spacer(minLength: 4)
-                DraftButton(title: "Cancel", key: "esc", filled: false, accent: tc.accent) { model.cancel() }
-                DraftButton(title: "Send", key: "↩", filled: true, accent: tc.accent) { model.send() }
+                DraftButton(title: "Cancel", key: "esc", filled: false, colors: tc) { model.cancel() }
+                DraftButton(title: "Send", key: "↩", filled: true, colors: tc) { model.send() }
             }
         }
         .padding(12)
@@ -198,7 +198,7 @@ struct DraftView: View {
 
     /// Which session it goes to: click to send it to another (remembered for the talk shortcut).
     private var sessionPill: some View {
-        Button { model.picking.toggle() } label: {
+        Button { if model.targets.count > 1 { model.picking.toggle() } } label: {
             HStack(spacing: 7) {
                 Circle().fill(tc.accent).frame(width: 8, height: 8).shadow(color: tc.accent.opacity(0.7), radius: 3)
                 Text(model.chosen?.name ?? "")
@@ -219,8 +219,7 @@ struct DraftView: View {
         }
         .buttonStyle(.plain)
         .focusable(false)   // the message keeps the keyboard
-        .disabled(model.targets.count < 2)
-        .help("Send to another session")
+        .help(model.targets.count > 1 ? "Send to another session" : "")
     }
 
     private var sessionList: some View {
@@ -238,7 +237,7 @@ struct DraftView: View {
                             .lineLimit(1).truncationMode(.tail)
                         Spacer(minLength: 8)
                         if picked {
-                            Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(tc.accent)
+                            Image(systemName: "checkmark").font(.system(size: 11, weight: .semibold)).foregroundStyle(tc.text)
                         }
                     }
                     .padding(.horizontal, 10)
@@ -284,11 +283,12 @@ private struct DraftButton: View {
     let title: String
     let key: String
     let filled: Bool
-    let accent: Color
+    let colors: TalkColors
     let action: () -> Void
 
     var body: some View {
-        let ink = filled ? Color(red: 0x06 / 255, green: 0x12 / 255, blue: 0x1f / 255) : Color.white.opacity(0.85)
+        let ink = filled ? colors.ink : Color.white.opacity(0.85)
+        let accent = colors.accent
         Button(action: action) {
             HStack(spacing: 7) {
                 Text(title).font(.system(size: 13, weight: .semibold))

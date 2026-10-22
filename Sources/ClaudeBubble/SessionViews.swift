@@ -259,7 +259,7 @@ struct SessionRow: View {
                     }
                     Text(talkClock ?? ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(talkClock != nil ? tc.accent : Color.white.opacity(0.4))
+                        .foregroundStyle(talkClock != nil ? tc.text : Color.white.opacity(0.4))
                         .frame(minWidth: 28, alignment: .trailing)   // 0:07 and 17m take the same room
                 }
                 .frame(height: 17)   // the title's line, so the controls don't push the row taller
@@ -319,7 +319,7 @@ struct SessionRow: View {
             if let onTalk {
                 MicGlyph()
                     .frame(width: 12, height: 12)
-                    .foregroundStyle(talking ? Color(red: 0x06 / 255, green: 0x12 / 255, blue: 0x1f / 255) : Color.white.opacity(0.6))
+                    .foregroundStyle(talking ? tc.ink : Color.white.opacity(0.6))
                     .frame(width: 22, height: 22)
                     .background(Circle().fill(talking ? tc.accent : Color.clear))
                     .overlay(Circle().stroke(tc.accent.opacity(talking ? 0.2 : 0), lineWidth: 3).padding(-1.5))
@@ -374,7 +374,7 @@ struct SessionRow: View {
 
     private func talkColor(_ talk: TalkState) -> Color {
         switch talk {
-        case .listening, .drafting, .sending, .sent: tc.accent
+        case .listening, .drafting, .sending, .sent: tc.text
         case .failed: BubbleState.error.color(in: palette)
         }
     }
@@ -383,17 +383,23 @@ struct SessionRow: View {
 /// The colour of talking to a session (design: Session Card's listening blue, here the row's own colour), with the
 /// lighter shades its bars and "Listening" take.
 struct TalkColors {
-    let accent, bars, text: Color
+    /// The colour itself (fills, dots, washes); its bars' shade; `text` for words in it on the dark card (lightened
+    /// until it reads there); `ink` for words on an `accent` fill (dark on a light colour, white on a dark one).
+    let accent, bars, text, ink: Color
 
     init(_ c: SIMD3<Float>) {
-        func lighter(_ t: Float) -> Color {
-            let m = c + (SIMD3<Float>(repeating: 1) - c) * t
-            return Color(red: Double(m.x), green: Double(m.y), blue: Double(m.z))
-        }
-        accent = lighter(0)
-        bars = lighter(0.12)
-        text = lighter(0.25)
+        func mixed(_ t: Float) -> SIMD3<Float> { c + (SIMD3<Float>(repeating: 1) - c) * t }
+        func color(_ m: SIMD3<Float>) -> Color { Color(red: Double(m.x), green: Double(m.y), blue: Double(m.z)) }
+        accent = color(c)
+        bars = color(mixed(0.12))
+        var t: Float = 0.25
+        while Self.luminance(mixed(t)) < 0.45, t < 0.9 { t += 0.05 }
+        text = color(mixed(t))
+        ink = Self.luminance(c) > 0.4 ? Color(red: 0x06 / 255, green: 0x12 / 255, blue: 0x1f / 255) : Color.white
     }
+
+    /// Roughly how light a colour looks (0 black … 1 white).
+    static func luminance(_ c: SIMD3<Float>) -> Float { 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z }
 }
 
 /// How loud you are while you talk to a session, for the row's bars (the orb has its own, eased).
