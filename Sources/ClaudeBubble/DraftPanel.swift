@@ -166,7 +166,9 @@ struct DraftView: View {
                 .foregroundStyle(Color.white)
                 .lineLimit(2...10)
                 .focused($focused)
-                .onSubmit { model.send() }
+                // Return sends (Option-Return is a new line). On macOS submit also fires when the field loses focus,
+                // as a click on the session pill makes it: only a key press sends.
+                .onSubmit { if NSApp.currentEvent?.type == .keyDown { model.send() } }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
                 .background(RoundedRectangle(cornerRadius: 10).fill(Color.black.opacity(0.25)))
@@ -210,6 +212,7 @@ struct DraftView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .focusable(false)   // the message keeps the keyboard
         .disabled(model.targets.count < 2)
         .help("Send to another session")
     }
@@ -238,6 +241,7 @@ struct DraftView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(DraftListRowStyle())
+                .focusable(false)
             }
         }
         .padding(4)
