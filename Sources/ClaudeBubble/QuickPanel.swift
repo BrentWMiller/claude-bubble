@@ -470,6 +470,8 @@ struct QuickPanelView: View {
                 }
                 .font(.system(size: 13))
                 .help("Hold it anywhere to talk to the session you chose last, else the pinned or most pressing one.")
+                toggleRow("Lower other audio while talking", $dictation.lowersOtherAudio)
+                    .help("Music and videos turn down while you hold the mic, and come back when you let go.")
                 Row(title: "Vocabulary", shortcut: "\(dictation.words.count) \(dictation.words.count == 1 ? "word" : "words")",
                     chevron: true) { state.go(.dictation) }
                     .help("Words and names dictation should listen for")

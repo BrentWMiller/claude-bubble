@@ -100,16 +100,22 @@ final class Dictation {
         }
     }
 
-    private func listen(with recognizer: SpeechRecognizing) {
+    private func listen(with recognizer: SpeechRecognizing, ducking: Bool = DictationVocabularyModel.shared.lowersOtherAudio) {
         let input = engine.inputNode
+        // Lower other apps' audio while you talk (and clean up echo and noise): the system's voice processing.
+        if ducking { duck(true) }
         let format = input.outputFormat(forBus: 0)
+        NSLog("ClaudeBubble: mic %@, lowering other audio %d", format.description, processing ? 1 : 0)
         guard format.channelCount > 0 else {
             recognizer.cancel()
             return end("No microphone")
         }
         self.recognizer = recognizer
         let meter = meter, rate = Float(format.sampleRate)
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        // Voice processing hands over several channels (5 on a MacBook), the cleaned-up voice in the first: listen to it.
+        let mono = format.channelCount > 1 ? AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1) : nil
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] tapped, _ in
+            guard let buffer = mono.flatMap({ Self.firstChannel(of: tapped, as: $0) }) ?? (mono == nil ? tapped : nil) else { return }
             recognizer.append(buffer)
             guard let samples = buffer.floatChannelData?[0] else { return }
             let levels = meter.measure(samples, count: Int(buffer.frameLength), sampleRate: rate)
@@ -117,12 +123,44 @@ final class Dictation {
         }
         tapped = true
         engine.prepare()
-        do { try engine.start() } catch { return end("Couldn't start the microphone") }
+        do {
+            try engine.start()
+        } catch {
+            guard processing else { return end("Couldn't start the microphone") }
+            // It wouldn't start with voice processing: try once without (no lowering this time).
+            stopMic()
+            return listen(with: recognizer, ducking: false)
+        }
+    }
+
+    /// Channel 0 of `buffer` on its own.
+    private static func firstChannel(of buffer: AVAudioPCMBuffer, as format: AVAudioFormat) -> AVAudioPCMBuffer? {
+        guard let source = buffer.floatChannelData?[0],
+              let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: buffer.frameLength),
+              let target = out.floatChannelData?[0] else { return nil }
+        out.frameLength = buffer.frameLength
+        target.update(from: source, count: Int(buffer.frameLength))
+        return out
+    }
+
+    /// Voice processing is on (other audio is lowered while the mic runs).
+    private var processing = false
+
+    private func duck(_ on: Bool) {
+        let input = engine.inputNode
+        do {
+            try input.setVoiceProcessingEnabled(on)
+            processing = on
+            if on { input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: true, duckingLevel: .max) }
+        } catch {
+            processing = false
+        }
     }
 
     private func stopMic() {
         if engine.isRunning { engine.stop() }
         if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }   // even if the engine never started
+        if processing { duck(false) }   // other audio comes back as soon as you let go
     }
 
     private func end(_ error: String?) {
@@ -330,11 +368,16 @@ final class DictationVocabularyModel: ObservableObject {
     @Published var listensForSessions: Bool {
         didSet { UserDefaults.standard.set(listensForSessions, forKey: "dictationSessions") }
     }
+    /// Other apps' audio is turned down while you talk.
+    @Published var lowersOtherAudio: Bool {
+        didSet { UserDefaults.standard.set(lowersOtherAudio, forKey: "dictationDucks") }
+    }
 
     private init() {
         words = UserDefaults.standard.stringArray(forKey: Self.key) ?? DictationVocabulary.defaults
         enabled = UserDefaults.standard.object(forKey: "dictationEnabled") as? Bool ?? true
         listensForSessions = UserDefaults.standard.object(forKey: "dictationSessions") as? Bool ?? true
+        lowersOtherAudio = UserDefaults.standard.object(forKey: "dictationDucks") as? Bool ?? true
         UserDefaults.standard.removeObject(forKey: "dictationFixes")   // the corrections list, now gone
     }
 }
