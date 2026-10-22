@@ -10,6 +10,8 @@ public enum ToastKind: String, CaseIterable, Sendable {
     case catchUp
     /// A new version of the app is out; its text comes with the toast.
     case update
+    /// Something said or dropped on a session reached it.
+    case sent
 
     public var text: String {
         switch self {
@@ -23,6 +25,7 @@ public enum ToastKind: String, CaseIterable, Sendable {
         case .usageLow, .usageCritical, .usageRefreshed: "usage"
         case .catchUp: "updates"
         case .update: "is available"
+        case .sent: "got your message"
         }
     }
 
@@ -32,7 +35,7 @@ public enum ToastKind: String, CaseIterable, Sendable {
         case .started: 4
         case .needs, .error, .review, .usageCritical, .catchUp, .update: 8
         case .finished, .allDone, .usageLow, .usageRefreshed: 6
-        case .resumed: 3.5
+        case .resumed, .sent: 3.5
         }
     }
 }

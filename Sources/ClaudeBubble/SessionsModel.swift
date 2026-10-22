@@ -58,6 +58,12 @@ final class SessionsModel: ObservableObject {
     var decide: ((ApprovalRequest, ApprovalBehavior) -> Void)?
     /// Sends a question's answers (question text → the label picked) to the hook that asked.
     var answer: ((ApprovalRequest, [String: String]) -> Void)?
+    /// Per session, what talking to it is up to (listening, sending, sent): its row shows it.
+    @Published var talk: [String: TalkState] = [:]
+    /// The mic on a session's row: start listening, or stop and send.
+    var toggleTalk: ((Session) -> Void)?
+    /// Files, images or text dropped on a session's row; false when there's nothing it can take.
+    var dropOn: ((Session, [NSItemProvider]) -> Bool)?
 
     /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).
     func approval(for session: Session) -> ApprovalRequest? {

@@ -16,7 +16,7 @@ final class ToastModel: ObservableObject {
 extension ToastKind {
     func color(in palette: OrbPalette) -> Color {
         let c: SIMD3<Float> = switch self {
-        case .started, .resumed: palette[.working].swatch
+        case .started, .resumed, .sent: palette[.working].swatch
         case .needs, .review, .usageLow: palette[.needs].swatch
         case .error, .usageCritical: palette[.error].swatch
         case .finished, .usageRefreshed, .catchUp, .update: palette[.idle].swatch

@@ -464,7 +464,9 @@ struct IslandView: View {
                                    approval: asking, expanded: asking != nil && asking?.id == sessions.expandedApproval?.id,
                                    width: sessions.islandRowWidth,
                                    onDecide: asking.map { request in { sessions.decide?(request, $0) } },
-                                   onAnswer: asking.map { request in { sessions.answer?(request, $0) } })
+                                   onAnswer: asking.map { request in { sessions.answer?(request, $0) } },
+                                   talk: sessions.talk[s.id], onTalk: { sessions.toggleTalk?(s) },
+                                   onDrop: { sessions.dropOn?(s, $0) ?? false })
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

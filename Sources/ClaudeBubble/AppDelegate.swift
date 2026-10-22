@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let linkScanner = LinkScanner()
     private let prStatus = PRStatusFetcher()
     /// Permission prompts approved or denied from the bubble.
+    private let talk = SessionTalk()
     private let approvals = ApprovalServer(directory: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude-bubble"))
     private var island: IslandPanel!
@@ -138,6 +139,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         model.decide = { [weak self] request, behavior in self?.approvals.reply(request.id, behavior) }
         model.answer = { [weak self] request, answers in self?.approvals.reply(request.id, .allow, answers: answers) }
+        talk.onChange = { [weak self] states in self?.model.talk = states }
+        talk.onSent = { [weak self] session in
+            // The row says so while the list is open; otherwise a toast does.
+            guard let self, !self.listPanel.isShown, !(self.island.isVisible && self.island.model.mode == .hover) else { return }
+            self.pushToast(.sent, name: session.displayName)
+        }
+        model.toggleTalk = { [weak self] session in self?.talk.toggle(session) }
+        model.dropOn = { [weak self] session, providers in self?.talk.drop(providers, on: session) ?? false }
         if applied.approvals { approvals.start() }
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,

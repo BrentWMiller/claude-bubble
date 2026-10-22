@@ -165,7 +165,12 @@ struct SessionRow: View {
     var width: CGFloat = 0
     var onDecide: ((ApprovalBehavior) -> Void)?
     var onAnswer: (([String: String]) -> Void)?
+    /// Talking to the session: what it's up to, the mic (no mic without it), and dropping things on the row.
+    var talk: TalkState?
+    var onTalk: (() -> Void)?
+    var onDrop: (([NSItemProvider]) -> Bool)?
     @State private var hover = false
+    @State private var dropTarget = false
 
     /// The card's width under a row: the row less its padding and the pip's column.
     static func cardWidth(row: CGFloat) -> CGFloat { row - 20 - 38 }
@@ -183,6 +188,10 @@ struct SessionRow: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(dropTarget ? 0.08 : 0)))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(BubbleState.working.color(in: palette).opacity(dropTarget ? 0.7 : 0), lineWidth: 1))
+        .onDrop(of: DropReader.types, isTargeted: $dropTarget) { onDrop?($0) ?? false }
         .opacity(entrance)
         .offset(x: (1 - entrance) * 6)
     }
@@ -204,12 +213,20 @@ struct SessionRow: View {
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                Text(expanded && approval != nil ? approval!.headline
-                     : session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(session.tone.color(in: palette))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                if let talk {
+                    Text(talkLine(talk))
+                        .font(.system(size: 12))
+                        .foregroundStyle(talkColor(talk))
+                        .lineLimit(1)
+                        .truncationMode(.head)   // the latest words
+                } else {
+                    Text(expanded && approval != nil ? approval!.headline
+                         : session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(session.tone.color(in: palette))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 if !session.links.isEmpty {
                     LinkChips(links: session.links).padding(.top, 6)
                 }
@@ -217,6 +234,21 @@ struct SessionRow: View {
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 HStack(spacing: 6) {
+                    // Shown on hover, and always while listening.
+                    if let onTalk, hover || listening {
+                        Button {
+                            ChipClick.handled = true   // the island's click goes to the mic, not the terminal
+                            onTalk()
+                        } label: {
+                            Image(systemName: listening ? "mic.fill" : "mic")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(listening ? BubbleState.working.color(in: palette) : Color.white.opacity(0.4))
+                                .frame(width: 14, height: 14)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(listening ? "Send" : "Talk to this session")
+                    }
                     // Shown on hover, and always once pinned.
                     if let onPin, pinned || hover {
                         Button {
@@ -246,6 +278,27 @@ struct SessionRow: View {
                         .help("Context size")
                 }
             }
+        }
+    }
+
+    private var listening: Bool {
+        if case .listening = talk { true } else { false }
+    }
+
+    private func talkLine(_ talk: TalkState) -> String {
+        switch talk {
+        case let .listening(words): words.isEmpty ? "Listening…" : words
+        case .sending: "Sending…"
+        case .sent: "Sent"
+        case let .failed(why): why
+        }
+    }
+
+    private func talkColor(_ talk: TalkState) -> Color {
+        switch talk {
+        case .listening: Color.white.opacity(0.85)
+        case .sending, .sent: BubbleState.working.color(in: palette)
+        case .failed: BubbleState.error.color(in: palette)
         }
     }
 }
@@ -303,7 +356,9 @@ struct SessionListView: View {
                            approval: model.approval(for: session),
                            expanded: model.approval(for: session)?.id == model.expandedApproval?.id,
                            width: SessionListView.width - 16, onDecide: decide(session),
-                           onAnswer: model.approval(for: session).map { request in { model.answer?(request, $0) } })
+                           onAnswer: model.approval(for: session).map { request in { model.answer?(request, $0) } },
+                           talk: model.talk[session.id], onTalk: { model.toggleTalk?(session) },
+                           onDrop: { model.dropOn?(session, $0) ?? false })
                     .onTapGesture { onSelect(session) }
             }
             if model.today != nil || model.usage != nil {
