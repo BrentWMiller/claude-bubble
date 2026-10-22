@@ -25,17 +25,12 @@ extension StatusTone {
     /// Status colours follow the orb's palette: needs/review, error, working, and finished take its swatches;
     /// sessions that went quiet without finishing take the palette's Idle colour.
     func color(in palette: OrbPalette) -> Color {
-        let state: BubbleState
-        switch self {
-        case .attention: state = .needs
-        case .error: state = .error
-        case .working: state = .working
-        case .completed: state = .idle
-        case .idle:
-            let c = palette.quiet
-            return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
-        }
-        return state.color(in: palette)
+        let c = swatch(in: palette)
+        return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
+    }
+
+    func swatch(in palette: OrbPalette) -> SIMD3<Float> {
+        self == .idle ? palette.quiet : palette[orbState].swatch
     }
 }
 
@@ -209,7 +204,7 @@ struct SessionRow: View {
         .offset(x: (1 - entrance) * 6)
     }
 
-    private var tc: TalkColors { TalkColors(palette) }
+    private var tc: TalkColors { TalkColors(session.tone.swatch(in: palette)) }
 
     /// Listening to you for this session (the mic held, or still settling the last words).
     private var talking: Bool {
@@ -383,13 +378,12 @@ struct SessionRow: View {
     }
 }
 
-/// The colour of talking to a session (design: Session Card's listening blue, here the theme's working colour, as
-/// the orb's voice look wears), with the lighter shades its bars and "Listening" take.
+/// The colour of talking to a session (design: Session Card's listening blue, here the row's own colour), with the
+/// lighter shades its bars and "Listening" take.
 struct TalkColors {
     let accent, bars, text: Color
 
-    init(_ palette: OrbPalette) {
-        let c = palette[.working].swatch
+    init(_ c: SIMD3<Float>) {
         func lighter(_ t: Float) -> Color {
             let m = c + (SIMD3<Float>(repeating: 1) - c) * t
             return Color(red: Double(m.x), green: Double(m.y), blue: Double(m.z))

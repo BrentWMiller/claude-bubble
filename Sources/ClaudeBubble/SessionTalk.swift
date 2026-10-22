@@ -43,7 +43,9 @@ final class SessionTalk {
             self.states[s.id] = .listening(since: self.listeningSince, words: words)
         }
         dictation.onLevels = { [weak self] levels in
-            guard self?.listening != nil else { return }
+            guard let s = self?.listening else { return }
+            var levels = levels
+            levels.look = s.tone.orbState   // the orb wears the session's colours, as its row does
             self?.onVoice?(levels)
             VoiceBarsModel.shared.hear(levels.level)
         }
@@ -88,7 +90,7 @@ final class SessionTalk {
         listening = session
         listeningSince = Date()
         states[session.id] = .listening(since: listeningSince, words: "")
-        onVoice?(VoiceLevels(listening: true))
+        onVoice?(VoiceLevels(listening: true, look: session.tone.orbState))
         dictation.start()
     }
 

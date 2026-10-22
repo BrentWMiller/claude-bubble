@@ -25,10 +25,10 @@ public struct OrbParams: Equatable, Sendable {
         }
     }
 
-    /// Talking with a session (design: Talking Orb's `voice` state): working's colours, a calmer motion, so the
-    /// voice ripples carry it.
-    public static func voice(palette: OrbPalette = .agentsView) -> OrbParams {
-        var p = target(for: .working, palette: palette)
+    /// Talking with a session (design: Talking Orb's `voice` state): the session's colours (`look`, as its row
+    /// shows them), a calmer motion, so the voice ripples carry it.
+    public static func voice(palette: OrbPalette = .agentsView, look: BubbleState = .working) -> OrbParams {
+        var p = target(for: look, palette: palette)
         p.energy = 0.3; p.wave = 0.12; p.glow = 0.8; p.bright = 0.9; p.ring = 0.9; p.scale = 0.96; p.glitch = 0
         return p
     }

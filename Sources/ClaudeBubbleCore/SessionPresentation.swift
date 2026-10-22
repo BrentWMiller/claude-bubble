@@ -13,6 +13,18 @@ public enum StatusTone: Equatable, Sendable {
     case idle
 }
 
+extension StatusTone {
+    /// The orb state whose colours this tone wears (a quiet session rests in idle's).
+    public var orbState: BubbleState {
+        switch self {
+        case .attention: .needs
+        case .error: .error
+        case .working: .working
+        case .completed, .idle: .idle
+        }
+    }
+}
+
 extension Session {
     public var tone: StatusTone {
         if reviewReady { return .attention }

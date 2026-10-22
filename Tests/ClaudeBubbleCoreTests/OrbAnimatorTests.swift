@@ -107,6 +107,17 @@ final class OrbAnimatorTests: XCTestCase {
         XCTAssertEqual(a.current.scale, OrbParams.target(for: .idle).scale, accuracy: 0.01)
     }
 
+    // Talking to a session wears its colours, as its row shows them (a Ready for review session: needs' amber).
+    func testVoiceWearsTheSessionsColours() {
+        let a = OrbAnimator(state: .working)
+        a.voice = VoiceLevels(listening: true, look: .needs)
+        run(a, seconds: 3)
+        XCTAssertEqual(a.current.halo, OrbParams.target(for: .needs).halo)
+        XCTAssertEqual(a.current.energy, OrbParams.voice().energy, accuracy: 0.01)
+        XCTAssertEqual(StatusTone.attention.orbState, .needs)
+        XCTAssertEqual(StatusTone.completed.orbState, .idle)
+    }
+
     func testListeningRunsTheRipplesInwardAndSpeakingOutward() {
         let a = OrbAnimator(state: .idle)
         a.voice = VoiceLevels(level: 0.8, low: 0.5, mid: 0.5, high: 0.5, listening: true)

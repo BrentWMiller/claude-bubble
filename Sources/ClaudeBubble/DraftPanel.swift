@@ -33,12 +33,12 @@ final class DraftPanel: NSPanel {
     override func cancelOperation(_ sender: Any?) { model.cancel() }
 
     /// Opens with `text` to edit for `name`, its top-right under `point` (where the mic was let go), on screen.
-    func show(_ text: String, to name: String, at point: CGPoint, palette: OrbPalette,
+    func show(_ text: String, to name: String, at point: CGPoint, color: SIMD3<Float>,
               send: @escaping (String) -> Void, cancel: @escaping () -> Void) {
         model.cancel()   // one draft at a time: an open one is dropped
         model.text = text
         model.name = name
-        model.palette = palette
+        model.color = color
         model.onSend = { [weak self] text in self?.orderOut(nil); send(text) }
         model.onCancel = { [weak self] in self?.orderOut(nil); cancel() }
         host.layoutSubtreeIfNeeded()
@@ -69,7 +69,8 @@ final class DraftModel: ObservableObject {
         didSet { DispatchQueue.main.async { self.onResize?() } }   // after the field lays out its new line count
     }
     @Published var name = ""
-    @Published var palette: OrbPalette = .agentsView
+    /// The session's colour, as its row shows it.
+    @Published var color = SIMD3<Float>(1, 1, 1)
     /// Bumped to put the cursor in the field.
     @Published var focus = 0
     var onSend: ((String) -> Void)?
@@ -99,7 +100,7 @@ final class DraftModel: ObservableObject {
 struct DraftView: View {
     @ObservedObject var model: DraftModel
     @FocusState private var focused: Bool
-    private var tc: TalkColors { TalkColors(model.palette) }
+    private var tc: TalkColors { TalkColors(model.color) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

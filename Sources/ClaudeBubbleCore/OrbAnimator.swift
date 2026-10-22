@@ -47,14 +47,16 @@ public struct OrbFrame: Sendable {
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
-/// What the orb hears while you talk with a session: loudness and three bands, each about 0…1, and whether it's you
-/// (listening) or Claude (speaking).
+/// What the orb hears while you talk with a session: loudness and three bands, each about 0…1, whether it's you
+/// (listening) or Claude (speaking), and whose colours to wear (the session's, as its row shows them).
 public struct VoiceLevels: Equatable, Sendable {
     public var level, low, mid, high: Float
     public var listening: Bool
+    public var look: BubbleState
 
-    public init(level: Float = 0, low: Float = 0, mid: Float = 0, high: Float = 0, listening: Bool) {
-        self.level = level; self.low = low; self.mid = mid; self.high = high; self.listening = listening
+    public init(level: Float = 0, low: Float = 0, mid: Float = 0, high: Float = 0, listening: Bool,
+                look: BubbleState = .working) {
+        self.level = level; self.low = low; self.mid = mid; self.high = high; self.listening = listening; self.look = look
     }
 }
 
@@ -233,8 +235,8 @@ public final class OrbAnimator {
         if let t = completionTime { completionTime = t + dt * Self.completionSpeed }
         // The orb keeps the look it celebrates from through the gather, and turns to rest on the release (0.42s).
         let talking = voice != nil
-        let shown: BubbleState = talking ? .working : (completionTime.map { $0 < 0.42 } ?? false) ? heldState : state
-        let target = talking ? OrbParams.voice(palette: palette) : OrbParams.target(for: shown, palette: palette)
+        let shown: BubbleState = voice?.look ?? ((completionTime.map { $0 < 0.42 } ?? false) ? heldState : state)
+        let target = voice.map { OrbParams.voice(palette: palette, look: $0.look) } ?? OrbParams.target(for: shown, palette: palette)
         if shown != colorKey.state || palette != colorKey.palette {
             // New colours: fan them out from what's showing, rather than crossfading the whole orb.
             colorKey = (shown, palette)
