@@ -25,17 +25,12 @@ extension StatusTone {
     /// Status colours follow the orb's palette: needs/review, error, working, and finished take its swatches;
     /// sessions that went quiet without finishing take the palette's Idle colour.
     func color(in palette: OrbPalette) -> Color {
-        let state: BubbleState
-        switch self {
-        case .attention: state = .needs
-        case .error: state = .error
-        case .working: state = .working
-        case .completed: state = .idle
-        case .idle:
-            let c = palette.quiet
-            return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
-        }
-        return state.color(in: palette)
+        let c = swatch(in: palette)
+        return Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z))
+    }
+
+    func swatch(in palette: OrbPalette) -> SIMD3<Float> {
+        self == .idle ? palette.quiet : palette[orbState].swatch
     }
 }
 
@@ -165,7 +160,17 @@ struct SessionRow: View {
     var width: CGFloat = 0
     var onDecide: ((ApprovalBehavior) -> Void)?
     var onAnswer: (([String: String]) -> Void)?
+    /// Talking to the session: what it's up to, the mic held down (true) or let go (no mic without it), and
+    /// dropping things on the row.
+    var talk: TalkState?
+    var onTalk: ((Bool) -> Void)?
+    var onDrop: (([NSItemProvider]) -> Bool)?
+    /// The first session after the pinned ones: a hairline above it (drawn in the gap between rows, so the row's
+    /// height doesn't change).
+    var dividerAbove = false
     @State private var hover = false
+    @State private var dropTarget = false
+    @State private var holding = false
 
     /// The card's width under a row: the row less its padding and the pip's column.
     static func cardWidth(row: CGFloat) -> CGFloat { row - 20 - 38 }
@@ -182,34 +187,66 @@ struct SessionRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .contentShape(Rectangle())
-        .onHover { hover = $0 }
+        .onHover { inside in withAnimation(.easeOut(duration: 0.18)) { hover = inside } }
+        // Design (Session Card): a faint fill on hover; while you talk to it (or drop on it), a blue wash and ring.
+        .background(RoundedRectangle(cornerRadius: 12)
+            .fill(talking || dropTarget ? tc.accent.opacity(0.07) : Color.white.opacity(hover ? 0.04 : 0)))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(tc.accent.opacity(talking || dropTarget ? 0.22 : 0), lineWidth: 1))
+        .animation(.easeOut(duration: 0.25), value: talking || dropTarget)
+        .overlay(alignment: .top) {
+            if dividerAbove {
+                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1).padding(.horizontal, 12).offset(y: -1.5)
+            }
+        }
+        .onDrop(of: DropReader.types, isTargeted: $dropTarget) { onDrop?($0) ?? false }
         .opacity(entrance)
         .offset(x: (1 - entrance) * 6)
     }
+
+    private var tc: TalkColors { TalkColors(session.tone.swatch(in: palette)) }
+
+    /// Listening to you for this session (the mic held, or still settling the last words).
+    private var talking: Bool {
+        if holding { return true }
+        if case .listening = talk { return true }
+        return false
+    }
+
+    private var sent: Bool { talk == .sent }
+
+    private var heard: String {
+        if case let .listening(_, words) = talk { words } else { "" }
+    }
+
+    /// The mic and pin show on hover, and stay while you talk.
+    private var showControls: Bool { hover || talking }
 
     private var header: some View {
         // Top-aligned so the pip and the times sit on the title's line, however tall the row grows (chips).
         HStack(alignment: .top, spacing: 12) {
             Group {
-                // A pip, coloured like the ones under the orb.
-                let color = session.pipColor(in: palette)
+                // A pip, coloured like the ones under the orb; blue while you talk to it.
+                let color = talking || sent ? tc.accent : session.pipColor(in: palette)
                 Circle().fill(color).frame(width: 9, height: 9)
-                    .shadow(color: color.opacity(session.tone == .idle ? 0 : 0.8), radius: 4)
+                    .shadow(color: color.opacity(session.tone == .idle && !talking && !sent ? 0 : 0.8), radius: 4)
+                    .animation(.easeOut(duration: 0.25), value: talking || sent)
             }
             .frame(width: 26, height: 17)   // the title's line height
             VStack(alignment: .leading, spacing: 2) {
-                Text(entrance < 1 ? ToastDecode.text(session.displayName, progress: entrance, seed: session.id.hashValue & 0xffff,
-                                                     tick: Int(CACurrentMediaTime() / 0.045)) : session.displayName)
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(expanded && approval != nil ? approval!.headline
-                     : session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
-                    .font(.system(size: 12))
-                    .foregroundStyle(session.tone.color(in: palette))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                HStack(spacing: 6) {
+                    Text(entrance < 1 ? ToastDecode.text(session.displayName, progress: entrance, seed: session.id.hashValue & 0xffff,
+                                                         tick: Int(CACurrentMediaTime() / 0.045)) : session.displayName)
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(Color.white)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    // Pinned: a small mark by the title, in place of the controls while they're hidden.
+                    if pinned && !showControls {
+                        PinGlyph(filled: true).frame(width: 10, height: 10).foregroundStyle(Color.white.opacity(0.38))
+                    }
+                }
+                statusLine
                 if !session.links.isEmpty {
                     LinkChips(links: session.links).padding(.top, 6)
                 }
@@ -217,26 +254,15 @@ struct SessionRow: View {
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 HStack(spacing: 6) {
-                    // Shown on hover, and always once pinned.
-                    if let onPin, pinned || hover {
-                        Button {
-                            ChipClick.handled = true   // the island's click goes to the pin, not the terminal
-                            onPin()
-                        } label: {
-                            Image(systemName: pinned ? "pin.fill" : "pin")
-                                .font(.system(size: 10, weight: .semibold))
-                                .rotationEffect(.degrees(45))
-                                .foregroundStyle(Color.white.opacity(pinned ? 0.75 : 0.4))
-                                .frame(width: 14, height: 14)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(pinned ? "Unpin" : "Pin to the top")
+                    if showControls, onTalk != nil || onPin != nil {
+                        controls.transition(.opacity.combined(with: .offset(x: 4)))
                     }
-                    Text(ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
+                    Text(talkClock ?? ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
                         .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(Color.white.opacity(0.4))
+                        .foregroundStyle(talkClock != nil ? tc.accent : Color.white.opacity(0.4))
+                        .frame(minWidth: 28, alignment: .trailing)   // 0:07 and 17m take the same room
                 }
+                .frame(height: 17)   // the title's line, so the controls don't push the row taller
                 if let approval, let onDecide, !expanded, approval.questions == nil {
                     ApprovalSplit(request: approval, accent: BubbleState.needs.color(in: palette), onDecide: onDecide)
                 } else if let tokens = session.tokens {
@@ -246,6 +272,199 @@ struct SessionRow: View {
                         .help("Context size")
                 }
             }
+        }
+    }
+
+    /// How long you've been talking (0:07), while you are.
+    private var talkClock: String? {
+        guard case let .listening(since, _) = talk else { return nil }
+        let secs = max(0, Int(now.timeIntervalSince(since)))
+        return "\(secs / 60):" + String(format: "%02d", secs % 60)
+    }
+
+    @ViewBuilder private var statusLine: some View {
+        if talking {
+            HStack(spacing: 10) {
+                VoiceBars(color: tc.bars)
+                if heard.isEmpty {
+                    Text("Listening").foregroundStyle(tc.text).fixedSize()
+                    Text("Release to edit").foregroundStyle(Color.white.opacity(0.4)).lineLimit(1).truncationMode(.tail)
+                } else {
+                    // What it's heard, latest words showing.
+                    Text(heard).foregroundStyle(Color.white.opacity(0.85)).lineLimit(1).truncationMode(.head)
+                }
+            }
+            .font(.system(size: 12))
+            // No ideal width of its own: the words fill the row as it is and cut off, never widening it (or the island).
+            .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, minHeight: 15, maxHeight: 15, alignment: .leading)
+        } else if let talk {
+            Text(talkLine(talk))
+                .font(.system(size: 12))
+                .foregroundStyle(talkColor(talk))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        } else {
+            Text(expanded && approval != nil ? approval!.headline
+                 : session.reviewReady ? "Ready for review" : session.detail.isEmpty ? "Idle" : session.detail)
+                .font(.system(size: 12))
+                .foregroundStyle(session.tone.color(in: palette))
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+    }
+
+    /// Hold to talk, and pin (design: Session Card): two round buttons on a faint pill.
+    private var controls: some View {
+        HStack(spacing: 1) {
+            if let onTalk {
+                MicGlyph()
+                    .frame(width: 12, height: 12)
+                    .foregroundStyle(talking ? Color(red: 0x06 / 255, green: 0x12 / 255, blue: 0x1f / 255) : Color.white.opacity(0.6))
+                    .frame(width: 22, height: 22)
+                    .background(Circle().fill(talking ? tc.accent : Color.clear))
+                    .overlay(Circle().stroke(tc.accent.opacity(talking ? 0.2 : 0), lineWidth: 3).padding(-1.5))
+                    .shadow(color: tc.accent.opacity(talking ? 0.55 : 0), radius: 7)
+                    .contentShape(Circle())
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            ChipClick.handled = true   // the island's click goes to the mic, not the terminal
+                            if !holding { holding = true; onTalk(true) }
+                        }
+                        .onEnded { _ in
+                            ChipClick.handled = true
+                            holding = false
+                            onTalk(false)
+                        })
+                    .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { MicTargets.frames[session.id] = $0 }
+                    .onDisappear {
+                        MicTargets.frames[session.id] = nil
+                        if holding { holding = false; onTalk(false) }   // the list closed mid-hold: send
+                    }
+                    .help("Hold to talk")
+                    .animation(.easeOut(duration: 0.15), value: talking)
+            }
+            if let onPin {
+                Button {
+                    ChipClick.handled = true   // the island's click goes to the pin, not the terminal
+                    onPin()
+                } label: {
+                    PinGlyph(filled: pinned)
+                        .frame(width: 12, height: 12)
+                        .foregroundStyle(Color.white.opacity(pinned ? 0.85 : 0.6))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help(pinned ? "Unpin" : "Pin to top")
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.white.opacity(0.05)))
+    }
+
+    private func talkLine(_ talk: TalkState) -> String {
+        switch talk {
+        case .listening: "Listening"
+        case .drafting: "Editing message…"
+        case .sending: "Sending…"
+        case .sent: "Sent to Claude"
+        case let .failed(why): why
+        }
+    }
+
+    private func talkColor(_ talk: TalkState) -> Color {
+        switch talk {
+        case .listening, .drafting, .sending, .sent: tc.accent
+        case .failed: BubbleState.error.color(in: palette)
+        }
+    }
+}
+
+/// The colour of talking to a session (design: Session Card's listening blue, here the row's own colour), with the
+/// lighter shades its bars and "Listening" take.
+struct TalkColors {
+    let accent, bars, text: Color
+
+    init(_ c: SIMD3<Float>) {
+        func lighter(_ t: Float) -> Color {
+            let m = c + (SIMD3<Float>(repeating: 1) - c) * t
+            return Color(red: Double(m.x), green: Double(m.y), blue: Double(m.z))
+        }
+        accent = lighter(0)
+        bars = lighter(0.12)
+        text = lighter(0.25)
+    }
+}
+
+/// How loud you are while you talk to a session, for the row's bars (the orb has its own, eased).
+final class VoiceBarsModel: ObservableObject {
+    static let shared = VoiceBarsModel()
+    @Published var level: Float = 0
+
+    /// Rises with each loud moment, falls off gently.
+    func hear(_ level: Float?) {
+        guard let level else { self.level = 0; return }
+        self.level = max(min(level, 1), self.level * 0.85)
+    }
+}
+
+/// Sixteen bars, tallest in the middle, moving with your voice (design: Session Card).
+struct VoiceBars: View {
+    var color: Color
+    @ObservedObject private var meter = VoiceBarsModel.shared
+    static let count = 16
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 2) {
+                ForEach(0..<Self.count, id: \.self) { k in
+                    let env = sin(.pi * (Double(k) + 0.5) / Double(Self.count))
+                    let v = (0.12 + 0.88 * Double(meter.level)) * (0.35 + 0.65 * abs(sin(t * 7.5 + Double(k) * 0.7)))
+                    Capsule().fill(color)
+                        .opacity(0.45 + 0.55 * env)
+                        .frame(width: 2, height: max(2, 2 + 14 * env * v))
+                }
+            }
+            .frame(height: 16)
+        }
+    }
+}
+
+/// The design's mic: a capsule on a stand.
+struct MicGlyph: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let s = size.width / 12
+            var p = Path(roundedRect: CGRect(x: 4.3 * s, y: 1.3 * s, width: 3.4 * s, height: 5.6 * s), cornerRadius: 1.7 * s)
+            p.move(to: CGPoint(x: 2.6 * s, y: 5.8 * s))
+            p.addArc(center: CGPoint(x: 6 * s, y: 5.8 * s), radius: 3.4 * s, startAngle: .degrees(180), endAngle: .degrees(0),
+                     clockwise: true)
+            p.move(to: CGPoint(x: 6 * s, y: 9.2 * s))
+            p.addLine(to: CGPoint(x: 6 * s, y: 10.7 * s))
+            ctx.stroke(p, with: .foreground, style: StrokeStyle(lineWidth: 1.25 * s, lineCap: .round, lineJoin: .round))
+        }
+    }
+}
+
+/// The design's pin, drawn at a slant; filled when pinned.
+struct PinGlyph: View {
+    var filled: Bool
+
+    var body: some View {
+        Canvas { ctx, size in
+            let s = size.width / 12
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+            var head = Path()
+            head.move(to: pt(7.4, 1.4)); head.addLine(to: pt(10.6, 4.6)); head.addLine(to: pt(9.3, 5))
+            head.addLine(to: pt(7.4, 6.9)); head.addLine(to: pt(7.6, 8.9)); head.addLine(to: pt(6.7, 9.8))
+            head.addLine(to: pt(3.2, 6.3)); head.addLine(to: pt(4.1, 5.4)); head.addLine(to: pt(6.1, 5.6))
+            head.addLine(to: pt(8, 3.7)); head.closeSubpath()
+            if filled { ctx.fill(head, with: .foreground) }
+            ctx.stroke(head, with: .foreground, style: StrokeStyle(lineWidth: 1.2 * s, lineCap: .round, lineJoin: .round))
+            var needle = Path()
+            needle.move(to: pt(4.9, 7.1)); needle.addLine(to: pt(1.6, 10.4))
+            ctx.stroke(needle, with: .foreground, style: StrokeStyle(lineWidth: 1.2 * s, lineCap: .round))
         }
     }
 }
@@ -303,7 +522,10 @@ struct SessionListView: View {
                            approval: model.approval(for: session),
                            expanded: model.approval(for: session)?.id == model.expandedApproval?.id,
                            width: SessionListView.width - 16, onDecide: decide(session),
-                           onAnswer: model.approval(for: session).map { request in { model.answer?(request, $0) } })
+                           onAnswer: model.approval(for: session).map { request in { model.answer?(request, $0) } },
+                           talk: model.talk[session.id], onTalk: { model.holdTalk?(session, $0) },
+                           onDrop: { model.dropOn?(session, $0) ?? false },
+                           dividerAbove: model.dividerAbove(index))
                     .onTapGesture { onSelect(session) }
             }
             if model.today != nil || model.usage != nil {
@@ -404,6 +626,13 @@ struct LinkChips: View {
 /// Set when a chip opened its link, so a click the island replays to its content doesn't also focus the terminal.
 enum ChipClick {
     static var handled = false
+}
+
+/// Where the rows' mics are (by session, in their hosting view's coordinates), so the island, which holds presses
+/// back until it knows they aren't drags, can hand a press on a mic straight to it: push to talk needs the press.
+enum MicTargets {
+    static var frames: [String: CGRect] = [:]
+    static func contains(_ point: CGPoint) -> Bool { frames.values.contains { $0.contains(point) } }
 }
 
 /// A waiting permission prompt in full (design: Approve / Deny 1a, 2a, 2b): Claude's reason, the command or the

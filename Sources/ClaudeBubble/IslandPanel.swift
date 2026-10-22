@@ -187,6 +187,8 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
     var onDragEnded: (() -> Void)?
     private var downAt: CGPoint?
     private var dragging = false
+    /// A press on a row's mic: handed straight to the row (push to talk), not held back as a maybe-drag.
+    private var talking = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func rightMouseDown(with event: NSEvent) { onRightClick?(event, self) }
@@ -194,12 +196,18 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
     override func mouseDown(with event: NSEvent) {
         // Control-click is a right-click on macOS, as on the orb.
         if event.modifierFlags.contains(.control) { onRightClick?(event, self); return }
+        if MicTargets.contains(convert(event.locationInWindow, from: nil)) {
+            talking = true
+            super.mouseDown(with: event)
+            return
+        }
         downAt = NSEvent.mouseLocation
         downEvent = event
         dragging = false
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if talking { return super.mouseDragged(with: event) }
         guard let start = downAt else { return }
         let p = NSEvent.mouseLocation
         if !dragging, hypot(p.x - start.x, p.y - start.y) > 3 { dragging = true }
@@ -209,6 +217,10 @@ final class IslandHostingView<Content: View>: NSHostingView<Content> {
     private var downEvent: NSEvent?
 
     override func mouseUp(with event: NSEvent) {
+        if talking {
+            talking = false
+            return super.mouseUp(with: event)
+        }
         if downAt != nil {
             if dragging {
                 onDragEnded?()
@@ -457,14 +469,17 @@ struct IslandView: View {
             // Ticks once a second so the rows' elapsed times stay current.
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 VStack(spacing: 2) {
-                    ForEach(Array(live.prefix(IslandLayout.maxRows)), id: \.id) { s in
+                    ForEach(Array(live.prefix(IslandLayout.maxRows).enumerated()), id: \.element.id) { index, s in
                         let asking = sessions.approval(for: s)
                         SessionRow(session: s, now: context.date, palette: sessions.palette,
                                    pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) },
                                    approval: asking, expanded: asking != nil && asking?.id == sessions.expandedApproval?.id,
                                    width: sessions.islandRowWidth,
                                    onDecide: asking.map { request in { sessions.decide?(request, $0) } },
-                                   onAnswer: asking.map { request in { sessions.answer?(request, $0) } })
+                                   onAnswer: asking.map { request in { sessions.answer?(request, $0) } },
+                                   talk: sessions.talk[s.id], onTalk: { sessions.holdTalk?(s, $0) },
+                                   onDrop: { sessions.dropOn?(s, $0) ?? false },
+                                   dividerAbove: sessions.dividerAbove(index))
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

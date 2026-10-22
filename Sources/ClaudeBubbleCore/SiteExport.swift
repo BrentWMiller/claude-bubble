@@ -63,7 +63,7 @@ public enum SiteExport {
         // As the app colours them (ToastKind.color): working, needs, error, the theme's resting colour, done green.
         func toastColor(_ kind: ToastKind) -> SIMD3<Float> {
             switch kind {
-            case .started, .resumed: pal[.working].swatch
+            case .started, .resumed, .sent: pal[.working].swatch
             case .needs, .review, .usageLow: pal[.needs].swatch
             case .error, .usageCritical: pal[.error].swatch
             case .finished, .usageRefreshed, .catchUp, .update: pal[.idle].swatch

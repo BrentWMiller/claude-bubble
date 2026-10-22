@@ -25,7 +25,8 @@ final class ToastTests: XCTestCase {
         XCTAssertEqual(ToastKind.resumed.text, "back to work")
         XCTAssertEqual(ToastKind.allDone.text, "complete")
         XCTAssertEqual(ToastKind.review.text, "ready for review")
-        XCTAssertEqual(ToastKind.allCases.map(\.lifetime), [4, 8, 8, 6, 8, 3.5, 6, 6, 8, 6, 8, 8])
+        XCTAssertEqual(ToastKind.allCases.map(\.lifetime), [4, 8, 8, 6, 8, 3.5, 6, 6, 8, 6, 8, 8, 3.5])
+        XCTAssertEqual(ToastKind.sent.text, "got your message")
         XCTAssertEqual(ToastKind.update.text, "is available")
     }
 

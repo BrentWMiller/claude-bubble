@@ -34,6 +34,12 @@ public struct OrbFrame: Sendable {
     /// Up to three tool-complete ticks: their ages (-1 = none) and amplitudes.
     public var tickAges = SIMD3<Float>(-1, -1, -1)
     public var tickAmps = SIMD3<Float>(0, 0, 0)
+    /// Voice (design: Talking Orb): loudness 0…1 (eased), the ripples' phase, and 1 while it's the user talking.
+    public var voice: Float = 0
+    public var voicePhase: Float = 0
+    public var listening: Float = 0
+    /// The voice's low, mid and high bands (eased).
+    public var voiceBands = SIMD3<Float>(0, 0, 0)
     /// Colour fan: 0…1 while new colours sweep out from the top of the orb (-1 when settled), and the colours it
     /// sweeps away from. `params` holds the colours it sweeps to.
     public var fan: Float = -1
@@ -41,6 +47,19 @@ public struct OrbFrame: Sendable {
 }
 
 /// Port of OrbBase.stepCommon + OrbP.step from the design's JS.
+/// What the orb hears while you talk with a session: loudness and three bands, each about 0…1, whether it's you
+/// (listening) or Claude (speaking), and whose colours to wear (the session's, as its row shows them).
+public struct VoiceLevels: Equatable, Sendable {
+    public var level, low, mid, high: Float
+    public var listening: Bool
+    public var look: BubbleState
+
+    public init(level: Float = 0, low: Float = 0, mid: Float = 0, high: Float = 0, listening: Bool,
+                look: BubbleState = .working) {
+        self.level = level; self.low = low; self.mid = mid; self.high = high; self.listening = listening; self.look = look
+    }
+}
+
 public final class OrbAnimator {
     public private(set) var state: BubbleState
     public private(set) var current: OrbParams
@@ -83,6 +102,12 @@ public final class OrbAnimator {
     /// Seconds the current motion has run (bash settles with it).
     public var motionElapsed: Double = 0
     public var subagents = 0
+    /// A conversation with a session (nil when there's none): the orb takes the voice look and moves with the words.
+    public var voice: VoiceLevels?
+    private var vox: Float = 0
+    private var voxBands = SIMD3<Float>(0, 0, 0)
+    private var listen: Float = 0
+    private var voxPhase: Float = 0
     private let director = MotionDirector()
     private var settle: Float = 0
     private var sub: Float = 0
@@ -209,8 +234,9 @@ public final class OrbAnimator {
         let k = 1 - powf(0.02, dt)
         if let t = completionTime { completionTime = t + dt * Self.completionSpeed }
         // The orb keeps the look it celebrates from through the gather, and turns to rest on the release (0.42s).
-        let shown: BubbleState = (completionTime.map { $0 < 0.42 } ?? false) ? heldState : state
-        let target = OrbParams.target(for: shown, palette: palette)
+        let talking = voice != nil
+        let shown: BubbleState = voice?.look ?? ((completionTime.map { $0 < 0.42 } ?? false) ? heldState : state)
+        let target = voice.map { OrbParams.voice(palette: palette, look: $0.look) } ?? OrbParams.target(for: shown, palette: palette)
         if shown != colorKey.state || palette != colorKey.palette {
             // New colours: fan them out from what's showing, rather than crossfading the whole orb.
             colorKey = (shown, palette)
@@ -220,12 +246,12 @@ public final class OrbAnimator {
         }
         current = current.approached(target, k: k)
         tintGate += ((shown == .working || shown == .idle ? 1 : 0) - tintGate) * k
-        director.update(want: shown == .working ? motion : .generating, now: time)
+        director.update(want: shown == .working && !talking ? motion : .generating, now: time)
         let settleTarget = Float(1 - exp(-max(motionElapsed, 0) / 6))
         // A new command drops straight back to a boil; otherwise ease.
         settle = settleTarget < settle - 0.3 ? settleTarget : settle + (settleTarget - settle) * (1 - powf(0.2, dt))
         // Layers belong to the working look (not a forced state or a pip preview).
-        sub += (shown == .working ? Float(min(max(subagents, 0), 6)) - sub : -sub) * (1 - powf(0.06, dt))
+        sub += (shown == .working && !talking ? Float(min(max(subagents, 0), 6)) - sub : -sub) * (1 - powf(0.06, dt))
         if let s = skillAt {
             let age = Float(time - s)
             if age < 1.4 { phase += dt * 1.2 * sinf(.pi * min(1, age / 1.4)) }
@@ -261,7 +287,7 @@ public final class OrbAnimator {
         var scale = current.scale * (1 + bounce) * here * (1 - 0.12 * lowUsage) * (1 - (1 - quietScale) * quietness)
         var glow = current.glow * min(here, 1) * (1 + 0.6 * flash) * (1 - 0.4 * lowUsage) * (1 - 0.5 * quietness)
         var ring = current.ring * (1 + 0.4 * flash)
-        switch state {
+        switch talking ? .working : state {
         case .idle:
             // The rest breath fades in as the completed moment winds down.
             // (blended from neutral, so neither the swing nor the dimmer baseline cuts into the celebration).
@@ -310,6 +336,16 @@ public final class OrbAnimator {
             pullTime = pt > 2 ? nil : pt
             pull = pullTime == nil ? 0 : pull * pullAmplitude
         }
+        // Voice (design: Talking Orb): words swell in fast and fade slowly; the ripples run out while Claude speaks and
+        // in while you do. Phase wraps like the main one (its shader multiples are 1, 1.3 and 2.1).
+        let heard = min(max(voice?.level ?? 0, 0), 1)
+        vox += (heard - vox) * (1 - powf(heard > vox ? 0.00002 : 0.006, dt))
+        let bands = voice.map { SIMD3($0.low, $0.mid, $0.high) } ?? .zero
+        voxBands += (bands - voxBands) * (1 - powf(0.0005, dt))
+        let you: Float = voice?.listening == true ? 1 : 0
+        listen += (you - listen) * (1 - powf(0.03, dt))
+        voxPhase = (voxPhase + dt * (2 + vox * 10) * (you > 0 ? -1 : 1)).truncatingRemainder(dividingBy: 400 * .pi)
+        glow *= 1 + vox * 0.7
         let attention = interaction == .attention ? closeness : 0
         if interaction == .attention { glow *= 1 + 0.2 * closeness }
         let shakeX = shake > 0.01 ? Float(sin(time * 70)) * shake * 0.04 : 0
@@ -351,6 +387,10 @@ public final class OrbAnimator {
         frame.workMix = work.mix
         frame.settle = settle
         frame.sub = sub
+        frame.voice = vox
+        frame.voicePhase = voxPhase
+        frame.listening = listen
+        frame.voiceBands = voxBands
         if let f = failAt { if time - f < 1.2 { frame.failAge = Float(time - f) } else { failAt = nil } }
         if let s = skillAt { if time - s < 1.6 { frame.skillAge = Float(time - s) } else { skillAt = nil } }
         ticks.removeAll { time - $0.at >= 0.8 }

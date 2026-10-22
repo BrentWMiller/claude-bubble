@@ -45,6 +45,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let linkScanner = LinkScanner()
     private let prStatus = PRStatusFetcher()
     /// Permission prompts approved or denied from the bubble.
+    private let talk = SessionTalk()
+    private let draftPanel = DraftPanel()
     private let approvals = ApprovalServer(directory: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude-bubble"))
     private var island: IslandPanel!
@@ -138,6 +140,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         model.decide = { [weak self] request, behavior in self?.approvals.reply(request.id, behavior) }
         model.answer = { [weak self] request, answers in self?.approvals.reply(request.id, .allow, answers: answers) }
+        talk.onChange = { [weak self] states in self?.model.talk = states }
+        talk.onVoice = { [weak self] levels in self?.animator.voice = levels }
+        talk.onDraft = { [weak self] session, words in
+            guard let self else { return }
+            // Opens where the mic was let go, to check and edit before it goes.
+            self.draftPanel.show(words, to: session.displayName, at: NSEvent.mouseLocation,
+                                 color: session.tone.swatch(in: self.applied.palette), send: { [weak self] text in self?.talk.send(draft: text, to: session) },
+                                 cancel: { [weak self] in self?.talk.send(draft: nil, to: session) })
+        }
+        talk.onSent = { [weak self] session in
+            // The row says so while the list is open; otherwise a toast does.
+            guard let self, !self.listPanel.isShown, !(self.island.isVisible && self.island.model.mode == .hover) else { return }
+            self.pushToast(.sent, name: session.displayName)
+        }
+        model.holdTalk = { [weak self] session, down in self?.talk.hold(session, down: down) }
+        model.dropOn = { [weak self] session, providers in self?.talk.drop(providers, on: session) ?? false }
         if applied.approvals { approvals.start() }
         toastModel.palette = applied.palette
         // The list is a child window of the orb, so a drag moves both together. Once the orb stops moving,

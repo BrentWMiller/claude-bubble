@@ -24,6 +24,11 @@ final class SessionsModel: ObservableObject {
         UserDefaults.standard.set(Array(pinned), forKey: Self.pinnedKey)
     }
 
+    /// Whether the row at `index` of `sorted` is the first after the pinned ones (design: Session Card's divider).
+    func dividerAbove(_ index: Int) -> Bool {
+        index > 0 && index < sorted.count && !pinned.contains(sorted[index].id) && pinned.contains(sorted[index - 1].id)
+    }
+
     private func resort() {
         sorted = SessionStore.sorted(sessions, pinned: pinned)
         byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -58,6 +63,12 @@ final class SessionsModel: ObservableObject {
     var decide: ((ApprovalRequest, ApprovalBehavior) -> Void)?
     /// Sends a question's answers (question text → the label picked) to the hook that asked.
     var answer: ((ApprovalRequest, [String: String]) -> Void)?
+    /// Per session, what talking to it is up to (listening, sending, sent): its row shows it.
+    @Published var talk: [String: TalkState] = [:]
+    /// Push to talk on a session's row: the mic held down (true) or let go (false).
+    var holdTalk: ((Session, Bool) -> Void)?
+    /// Files, images or text dropped on a session's row; false when there's nothing it can take.
+    var dropOn: ((Session, [NSItemProvider]) -> Bool)?
 
     /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).
     func approval(for session: Session) -> ApprovalRequest? {

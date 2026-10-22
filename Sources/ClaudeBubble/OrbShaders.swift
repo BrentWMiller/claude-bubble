@@ -18,6 +18,8 @@ struct Uniforms {
     float4 j, k, l, m;   // colour fan: the c1, c2, c3 and halo it sweeps away from
     float4 n;   // colour fan progress 0…1 (< 0 = settled), unused
     float4 o;   // edge squash: right, top, left, bottom edges' distances from the centre, in orb radii (≥ 1 = clear)
+    float4 p;   // voice: loudness 0…1, ripple phase, listening 0…1 (you talking: lightens toward c1), unused
+    float4 q;   // voice bands: low, mid, high, unused
 };
 
 float2 unsquish(float2 q, float4 ed, float R, float ph);   // below, with the particle pass's squish
@@ -55,11 +57,14 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     C1 = mix(u.j.xyz, C1, fm.x); C2 = mix(u.k.xyz, C2, fm.x); C3 = mix(u.l.xyz, C3, fm.x); H = mix(u.m.xyz, H, fm.x);
     float k = .5 + .5 * sin(a * 1. + ph * .9); float k2 = .5 + .5 * sin(a * 2. - ph * .6 + 1.3);
     float3 rc = mix(mix(C1, C2, k), C3, k2 * .6);
+    rc = mix(rc, mix(C1, float3(1.), .45), u.p.z * .4);   // listening: the rim lightens toward the theme's own rim colour
     float w = .016 + .01 * sin(a * 3. + ph);
     float gap = step(.7, fract(sin(floor(a * 6. + ph * 4.) * 57.3) * 913.1));
     w *= 1. - glitch * gap * .7;
     // Spawn pull (design: Pip Sounds): the ring bulges toward the new pip's slot like taffy.
     float bul = u.e.y * .3 * pow(max(cos(a - u.e.z), 0.), 18.);
+    // Voice (design: Talking Orb): Claude's words wobble the rim; yours draw it in a little.
+    bul += u.p.x * (.035 * sin(a * 5. + u.p.y * 1.3) + .02 * sin(a * 9. - u.p.y * 2.1)) * (1. - u.p.z) - u.p.z * u.p.x * .03;
     float d1 = (r - R * (1.02 + bul)) / w; float ring = exp(-d1 * d1);
     float d2 = (r - R * (1.05 + bul)) / (w * 2.6); float fuzz = exp(-d2 * d2) * .45;
     // Attention: a light follows the pointer over the sphere. Off-centre effects scale with how far out it is,
@@ -302,6 +307,13 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     p *= 1. - .14 * gather;
     p *= 1. + spring * (.22 + .3 * hs(pos));
     p = rx(.35) * p;
+    // Voice (design: Talking Orb): ripples run from the front as words come, the sphere swelling with the lows and
+    // shivering with the highs.
+    float vth = acos(clamp(p.z, -1., 1.));
+    float vrip = sin(vth * 6. - u.p.y);
+    float vlvl = u.p.x * (1. - vth / 3.3);
+    p *= 1. + u.p.x * .05 * u.q.x + vrip * vlvl * .045;
+    p += (float3(hs(pos.yzx), hs(pos.zxy), hs(pos)) - .5) * u.q.z * .035;
     // Attention: the sphere tilts toward the pointer (more the further off-centre it is).
     float2 po = u.d.xy; float att = u.d.z;
     p = ry(po.x * .45 * att) * rx(-po.y * .45 * att) * p;
@@ -360,6 +372,8 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     b += pk * abs(pullAmt) * 1.3;
     b += fmp.y * .9 * front;   // the ripple's bright ring
     c = mix(c, float3(1.), pk * max(pullAmt, 0.) * .3);
+    b += u.p.x * (.2 + max(vrip, 0.) * vlvl * 1.2);   // the ripples light the dots they pass
+    c = mix(c, mix(C1, float3(1.), .45), u.p.z * .35);   // and so do the dots
     o.color = c * b * bright;
     o.size = pt * (1. + p.z * .5) * (1. + flash * .6);
     return o;
@@ -398,4 +412,7 @@ struct OrbUniforms {
     var n: SIMD4<Float> = [-1, 0, 0, 0]
     /// No edge close enough to squash by default.
     var o: SIMD4<Float> = SIMD4(repeating: 1)   // EdgeSquash.far
+    /// Nobody talking by default.
+    var p: SIMD4<Float> = .zero
+    var q: SIMD4<Float> = .zero
 }
