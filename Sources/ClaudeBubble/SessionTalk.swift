@@ -184,6 +184,18 @@ final class VoiceMeter {
         // Bin k of the design's analyser at 48kHz is k × 93.75Hz: lows 1–8, mids 8–40, highs 40–120.
         let hz = sampleRate / Float(n)
         let boost = 20 * log10f(gain)
+        // The spectrum the orb draws: 16 bands spaced evenly in pitch, 80Hz to 8kHz, loud bands standing out from
+        // the hush between words (squared), with the same gain as the rest.
+        var spectrum = SIMD16<Float>(repeating: 0)
+        for i in 0..<16 {
+            let lo = 80 * powf(100, Float(i) / 16), hi = 80 * powf(100, Float(i + 1) / 16)
+            let a = max(1, Int(lo / hz)), b = min(n / 2, max(a + 1, Int(hi / hz)))
+            var top: Float = 1e-12
+            for k in a..<b { top = max(top, power[k]) }
+            let db = 10 * log10f(top) - 20 * log10f(Float(n)) + boost
+            let v = min(max((db + 75) / 45, 0), 1)
+            spectrum[i] = v * v
+        }
         func band(_ lo: Float, _ hi: Float) -> Float {
             let a = max(1, Int(lo / hz)), b = min(n / 2, max(a + 1, Int(hi / hz)))
             var sum: Float = 0
@@ -193,8 +205,10 @@ final class VoiceMeter {
             }
             return sum / Float(b - a)
         }
-        return VoiceLevels(level: level, low: min(1, band(94, 750) * 1.4), mid: min(1, band(750, 3750) * 1.8),
-                           high: min(1, band(3750, 11250) * 2.5), listening: true)
+        var levels = VoiceLevels(level: level, low: min(1, band(94, 750) * 1.4), mid: min(1, band(750, 3750) * 1.8),
+                                 high: min(1, band(3750, 11250) * 2.5), listening: true)
+        levels.spectrum = spectrum
+        return levels
     }
 }
 
