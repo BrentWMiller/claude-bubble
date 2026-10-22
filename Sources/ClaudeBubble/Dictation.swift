@@ -94,14 +94,11 @@ final class Dictation {
     private func texts(_ run: Int) -> (String, Bool) -> Void {
         { [weak self] text, final in
             guard let self, self.current(run) else { return }
-            self.heard = Self.tidy(text)
+            self.heard = text
             self.onHeard?(text)
             if final { self.end(nil) }
         }
     }
-
-    /// What it heard, with your corrections (Settings → Dictation corrections) applied.
-    static func tidy(_ text: String) -> String { DictationFixes.apply(DictationFixesModel.shared.fixes, to: text) }
 
     private func listen(with recognizer: SpeechRecognizing) {
         let input = engine.inputNode
@@ -317,25 +314,6 @@ private final class AnalyzerRecognizer: SpeechRecognizing {
     }
 }
 
-/// Your dictation corrections, edited in Settings and kept across restarts (the defaults until you change them).
-final class DictationFixesModel: ObservableObject {
-    static let shared = DictationFixesModel()
-    private static let key = "dictationFixes"
-
-    @Published var fixes: [DictationFix] {
-        didSet { (try? JSONEncoder().encode(fixes)).map { UserDefaults.standard.set($0, forKey: Self.key) } }
-    }
-
-    private init() {
-        fixes = UserDefaults.standard.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([DictationFix].self, from: $0) }
-            ?? DictationFixes.defaults
-    }
-
-    func add() { fixes.append(DictationFix(heard: "", meant: "")) }
-    func remove(_ id: UUID) { fixes.removeAll { $0.id == id } }
-    func reset() { fixes = DictationFixes.defaults }
-}
-
 /// The words and names you add in Settings for dictation to listen for, kept across restarts.
 final class DictationVocabularyModel: ObservableObject {
     static let shared = DictationVocabularyModel()
@@ -347,5 +325,6 @@ final class DictationVocabularyModel: ObservableObject {
 
     private init() {
         words = UserDefaults.standard.stringArray(forKey: Self.key) ?? DictationVocabulary.defaults
+        UserDefaults.standard.removeObject(forKey: "dictationFixes")   // the corrections list, now gone
     }
 }

@@ -169,7 +169,7 @@ struct QuickPanelView: View {
                 switch state.page {
                 case .main: mainPage.transition(.move(edge: .leading).combined(with: .opacity))
                 case .advanced: advancedPage.transition(.move(edge: .trailing).combined(with: .opacity))
-                case .dictation: DictationFixesPage(back: { state.go(.advanced) }, resized: { state.resized() })
+                case .dictation: DictationPage(back: { state.go(.advanced) }, resized: { state.resized() })
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
@@ -788,12 +788,11 @@ private struct UpdateRow: View {
     }
 }
 
-/// Settings → Dictation: words and names to listen for (vocabulary), and what to write instead of a mishearing
-/// (corrections). Add your own; they apply to the next thing you say.
-private struct DictationFixesPage: View {
+/// Settings → Dictation: words and names for dictation to listen for. Add your own; they apply to the next thing
+/// you say.
+private struct DictationPage: View {
     let back: () -> Void
     let resized: () -> Void
-    @ObservedObject private var model = DictationFixesModel.shared
     @ObservedObject private var vocabulary = DictationVocabularyModel.shared
     @FocusState private var focus: String?
     @State private var newWord = ""
@@ -850,29 +849,7 @@ private struct DictationFixesPage: View {
                     .help("Back to the built-in list")
             }
             .padding(.top, 8)
-
-            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.vertical, 10)
-
-            heading("Corrections", "When dictation hears the words on the left, it writes the ones on the right. Whole words, any case.")
-            ScrollView {
-                VStack(spacing: 6) {
-                    ForEach($model.fixes) { $fix in
-                        HStack(spacing: 6) {
-                            field("Heard", $fix.heard).focused($focus, equals: fix.id.uuidString)
-                            Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(dim)
-                            field("Meant", $fix.meant)
-                            remove { model.remove(fix.id) }
-                        }
-                    }
-                }
-            }
-            .frame(height: min(CGFloat(model.fixes.count) * 30, 180))
-            footer(add: "Add correction", {
-                model.add()
-                focus = model.fixes.last?.id.uuidString
-            }, reset: { model.reset() })
         }
-        .onChange(of: model.fixes.count) { resized() }
         .onChange(of: vocabulary.words.count) { resized() }
     }
 
@@ -882,33 +859,6 @@ private struct DictationFixesPage: View {
             Text(note).font(.system(size: 12)).foregroundStyle(dim).fixedSize(horizontal: false, vertical: true)
         }
         .padding(.bottom, 8)
-    }
-
-    private func footer(add: String, _ adding: @escaping () -> Void, reset: @escaping () -> Void) -> some View {
-        HStack {
-            Button(action: adding) {
-                Label(add, systemImage: "plus").font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.9))
-            }
-            .buttonStyle(.plain)
-            Spacer()
-            Button("Reset", action: reset)
-                .buttonStyle(.plain)
-                .font(.system(size: 12))
-                .foregroundStyle(dim)
-                .help("Back to the built-in list")
-        }
-        .padding(.top, 8)
-    }
-
-    private func remove(_ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.45))
-                .frame(width: 18, height: 22)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help("Remove")
     }
 
     private func field(_ prompt: String, _ text: Binding<String>) -> some View {
