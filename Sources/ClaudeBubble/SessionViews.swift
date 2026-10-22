@@ -260,6 +260,7 @@ struct SessionRow: View {
                     Text(talkClock ?? ElapsedFormat.string(now.timeIntervalSince(session.stateSince)))
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(talkClock != nil ? tc.accent : Color.white.opacity(0.4))
+                        .frame(minWidth: 28, alignment: .trailing)   // 0:07 and 17m take the same room
                 }
                 .frame(height: 17)   // the title's line, so the controls don't push the row taller
                 if let approval, let onDecide, !expanded, approval.questions == nil {
@@ -294,7 +295,8 @@ struct SessionRow: View {
                 }
             }
             .font(.system(size: 12))
-            .frame(height: 15)
+            // No ideal width of its own: the words fill the row as it is and cut off, never widening it (or the island).
+            .frame(minWidth: 0, idealWidth: 0, maxWidth: .infinity, minHeight: 15, maxHeight: 15, alignment: .leading)
         } else if let talk {
             Text(talkLine(talk))
                 .font(.system(size: 12))
