@@ -120,7 +120,7 @@ final class QuickPanel: NSPanel {
 
 /// The panel's page and pop-in.
 final class QuickPanelState: ObservableObject {
-    enum Page { case main, advanced }
+    enum Page { case main, advanced, dictation }
     @Published var page: Page = .main
     @Published var shown = false
     var anchor: CGPoint = .zero
@@ -166,8 +166,12 @@ struct QuickPanelView: View {
             .frame(height: 14)
             .help("Drag to move")
             Group {
-                if state.page == .main { mainPage.transition(.move(edge: .leading).combined(with: .opacity)) }
-                else { advancedPage.transition(.move(edge: .trailing).combined(with: .opacity)) }
+                switch state.page {
+                case .main: mainPage.transition(.move(edge: .leading).combined(with: .opacity))
+                case .advanced: advancedPage.transition(.move(edge: .trailing).combined(with: .opacity))
+                case .dictation: DictationFixesPage(back: { state.go(.advanced) }, resized: { state.resized() })
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
         .padding([.horizontal, .bottom], 10)
@@ -248,6 +252,7 @@ struct QuickPanelView: View {
                                                                      set: { updater.checksAutomatically = $0 }))
             }
             divider
+            Row(title: "Dictation corrections…", chevron: true) { state.go(.dictation) }
             Row(title: "Check for updates…") { close(); actions.checkForUpdates() }
             Row(title: "Setup…") { close(); actions.openSetup() }
             Row(title: "Reset position") { actions.resetPosition() }
@@ -780,5 +785,86 @@ private struct UpdateRow: View {
         .buttonStyle(.plain)
         .disabled(installing)
         .onHover { hover = $0 }
+    }
+}
+
+/// Settings → Dictation corrections: what dictation hears, and what to write instead. Add your own; they apply to the
+/// next thing you say.
+private struct DictationFixesPage: View {
+    let back: () -> Void
+    let resized: () -> Void
+    @ObservedObject private var model = DictationFixesModel.shared
+    @FocusState private var focus: UUID?
+    private let dim = Color.white.opacity(0.5)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: back) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
+                    Text("Dictation corrections").font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                }
+                .foregroundStyle(Color.white)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 6)
+            Text("When dictation hears the words on the left, it writes the ones on the right. Whole words, any case.")
+                .font(.system(size: 12))
+                .foregroundStyle(dim)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 10)
+            // About ten rows, then it scrolls (the panel would otherwise outgrow the screen).
+            ScrollView {
+            VStack(spacing: 6) {
+                ForEach($model.fixes) { $fix in
+                    HStack(spacing: 6) {
+                        field("Heard", $fix.heard).focused($focus, equals: fix.id)
+                        Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(dim)
+                        field("Meant", $fix.meant)
+                        Button { model.remove(fix.id) } label: {
+                            Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(Color.white.opacity(0.45))
+                                .frame(width: 18, height: 22)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Remove")
+                    }
+                }
+            }
+            }
+            .scrollIndicators(.automatic)
+            .frame(height: min(CGFloat(model.fixes.count) * 30, 300))
+            HStack {
+                Button {
+                    model.add()
+                    focus = model.fixes.last?.id
+                } label: {
+                    Label("Add correction", systemImage: "plus").font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.9))
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Button("Reset") { model.reset() }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 12))
+                    .foregroundStyle(dim)
+                    .help("Back to the built-in corrections")
+            }
+            .padding(.top, 10)
+        }
+        .onChange(of: model.fixes.count) { resized() }
+    }
+
+    private func field(_ prompt: String, _ text: Binding<String>) -> some View {
+        TextField(prompt, text: text)
+            .textFieldStyle(.plain)
+            .font(.system(size: 12.5))
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 7)
+            .frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
     }
 }

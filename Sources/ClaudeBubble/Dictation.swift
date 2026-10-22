@@ -1,5 +1,6 @@
 import AVFoundation
 import ClaudeBubbleCore
+import Combine
 import Speech
 
 /// Dictation that never leaves this Mac: hears until it's told to finish (push to talk: the mic is let go). On
@@ -93,20 +94,8 @@ final class Dictation {
         }
     }
 
-    /// What the models reliably mishear when you talk to Claude, and what was meant (whole words, any case). "Cloud" is
-    /// only Claude before "bubble": on its own it's a real word.
-    static let fixes: [(heard: String, meant: String)] = [
-        ("\\b(clawed|clod|cloud) bubble\\b", "Claude Bubble"),
-        ("\\b(clawed|clod)\\b", "Claude"),
-        ("\\brebo\\b", "repo"),
-        ("\\bwork tree(s?)\\b", "worktree$1"),
-    ]
-
-    static func tidy(_ text: String) -> String {
-        fixes.reduce(text) { text, fix in
-            text.replacingOccurrences(of: fix.heard, with: fix.meant, options: [.regularExpression, .caseInsensitive])
-        }
-    }
+    /// What it heard, with your corrections (Settings → Dictation corrections) applied.
+    static func tidy(_ text: String) -> String { DictationFixes.apply(DictationFixesModel.shared.fixes, to: text) }
 
     private func listen(with recognizer: SpeechRecognizing) {
         let input = engine.inputNode
@@ -311,4 +300,23 @@ private final class AnalyzerRecognizer: SpeechRecognizing {
         input.finish()
         Task { [analyzer] in await analyzer.cancelAndFinishNow() }
     }
+}
+
+/// Your dictation corrections, edited in Settings and kept across restarts (the defaults until you change them).
+final class DictationFixesModel: ObservableObject {
+    static let shared = DictationFixesModel()
+    private static let key = "dictationFixes"
+
+    @Published var fixes: [DictationFix] {
+        didSet { (try? JSONEncoder().encode(fixes)).map { UserDefaults.standard.set($0, forKey: Self.key) } }
+    }
+
+    private init() {
+        fixes = UserDefaults.standard.data(forKey: Self.key).flatMap { try? JSONDecoder().decode([DictationFix].self, from: $0) }
+            ?? DictationFixes.defaults
+    }
+
+    func add() { fixes.append(DictationFix(heard: "", meant: "")) }
+    func remove(_ id: UUID) { fixes.removeAll { $0.id == id } }
+    func reset() { fixes = DictationFixes.defaults }
 }
