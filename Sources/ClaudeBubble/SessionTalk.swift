@@ -26,6 +26,8 @@ final class SessionTalk {
     var onSent: ((Session) -> Void)?
     /// What the orb should hear: your voice while it listens, nil once it stops (main thread).
     var onVoice: ((VoiceLevels?) -> Void)?
+    /// Talking to `session` failed, and why (main thread).
+    var onFailed: ((Session, String) -> Void)?
     /// You let go of the mic: what it heard, to edit before it goes (send it with `send(_:to:)`).
     var onDraft: ((Session, String) -> Void)?
 
@@ -127,6 +129,7 @@ final class SessionTalk {
     private func show(_ state: TalkState?, for session: Session) {
         states[session.id] = state
         guard let state else { return }
+        if case let .failed(why) = state { onFailed?(session, why) }
         // "Sent to Claude" just confirms it (design: Session Card); a failure stays long enough to read.
         DispatchQueue.main.asyncAfter(deadline: .now() + (state == .sent ? 1.8 : 3)) { [weak self] in
             if self?.states[session.id] == state { self?.states[session.id] = nil }

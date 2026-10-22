@@ -47,6 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Permission prompts approved or denied from the bubble.
     private let talk = SessionTalk()
     private let draftPanel = DraftPanel()
+    /// Hold to talk from anywhere, to the pinned session (or, with none pinned, the most pressing one).
+    private let talkKey = HotKey(keyCode: HotKey.talk.keyCode, modifiers: HotKey.talk.modifiers)
+    /// The session the shortcut is talking to, while it's held (its draft opens under the orb, not the pointer).
+    private var talkKeySession: Session?
     private let approvals = ApprovalServer(directory: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude-bubble"))
     private var island: IslandPanel!
@@ -144,8 +148,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         talk.onVoice = { [weak self] levels in self?.animator.voice = levels }
         talk.onDraft = { [weak self] session, words in
             guard let self else { return }
-            // Opens where the mic was let go, to check and edit before it goes.
-            self.draftPanel.show(words, to: session.displayName, at: NSEvent.mouseLocation,
+            // Opens where the mic was let go, to check and edit before it goes; from the shortcut, under the orb.
+            let fromKey = self.talkKeySession?.id == session.id
+            self.talkKeySession = nil
+            self.draftPanel.show(words, to: session.displayName, at: fromKey ? self.draftAnchor() : NSEvent.mouseLocation,
                                  color: session.tone.swatch(in: self.applied.palette), send: { [weak self] text in self?.talk.send(draft: text, to: session) },
                                  cancel: { [weak self] in self?.talk.send(draft: nil, to: session) })
         }
@@ -155,6 +161,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.pushToast(.sent, name: session.displayName)
         }
         model.holdTalk = { [weak self] session, down in self?.talk.hold(session, down: down) }
+        talk.onFailed = { [weak self] session, why in
+            // The row says so while the list is open; otherwise (the shortcut, mostly) a toast does.
+            guard let self, !self.listPanel.isShown, !(self.island.isVisible && self.island.model.mode == .hover) else { return }
+            self.pushToast(.error, name: session.displayName, text: why)
+        }
+        talkKey.onDown = { [weak self] in
+            // Pinned sessions lead the list (most pressing first), so the first one is the pinned session to talk
+            // to, or, with none pinned, the most pressing.
+            guard let self, let session = self.model.sorted.first else { return }
+            self.talkKeySession = session
+            self.talk.hold(session, down: true)
+        }
+        talkKey.onUp = { [weak self] in
+            guard let self, let session = self.talkKeySession else { return }
+            self.talk.hold(session, down: false)
+        }
         model.dropOn = { [weak self] session, providers in self?.talk.drop(providers, on: session) ?? false }
         if applied.approvals { approvals.start() }
         toastModel.palette = applied.palette
@@ -842,6 +864,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.pushToast(.allDone, name: "All sessions")
             }
         }
+    }
+
+    /// Where a draft from the talk shortcut opens: centred under the orb, or under the island's pill.
+    private func draftAnchor() -> CGPoint {
+        let under: CGRect
+        if isIsland, !island.pill.isEmpty {
+            under = island.pill
+        } else {
+            // The orb is the middle of its window (the rest is glow).
+            let f = panel.frame
+            under = f.insetBy(dx: f.width * 0.2, dy: f.height * 0.2)
+        }
+        return CGPoint(x: under.midX + DraftPanel.width / 2 - 24, y: under.minY)
     }
 
     /// Shows a toast, or holds it for the catch-up while quiet.

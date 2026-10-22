@@ -340,7 +340,7 @@ struct SessionRow: View {
                         MicTargets.frames[session.id] = nil
                         if holding { holding = false; onTalk(false) }   // the list closed mid-hold: send
                     }
-                    .help("Hold to talk")
+                    .help("Hold to talk · \(HotKey.talk.label) talks to the pinned session")
                     .animation(.easeOut(duration: 0.15), value: talking)
             }
             if let onPin {
