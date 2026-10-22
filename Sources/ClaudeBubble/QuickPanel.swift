@@ -447,6 +447,13 @@ struct QuickPanelView: View {
                 .help("How much of the 5-hour limit is used, on the bubble and in the session list.")
             toggleRow("Approve from the bubble", Binding(get: { prefs.approvals }, set: { settings.prefs.approvals = $0 }))
                 .help("Allow or deny permission prompts, and answer Claude's questions, from the bubble.")
+            HStack {
+                Text("Talk shortcut").foregroundStyle(Color.white.opacity(0.9))
+                Spacer()
+                TalkShortcutRecorder()
+            }
+            .font(.system(size: 13))
+            .help("Hold it anywhere to talk to the session you chose last, else the pinned or most pressing one.")
             divider
             groupTitle("Alerts")
             toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))

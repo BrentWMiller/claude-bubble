@@ -32,14 +32,17 @@ final class DraftPanel: NSPanel {
     override var canBecomeMain: Bool { false }
     override func cancelOperation(_ sender: Any?) { model.cancel() }
 
-    /// Opens with `text` to edit for `name`, its top-right under `point` (where the mic was let go), on screen.
-    func show(_ text: String, to name: String, at point: CGPoint, color: SIMD3<Float>,
-              send: @escaping (String) -> Void, cancel: @escaping () -> Void) {
+    /// Opens with `text` to edit for the session `to` (one of `targets`, which you can switch to), its top-right
+    /// under `point` (where the mic was let go), on screen. `send` gets the words and the session chosen; `picked`
+    /// hears a switch.
+    func show(_ text: String, to session: String, among targets: [DraftTarget], at point: CGPoint,
+              send: @escaping (String, String) -> Void, picked: @escaping (String) -> Void, cancel: @escaping () -> Void) {
         model.cancel()   // one draft at a time: an open one is dropped
         model.text = text
-        model.name = name
-        model.color = color
-        model.onSend = { [weak self] text in self?.orderOut(nil); send(text) }
+        model.targets = targets
+        model.target = session
+        model.onPick = picked
+        model.onSend = { [weak self] text, session in self?.orderOut(nil); send(text, session) }
         model.onCancel = { [weak self] in self?.orderOut(nil); cancel() }
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
@@ -68,21 +71,30 @@ final class DraftModel: ObservableObject {
     @Published var text = "" {
         didSet { DispatchQueue.main.async { self.onResize?() } }   // after the field lays out its new line count
     }
-    @Published var name = ""
-    /// The session's colour, as its row shows it.
-    @Published var color = SIMD3<Float>(1, 1, 1)
+    /// The sessions it can go to, and the one it's going to.
+    @Published var targets: [DraftTarget] = []
+    @Published var target = ""
     /// Bumped to put the cursor in the field.
     @Published var focus = 0
-    var onSend: ((String) -> Void)?
+    var onSend: ((String, String) -> Void)?
+    var onPick: ((String) -> Void)?
     var onCancel: (() -> Void)?
     var onResize: (() -> Void)?
 
+    var chosen: DraftTarget? { targets.first { $0.id == target } }
+
+    func pick(_ id: String) {
+        guard id != target else { return }
+        target = id
+        onPick?(id)
+    }
+
     func send() {
         let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let done = onSend
+        let done = onSend, to = target
         clear()
         if words.isEmpty { return }
-        done?(words)
+        done?(words, to)
     }
 
     func cancel() {
@@ -93,21 +105,49 @@ final class DraftModel: ObservableObject {
 
     private func clear() {
         onSend = nil
+        onPick = nil
         onCancel = nil
     }
+}
+
+/// A session a draft can go to: its id, name, and colour as its row shows it.
+struct DraftTarget: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let color: SIMD3<Float>
 }
 
 struct DraftView: View {
     @ObservedObject var model: DraftModel
     @FocusState private var focused: Bool
-    private var tc: TalkColors { TalkColors(model.color) }
+    private var tc: TalkColors { TalkColors(model.chosen?.color ?? SIMD3(1, 1, 1)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Circle().fill(tc.accent).frame(width: 8, height: 8).shadow(color: tc.accent.opacity(0.8), radius: 4)
-                Text("To ").foregroundStyle(Color.white.opacity(0.5))
-                    + Text(model.name).foregroundStyle(Color.white).fontWeight(.semibold)
+                Text("To").foregroundStyle(Color.white.opacity(0.5))
+                // Which session it goes to: click to send it to another (remembered for the talk shortcut).
+                Menu {
+                    ForEach(model.targets) { t in
+                        Button { model.pick(t.id) } label: {
+                            if t.id == model.target { Label(t.name, systemImage: "checkmark") } else { Text(t.name) }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(model.chosen?.name ?? "").foregroundStyle(Color.white).fontWeight(.semibold)
+                            .lineLimit(1).truncationMode(.tail)
+                        Image(systemName: "chevron.up.chevron.down").font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.5))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .disabled(model.targets.count < 2)
+                .help("Send to another session")
             }
             .font(.system(size: 12))
             .lineLimit(1)

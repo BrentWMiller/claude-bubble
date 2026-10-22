@@ -48,9 +48,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let talk = SessionTalk()
     private let draftPanel = DraftPanel()
     /// Hold to talk from anywhere, to the pinned session (or, with none pinned, the most pressing one).
-    private let talkKey = HotKey(keyCode: HotKey.talk.keyCode, modifiers: HotKey.talk.modifiers)
+    private let talkKey = HotKey()
+    private var talkKeyWatch: AnyCancellable?
     /// The session the shortcut is talking to, while it's held (its draft opens under the orb, not the pointer).
     private var talkKeySession: Session?
+    /// The session you last switched a draft to: the shortcut keeps talking to it while it's around. Kept across
+    /// restarts.
+    private var talkTo: String? {
+        get { UserDefaults.standard.string(forKey: "talkTo") }
+        set { UserDefaults.standard.set(newValue, forKey: "talkTo") }
+    }
     private let approvals = ApprovalServer(directory: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude-bubble"))
     private var island: IslandPanel!
@@ -151,8 +158,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Opens where the mic was let go, to check and edit before it goes; from the shortcut, under the orb.
             let fromKey = self.talkKeySession?.id == session.id
             self.talkKeySession = nil
-            self.draftPanel.show(words, to: session.displayName, at: fromKey ? self.draftAnchor() : NSEvent.mouseLocation,
-                                 color: session.tone.swatch(in: self.applied.palette), send: { [weak self] text in self?.talk.send(draft: text, to: session) },
+            let targets = self.model.sorted.map {
+                DraftTarget(id: $0.id, name: $0.displayName, color: $0.tone.swatch(in: self.applied.palette))
+            }
+            self.draftPanel.show(words, to: session.id, among: targets, at: fromKey ? self.draftAnchor() : NSEvent.mouseLocation,
+                                 send: { [weak self] text, id in
+                                     guard let self else { return }
+                                     // Switched to another session: this one's row stops saying it's being written to.
+                                     let to = self.model.byID[id] ?? session
+                                     if to.id != session.id { self.talk.send(draft: nil, to: session) }
+                                     self.talk.send(draft: text, to: to)
+                                 },
+                                 picked: { [weak self] id in self?.talkTo = id },
                                  cancel: { [weak self] in self?.talk.send(draft: nil, to: session) })
         }
         talk.onSent = { [weak self] session in
@@ -166,10 +183,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, !self.listPanel.isShown, !(self.island.isVisible && self.island.model.mode == .hover) else { return }
             self.pushToast(.error, name: session.displayName, text: why)
         }
+        // Listens for the shortcut you chose, re-registering when it changes; paused while you record a new one.
+        let shortcuts = TalkShortcutModel.shared
+        talkKeyWatch = shortcuts.$shortcut.combineLatest(shortcuts.$recording)
+            .sink { [weak self] shortcut, recording in self?.talkKey.register(recording ? nil : shortcut) }
         talkKey.onDown = { [weak self] in
-            // Pinned sessions lead the list (most pressing first), so the first one is the pinned session to talk
-            // to, or, with none pinned, the most pressing.
-            guard let self, let session = self.model.sorted.first else { return }
+            // The session you chose last, while it's around; else the pinned one (pinned sessions lead the list, most
+            // pressing first), or, with none pinned, the most pressing.
+            guard let self, let session = self.talkTo.flatMap({ self.model.byID[$0] }) ?? self.model.sorted.first else { return }
             self.talkKeySession = session
             self.talk.hold(session, down: true)
         }
