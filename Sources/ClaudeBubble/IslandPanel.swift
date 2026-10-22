@@ -469,7 +469,7 @@ struct IslandView: View {
             // Ticks once a second so the rows' elapsed times stay current.
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 VStack(spacing: 2) {
-                    ForEach(Array(live.prefix(IslandLayout.maxRows)), id: \.id) { s in
+                    ForEach(Array(live.prefix(IslandLayout.maxRows).enumerated()), id: \.element.id) { index, s in
                         let asking = sessions.approval(for: s)
                         SessionRow(session: s, now: context.date, palette: sessions.palette,
                                    pinned: sessions.pinned.contains(s.id), onPin: { sessions.togglePin(s.id) },
@@ -478,7 +478,8 @@ struct IslandView: View {
                                    onDecide: asking.map { request in { sessions.decide?(request, $0) } },
                                    onAnswer: asking.map { request in { sessions.answer?(request, $0) } },
                                    talk: sessions.talk[s.id], onTalk: { sessions.holdTalk?(s, $0) },
-                                   onDrop: { sessions.dropOn?(s, $0) ?? false })
+                                   onDrop: { sessions.dropOn?(s, $0) ?? false },
+                                   dividerAbove: sessions.dividerAbove(index))
                     }
                     if live.count > IslandLayout.maxRows {
                         Text("+\(live.count - IslandLayout.maxRows) more")

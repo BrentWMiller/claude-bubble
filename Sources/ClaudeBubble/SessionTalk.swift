@@ -8,8 +8,8 @@ import UniformTypeIdentifiers
 
 /// Talking to a session from its row: what the row shows while it listens and sends.
 enum TalkState: Equatable {
-    /// Listening, with what it's heard so far.
-    case listening(String)
+    /// Listening (the mic held, or the last words still being recognised), since when.
+    case listening(since: Date)
     case sending
     case sent
     case failed(String)
@@ -33,18 +33,16 @@ final class SessionTalk {
     private let queue = DispatchQueue(label: "com.claudebubble.talk")
 
     init() {
-        dictation.onHeard = { [weak self] text in
-            guard let self, let s = self.listening else { return }
-            self.states[s.id] = .listening(text)
-        }
         dictation.onLevels = { [weak self] levels in
             guard self?.listening != nil else { return }
             self?.onVoice?(levels)
+            VoiceBarsModel.shared.hear(levels.level)
         }
         dictation.onFinished = { [weak self] text, error in
             guard let self, let s = self.listening else { return }
             self.listening = nil
             self.onVoice?(nil)
+            VoiceBarsModel.shared.hear(nil)
             if let message = SessionInbox.spoken(text) {
                 self.send(message, to: s)
             } else {
@@ -66,7 +64,7 @@ final class SessionTalk {
             return
         }
         listening = session
-        states[session.id] = .listening("")
+        states[session.id] = .listening(since: Date())
         onVoice?(VoiceLevels(listening: true))
         dictation.start()
     }
@@ -101,7 +99,8 @@ final class SessionTalk {
     private func show(_ state: TalkState?, for session: Session) {
         states[session.id] = state
         guard let state else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+        // "Sent to Claude" just confirms it (design: Session Card); a failure stays long enough to read.
+        DispatchQueue.main.asyncAfter(deadline: .now() + (state == .sent ? 1.8 : 3)) { [weak self] in
             if self?.states[session.id] == state { self?.states[session.id] = nil }
         }
     }
@@ -118,8 +117,6 @@ enum InboxSender {
 
 /// On-device dictation: hears until it's told to finish (push to talk: the mic is let go).
 final class Dictation {
-    /// What it's heard so far (main thread).
-    var onHeard: ((String) -> Void)?
     /// How loud the mic is, about 47 times a second (main thread).
     var onLevels: ((VoiceLevels) -> Void)?
     /// The final words, and why it stopped early if it failed (main thread). Called once per `start`.
@@ -189,7 +186,6 @@ final class Dictation {
                 guard let self, self.running else { return }
                 if let result {
                     self.heard = result.bestTranscription.formattedString
-                    self.onHeard?(self.heard)
                     if result.isFinal { self.end(nil) }
                 } else if error != nil {
                     self.end(nil)

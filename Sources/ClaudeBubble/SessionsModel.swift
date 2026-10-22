@@ -24,6 +24,11 @@ final class SessionsModel: ObservableObject {
         UserDefaults.standard.set(Array(pinned), forKey: Self.pinnedKey)
     }
 
+    /// Whether the row at `index` of `sorted` is the first after the pinned ones (design: Session Card's divider).
+    func dividerAbove(_ index: Int) -> Bool {
+        index > 0 && index < sorted.count && !pinned.contains(sorted[index].id) && pinned.contains(sorted[index - 1].id)
+    }
+
     private func resort() {
         sorted = SessionStore.sorted(sessions, pinned: pinned)
         byID = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
