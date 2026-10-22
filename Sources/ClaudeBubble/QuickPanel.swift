@@ -110,6 +110,7 @@ final class QuickPanel: NSPanel {
 
     func dismiss() {
         actions.previewColor(nil)
+        TalkShortcutModel.shared.stopRecording()   // closed mid-recording: the old shortcut stays
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         guard isVisible else { return }

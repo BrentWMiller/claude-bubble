@@ -110,22 +110,47 @@ final class TalkShortcutModel: ObservableObject {
     @Published var shortcut: TalkShortcut {
         didSet { (try? JSONEncoder().encode(shortcut)).map { UserDefaults.standard.set($0, forKey: Self.key) } }
     }
-    @Published var recording = false
+    /// Recording a new shortcut: the next key pressed with ⌘, ⌃ or ⌥ becomes it, Esc keeps the old one.
+    @Published private(set) var recording = false
+    private var monitor: Any?
 
     private init() {
         shortcut = UserDefaults.standard.data(forKey: Self.key).flatMap { try? JSONDecoder().decode(TalkShortcut.self, from: $0) }
             ?? .standard
+    }
+
+    func startRecording() {
+        guard !recording else { return }
+        recording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            if event.keyCode == UInt16(kVK_Escape) {
+                self.stopRecording()
+            } else if let shortcut = TalkShortcut(event: event) {
+                self.shortcut = shortcut
+                self.stopRecording()
+            } else {
+                NSSound.beep()   // needs ⌘, ⌃ or ⌥
+            }
+            return nil   // the panel doesn't see what was pressed (⌘Q isn't quit while recording)
+        }
+    }
+
+    /// Stops recording, keeping whatever shortcut there is (so closing Settings mid-recording keeps the old one).
+    func stopRecording() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        if recording { recording = false }
     }
 }
 
 /// The settings row's recorder: shows the shortcut; click it, then press the new one (Esc keeps the old).
 struct TalkShortcutRecorder: View {
     @ObservedObject private var model = TalkShortcutModel.shared
-    @State private var monitor: Any?
 
     var body: some View {
         Button {
-            model.recording ? stop() : start()
+            model.recording ? model.stopRecording() : model.startRecording()
         } label: {
             Text(model.recording ? "Press keys…" : model.shortcut.label)
                 .font(.system(size: 12, design: .monospaced))
@@ -137,27 +162,6 @@ struct TalkShortcutRecorder: View {
         }
         .buttonStyle(.plain)
         .help(model.recording ? "Press the new shortcut, or Esc to keep this one" : "Click to change")
-        .onDisappear { stop() }
-    }
-
-    private func start() {
-        model.recording = true
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.keyCode == UInt16(kVK_Escape) {
-                stop()
-            } else if let shortcut = TalkShortcut(event: event) {
-                model.shortcut = shortcut
-                stop()
-            } else {
-                NSSound.beep()   // needs ⌘, ⌃ or ⌥
-            }
-            return nil   // the panel doesn't see what was pressed (⌘Q isn't quit while recording)
-        }
-    }
-
-    private func stop() {
-        if let monitor { NSEvent.removeMonitor(monitor) }
-        monitor = nil
-        if model.recording { model.recording = false }
+        .onDisappear { model.stopRecording() }
     }
 }
