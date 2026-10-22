@@ -64,10 +64,16 @@ final class DraftPanel: NSPanel {
 
     /// Grows with the text, keeping its top where it is.
     private func refit() {
+        // On the next pass, once SwiftUI has settled: measured mid-update (the session list opening) the content
+        // reads as 0×0, and the card would shrink to nothing.
+        DispatchQueue.main.async { [weak self] in self?.refitNow() }
+    }
+
+    private func refitNow() {
         guard isVisible else { return }
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
-        guard abs(size.height - frame.height) > 0.5 else { return }
+        guard size.width > 1, size.height > 1, abs(size.height - frame.height) > 0.5 else { return }
         setFrame(CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height), display: true)
     }
 }
@@ -147,7 +153,7 @@ struct DraftView: View {
         .frame(minHeight: model.picking ? Self.listTop + CGFloat(model.targets.count) * Self.rowHeight + 16 : nil,
                alignment: .top)
         .onChange(of: model.focus) { focused = true }
-        .onChange(of: model.picking) { model.onResize?() }
+        .onChange(of: model.picking) { model.onResize?() }   // room below for the list (refit waits a pass)
     }
 
     private var card: some View {
