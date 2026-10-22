@@ -165,12 +165,14 @@ struct SessionRow: View {
     var width: CGFloat = 0
     var onDecide: ((ApprovalBehavior) -> Void)?
     var onAnswer: (([String: String]) -> Void)?
-    /// Talking to the session: what it's up to, the mic (no mic without it), and dropping things on the row.
+    /// Talking to the session: what it's up to, the mic held down (true) or let go (no mic without it), and
+    /// dropping things on the row.
     var talk: TalkState?
-    var onTalk: (() -> Void)?
+    var onTalk: ((Bool) -> Void)?
     var onDrop: (([NSItemProvider]) -> Bool)?
     @State private var hover = false
     @State private var dropTarget = false
+    @State private var holding = false
 
     /// The card's width under a row: the row less its padding and the pip's column.
     static func cardWidth(row: CGFloat) -> CGFloat { row - 20 - 38 }
@@ -234,20 +236,29 @@ struct SessionRow: View {
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
                 HStack(spacing: 6) {
-                    // Shown on hover, and always while listening.
-                    if let onTalk, hover || listening {
-                        Button {
-                            ChipClick.handled = true   // the island's click goes to the mic, not the terminal
-                            onTalk()
-                        } label: {
-                            Image(systemName: listening ? "mic.fill" : "mic")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(listening ? BubbleState.working.color(in: palette) : Color.white.opacity(0.4))
-                                .frame(width: 14, height: 14)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .help(listening ? "Send" : "Talk to this session")
+                    // Push to talk: shown on hover, and always while held.
+                    if let onTalk, hover || holding {
+                        Image(systemName: holding ? "mic.fill" : "mic")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(holding ? BubbleState.working.color(in: palette) : Color.white.opacity(0.4))
+                            .frame(width: 18, height: 18)
+                            .contentShape(Rectangle())
+                            .gesture(DragGesture(minimumDistance: 0)
+                                .onChanged { _ in
+                                    ChipClick.handled = true   // the island's click goes to the mic, not the terminal
+                                    if !holding { holding = true; onTalk(true) }
+                                }
+                                .onEnded { _ in
+                                    ChipClick.handled = true
+                                    holding = false
+                                    onTalk(false)
+                                })
+                            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { MicTargets.frames[session.id] = $0 }
+                            .onDisappear {
+                                MicTargets.frames[session.id] = nil
+                                if holding { holding = false; onTalk(false) }   // the list closed mid-hold: send
+                            }
+                            .help("Hold to talk to this session")
                     }
                     // Shown on hover, and always once pinned.
                     if let onPin, pinned || hover {
@@ -281,13 +292,9 @@ struct SessionRow: View {
         }
     }
 
-    private var listening: Bool {
-        if case .listening = talk { true } else { false }
-    }
-
     private func talkLine(_ talk: TalkState) -> String {
         switch talk {
-        case let .listening(words): words.isEmpty ? "Listening…" : words
+        case let .listening(words): words.isEmpty ? "Listening… let go to send" : words
         case .sending: "Sending…"
         case .sent: "Sent"
         case let .failed(why): why
@@ -357,7 +364,7 @@ struct SessionListView: View {
                            expanded: model.approval(for: session)?.id == model.expandedApproval?.id,
                            width: SessionListView.width - 16, onDecide: decide(session),
                            onAnswer: model.approval(for: session).map { request in { model.answer?(request, $0) } },
-                           talk: model.talk[session.id], onTalk: { model.toggleTalk?(session) },
+                           talk: model.talk[session.id], onTalk: { model.holdTalk?(session, $0) },
                            onDrop: { model.dropOn?(session, $0) ?? false })
                     .onTapGesture { onSelect(session) }
             }
@@ -459,6 +466,13 @@ struct LinkChips: View {
 /// Set when a chip opened its link, so a click the island replays to its content doesn't also focus the terminal.
 enum ChipClick {
     static var handled = false
+}
+
+/// Where the rows' mics are (by session, in their hosting view's coordinates), so the island, which holds presses
+/// back until it knows they aren't drags, can hand a press on a mic straight to it: push to talk needs the press.
+enum MicTargets {
+    static var frames: [String: CGRect] = [:]
+    static func contains(_ point: CGPoint) -> Bool { frames.values.contains { $0.contains(point) } }
 }
 
 /// A waiting permission prompt in full (design: Approve / Deny 1a, 2a, 2b): Claude's reason, the command or the

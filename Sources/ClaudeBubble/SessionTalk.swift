@@ -54,12 +54,13 @@ final class SessionTalk {
         queue.async { SessionInbox.pruneDrops() }
     }
 
-    /// The mic on `session`'s row: starts listening, or, while it listens, stops and sends what it heard.
-    func toggle(_ session: Session) {
-        if let current = listening {
-            dictation.finish()
-            if current.id == session.id { return }
+    /// Push to talk on `session`'s row: listens while the mic is held, and sends what it heard on release.
+    func hold(_ session: Session, down: Bool) {
+        guard down else {
+            if listening?.id == session.id { dictation.finish() }
+            return
         }
+        if listening != nil { dictation.finish() }
         guard SessionInbox.peer(sessionId: session.id, pid: session.pid) != nil else {
             show(.failed("Can't reach this session"), for: session)
             return
@@ -115,7 +116,7 @@ enum InboxSender {
     }
 }
 
-/// On-device dictation: hears until it's told to finish, or the speaker goes quiet for a moment after talking.
+/// On-device dictation: hears until it's told to finish (push to talk: the mic is let go).
 final class Dictation {
     /// What it's heard so far (main thread).
     var onHeard: ((String) -> Void)?
@@ -124,15 +125,16 @@ final class Dictation {
     /// The final words, and why it stopped early if it failed (main thread). Called once per `start`.
     var onFinished: ((String, String?) -> Void)?
 
-    /// How long a pause after some words ends it.
-    static let pause: TimeInterval = 2.2
+    /// How long, once let go, it waits for the last words to be recognised.
+    static let settle: TimeInterval = 1
 
     private let engine = AVAudioEngine()
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var heard = ""
-    private var quiet: DispatchWorkItem?
+    private var settling: DispatchWorkItem?
     private var running = false
+    private var tapped = false
     private let meter = VoiceMeter()
 
     func start() {
@@ -151,8 +153,16 @@ final class Dictation {
         }
     }
 
-    /// Stops listening and reports what it heard.
-    func finish() { end(nil) }
+    /// Stops listening, then reports what it heard once the last words are in (or `settle` passes).
+    func finish() {
+        guard running, settling == nil else { return }
+        guard request != nil else { return end(nil) }   // still asking for permission: nothing heard
+        stopMic()
+        request?.endAudio()
+        let work = DispatchWorkItem { [weak self] in self?.end(nil) }
+        settling = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settle, execute: work)
+    }
 
     private func listen() {
         guard running else { return }
@@ -170,6 +180,7 @@ final class Dictation {
             let levels = meter.measure(samples, count: Int(buffer.frameLength), sampleRate: rate)
             DispatchQueue.main.async { self?.onLevels?(levels) }
         }
+        tapped = true
         self.request = request
         engine.prepare()
         do { try engine.start() } catch { return end("Couldn't start the microphone") }
@@ -179,7 +190,6 @@ final class Dictation {
                 if let result {
                     self.heard = result.bestTranscription.formattedString
                     self.onHeard?(self.heard)
-                    self.waitForPause()
                     if result.isFinal { self.end(nil) }
                 } else if error != nil {
                     self.end(nil)
@@ -188,20 +198,17 @@ final class Dictation {
         }
     }
 
-    private func waitForPause() {
-        quiet?.cancel()
-        guard !heard.isEmpty else { return }
-        let work = DispatchWorkItem { [weak self] in self?.end(nil) }
-        quiet = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pause, execute: work)
+    private func stopMic() {
+        if engine.isRunning { engine.stop() }
+        if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }   // even if the engine never started
     }
 
     private func end(_ error: String?) {
         guard running else { return }
         running = false
-        quiet?.cancel()
-        if engine.isRunning { engine.stop() }
-        if request != nil { engine.inputNode.removeTap(onBus: 0) }   // tapped, even if the engine never started
+        settling?.cancel()
+        settling = nil
+        stopMic()
         request?.endAudio()
         task?.cancel()
         request = nil

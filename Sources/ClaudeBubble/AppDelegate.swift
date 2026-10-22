@@ -146,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             guard let self, !self.listPanel.isShown, !(self.island.isVisible && self.island.model.mode == .hover) else { return }
             self.pushToast(.sent, name: session.displayName)
         }
-        model.toggleTalk = { [weak self] session in self?.talk.toggle(session) }
+        model.holdTalk = { [weak self] session, down in self?.talk.hold(session, down: down) }
         model.dropOn = { [weak self] session, providers in self?.talk.drop(providers, on: session) ?? false }
         if applied.approvals { approvals.start() }
         toastModel.palette = applied.palette
