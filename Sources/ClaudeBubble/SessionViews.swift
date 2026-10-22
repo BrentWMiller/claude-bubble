@@ -218,6 +218,10 @@ struct SessionRow: View {
 
     private var sent: Bool { talk == .sent }
 
+    private var heard: String {
+        if case let .listening(_, words) = talk { words } else { "" }
+    }
+
     /// The mic and pin show on hover, and stay while you talk.
     private var showControls: Bool { hover || talking }
 
@@ -275,7 +279,7 @@ struct SessionRow: View {
 
     /// How long you've been talking (0:07), while you are.
     private var talkClock: String? {
-        guard case let .listening(since) = talk else { return nil }
+        guard case let .listening(since, _) = talk else { return nil }
         let secs = max(0, Int(now.timeIntervalSince(since)))
         return "\(secs / 60):" + String(format: "%02d", secs % 60)
     }
@@ -284,8 +288,13 @@ struct SessionRow: View {
         if talking {
             HStack(spacing: 10) {
                 VoiceBars()
-                Text("Listening").foregroundStyle(TalkColors.text).fixedSize()
-                Text("Release to send").foregroundStyle(Color.white.opacity(0.4)).lineLimit(1).truncationMode(.tail)
+                if heard.isEmpty {
+                    Text("Listening").foregroundStyle(TalkColors.text).fixedSize()
+                    Text("Release to edit").foregroundStyle(Color.white.opacity(0.4)).lineLimit(1).truncationMode(.tail)
+                } else {
+                    // What it's heard, latest words showing.
+                    Text(heard).foregroundStyle(Color.white.opacity(0.85)).lineLimit(1).truncationMode(.head)
+                }
             }
             .font(.system(size: 12))
             .frame(height: 15)
@@ -357,6 +366,7 @@ struct SessionRow: View {
     private func talkLine(_ talk: TalkState) -> String {
         switch talk {
         case .listening: "Listening"
+        case .drafting: "Editing message…"
         case .sending: "Sending…"
         case .sent: "Sent to Claude"
         case let .failed(why): why
@@ -365,7 +375,7 @@ struct SessionRow: View {
 
     private func talkColor(_ talk: TalkState) -> Color {
         switch talk {
-        case .listening, .sending, .sent: TalkColors.blue
+        case .listening, .drafting, .sending, .sent: TalkColors.blue
         case .failed: BubbleState.error.color(in: palette)
         }
     }

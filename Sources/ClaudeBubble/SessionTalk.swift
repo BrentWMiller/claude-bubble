@@ -8,8 +8,10 @@ import UniformTypeIdentifiers
 
 /// Talking to a session from its row: what the row shows while it listens and sends.
 enum TalkState: Equatable {
-    /// Listening (the mic held, or the last words still being recognised), since when.
-    case listening(since: Date)
+    /// Listening (the mic held, or the last words still being recognised), since when, and what it's heard so far.
+    case listening(since: Date, words: String)
+    /// What you said is open to edit before it's sent.
+    case drafting
     case sending
     case sent
     case failed(String)
@@ -24,15 +26,22 @@ final class SessionTalk {
     var onSent: ((Session) -> Void)?
     /// What the orb should hear: your voice while it listens, nil once it stops (main thread).
     var onVoice: ((VoiceLevels?) -> Void)?
+    /// You let go of the mic: what it heard, to edit before it goes (send it with `send(_:to:)`).
+    var onDraft: ((Session, String) -> Void)?
 
     private(set) var states: [String: TalkState] = [:] {
         didSet { onChange?(states) }
     }
     private let dictation = Dictation()
     private var listening: Session?
+    private var listeningSince = Date()
     private let queue = DispatchQueue(label: "com.claudebubble.talk")
 
     init() {
+        dictation.onHeard = { [weak self] words in
+            guard let self, let s = self.listening else { return }
+            self.states[s.id] = .listening(since: self.listeningSince, words: words)
+        }
         dictation.onLevels = { [weak self] levels in
             guard self?.listening != nil else { return }
             self?.onVoice?(levels)
@@ -43,7 +52,11 @@ final class SessionTalk {
             self.listening = nil
             self.onVoice?(nil)
             VoiceBarsModel.shared.hear(nil)
-            if let message = SessionInbox.spoken(text) {
+            let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !words.isEmpty, let onDraft = self.onDraft {
+                self.states[s.id] = .drafting
+                onDraft(s, words)
+            } else if let message = SessionInbox.spoken(words) {
                 self.send(message, to: s)
             } else {
                 self.show(error.map(TalkState.failed), for: s)
@@ -52,7 +65,16 @@ final class SessionTalk {
         queue.async { SessionInbox.pruneDrops() }
     }
 
-    /// Push to talk on `session`'s row: listens while the mic is held, and sends what it heard on release.
+    /// Sends a draft you checked (and maybe edited) to `session`; nil or empty text drops it.
+    func send(draft text: String?, to session: Session) {
+        if let text, let message = SessionInbox.spoken(text) {
+            send(message, to: session)
+        } else if states[session.id] == .drafting {
+            states[session.id] = nil
+        }
+    }
+
+    /// Push to talk on `session`'s row: listens while the mic is held, then opens what it heard as a draft.
     func hold(_ session: Session, down: Bool) {
         guard down else {
             if listening?.id == session.id { dictation.finish() }
@@ -64,7 +86,8 @@ final class SessionTalk {
             return
         }
         listening = session
-        states[session.id] = .listening(since: Date())
+        listeningSince = Date()
+        states[session.id] = .listening(since: listeningSince, words: "")
         onVoice?(VoiceLevels(listening: true))
         dictation.start()
     }
@@ -117,6 +140,8 @@ enum InboxSender {
 
 /// On-device dictation: hears until it's told to finish (push to talk: the mic is let go).
 final class Dictation {
+    /// What it's heard so far (main thread).
+    var onHeard: ((String) -> Void)?
     /// How loud the mic is, about 47 times a second (main thread).
     var onLevels: ((VoiceLevels) -> Void)?
     /// The final words, and why it stopped early if it failed (main thread). Called once per `start`.
@@ -186,6 +211,7 @@ final class Dictation {
                 guard let self, self.running else { return }
                 if let result {
                     self.heard = result.bestTranscription.formattedString
+                    self.onHeard?(self.heard)
                     if result.isFinal { self.end(nil) }
                 } else if error != nil {
                     self.end(nil)
