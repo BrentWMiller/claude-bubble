@@ -140,113 +140,15 @@ enum InboxSender {
     }
 }
 
-/// On-device dictation: hears until it's told to finish (push to talk: the mic is let go).
-final class Dictation {
-    /// What it's heard so far (main thread).
-    var onHeard: ((String) -> Void)?
-    /// How loud the mic is, about 47 times a second (main thread).
-    var onLevels: ((VoiceLevels) -> Void)?
-    /// The final words, and why it stopped early if it failed (main thread). Called once per `start`.
-    var onFinished: ((String, String?) -> Void)?
-
-    /// How long, once let go, it waits for the last words to be recognised.
-    static let settle: TimeInterval = 1
-
-    private let engine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private var heard = ""
-    private var settling: DispatchWorkItem?
-    private var running = false
-    private var tapped = false
-    private let meter = VoiceMeter()
-
-    func start() {
-        heard = ""
-        running = true
-        SFSpeechRecognizer.requestAuthorization { status in
-            DispatchQueue.main.async {
-                guard status == .authorized else { return self.end("Speech recognition is off for Claude Bubble") }
-                AVCaptureDevice.requestAccess(for: .audio) { granted in
-                    DispatchQueue.main.async {
-                        guard granted else { return self.end("The microphone is off for Claude Bubble") }
-                        self.listen()
-                    }
-                }
-            }
-        }
-    }
-
-    /// Stops listening, then reports what it heard once the last words are in (or `settle` passes).
-    func finish() {
-        guard running, settling == nil else { return }
-        guard request != nil else { return end(nil) }   // still asking for permission: nothing heard
-        stopMic()
-        request?.endAudio()
-        let work = DispatchWorkItem { [weak self] in self?.end(nil) }
-        settling = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.settle, execute: work)
-    }
-
-    private func listen() {
-        guard running else { return }
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else { return end("Dictation isn't available") }
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.shouldReportPartialResults = true
-        if recognizer.supportsOnDeviceRecognition { request.requiresOnDeviceRecognition = true }
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.channelCount > 0 else { return end("No microphone") }
-        let meter = meter, rate = Float(format.sampleRate)
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            request.append(buffer)
-            guard let samples = buffer.floatChannelData?[0] else { return }
-            let levels = meter.measure(samples, count: Int(buffer.frameLength), sampleRate: rate)
-            DispatchQueue.main.async { self?.onLevels?(levels) }
-        }
-        tapped = true
-        self.request = request
-        engine.prepare()
-        do { try engine.start() } catch { return end("Couldn't start the microphone") }
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            DispatchQueue.main.async {
-                guard let self, self.running else { return }
-                if let result {
-                    self.heard = result.bestTranscription.formattedString
-                    self.onHeard?(self.heard)
-                    if result.isFinal { self.end(nil) }
-                } else if error != nil {
-                    self.end(nil)
-                }
-            }
-        }
-    }
-
-    private func stopMic() {
-        if engine.isRunning { engine.stop() }
-        if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }   // even if the engine never started
-    }
-
-    private func end(_ error: String?) {
-        guard running else { return }
-        running = false
-        settling?.cancel()
-        settling = nil
-        stopMic()
-        request?.endAudio()
-        task?.cancel()
-        request = nil
-        task = nil
-        onFinished?(heard, error)
-    }
-}
-
 /// The mic's loudness and bands, measured like the design's Web Audio analyser (512-point FFT, decibels from -100 to
 /// -30 mapped to 0…1, the same three bands and gains), so the orb moves as it does there.
 final class VoiceMeter {
     private static let size = 512
     private let setup = vDSP_create_fftsetup(9, FFTRadix(kFFTRadix2))
     private var window = [Float](repeating: 0, count: VoiceMeter.size)
+
+    /// The loudest you've been lately (RMS), for the gain: eases down over a few seconds.
+    private var peak: Float = 0.02
 
     init() { vDSP_hann_window(&window, vDSP_Length(Self.size), Int32(vDSP_HANN_NORM)) }
     deinit { if let setup { vDSP_destroy_fftsetup(setup) } }
@@ -255,8 +157,13 @@ final class VoiceMeter {
     func measure(_ samples: UnsafePointer<Float>, count: Int, sampleRate: Float) -> VoiceLevels {
         var rms: Float = 0
         vDSP_rmsqv(samples, 1, &rms, vDSP_Length(count))
+        // Automatic gain, as a browser's mic has (the design's analyser hears that): the raw mic is far quieter, so
+        // scale your voice so its recent peaks land where a browser's would (about 0.2 RMS), at most 30×.
+        peak = max(rms, peak * 0.995, 0.005)
+        let gain = min(max(0.2 / peak, 1), 30)
+        let level = min(1, rms * gain * 5)
         let n = Self.size
-        guard let setup, count >= n else { return VoiceLevels(level: min(1, rms * 5), listening: true) }
+        guard let setup, count >= n else { return VoiceLevels(level: level, listening: true) }
         var windowed = [Float](repeating: 0, count: n)
         vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(n))
         var real = [Float](repeating: 0, count: n / 2), imag = [Float](repeating: 0, count: n / 2)
@@ -273,16 +180,17 @@ final class VoiceMeter {
         }
         // Bin k of the design's analyser at 48kHz is k × 93.75Hz: lows 1–8, mids 8–40, highs 40–120.
         let hz = sampleRate / Float(n)
+        let boost = 20 * log10f(gain)
         func band(_ lo: Float, _ hi: Float) -> Float {
             let a = max(1, Int(lo / hz)), b = min(n / 2, max(a + 1, Int(hi / hz)))
             var sum: Float = 0
             for k in a..<b {
-                let db = 10 * log10f(max(power[k], 1e-12)) - 20 * log10f(Float(n))   // zrip's scale, to the analyser's
+                let db = 10 * log10f(max(power[k], 1e-12)) - 20 * log10f(Float(n)) + boost   // zrip's scale, to the analyser's
                 sum += min(max((db + 100) / 70, 0), 1)
             }
             return sum / Float(b - a)
         }
-        return VoiceLevels(level: min(1, rms * 5), low: min(1, band(94, 750) * 1.4), mid: min(1, band(750, 3750) * 1.8),
+        return VoiceLevels(level: level, low: min(1, band(94, 750) * 1.4), mid: min(1, band(750, 3750) * 1.8),
                            high: min(1, band(3750, 11250) * 2.5), listening: true)
     }
 }
