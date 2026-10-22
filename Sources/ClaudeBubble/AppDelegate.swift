@@ -153,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.answer = { [weak self] request, answers in self?.approvals.reply(request.id, .allow, answers: answers) }
         talk.onChange = { [weak self] states in self?.model.talk = states }
         talk.onVoice = { [weak self] levels in self?.animator.voice = levels }
-        talk.onDraft = { [weak self] session, words in
+        talk.onDraft = { [weak self] session, words, talked in
             guard let self else { return }
             // Opens where the mic was let go, to check and edit before it goes; from the shortcut, under the orb.
             let fromKey = self.talkKeySession?.id == session.id
@@ -161,7 +161,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let targets = self.model.sorted.map {
                 DraftTarget(id: $0.id, name: $0.displayName, color: $0.tone.swatch(in: self.applied.palette))
             }
-            self.draftPanel.show(words, to: session.id, among: targets, at: fromKey ? self.draftAnchor() : NSEvent.mouseLocation,
+            self.draftPanel.show(words, to: session.id, among: targets, talked: talked, at: fromKey ? self.draftAnchor() : NSEvent.mouseLocation,
                                  send: { [weak self] text, id in
                                      guard let self else { return }
                                      // Switched to another session: this one's row stops saying it's being written to.

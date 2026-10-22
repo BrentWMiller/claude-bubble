@@ -29,7 +29,7 @@ final class SessionTalk {
     /// Talking to `session` failed, and why (main thread).
     var onFailed: ((Session, String) -> Void)?
     /// You let go of the mic: what it heard, to edit before it goes (send it with `send(_:to:)`).
-    var onDraft: ((Session, String) -> Void)?
+    var onDraft: ((Session, String, TimeInterval) -> Void)?
 
     private(set) var states: [String: TalkState] = [:] {
         didSet { onChange?(states) }
@@ -37,6 +37,8 @@ final class SessionTalk {
     private let dictation = Dictation()
     private var listening: Session?
     private var listeningSince = Date()
+    /// When the mic was let go (the draft shows how long you talked, not how long the last words took).
+    private var releasedAt: Date?
     private let queue = DispatchQueue(label: "com.claudebubble.talk")
 
     init() {
@@ -62,7 +64,7 @@ final class SessionTalk {
             let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
             if !words.isEmpty, let onDraft = self.onDraft {
                 self.states[s.id] = .drafting
-                onDraft(s, words)
+                onDraft(s, words, (self.releasedAt ?? Date()).timeIntervalSince(self.listeningSince))
             } else if let message = SessionInbox.spoken(words) {
                 self.send(message, to: s)
             } else {
@@ -84,7 +86,10 @@ final class SessionTalk {
     /// Push to talk on `session`'s row: listens while the mic is held, then opens what it heard as a draft.
     func hold(_ session: Session, down: Bool) {
         guard down else {
-            if listening?.id == session.id { dictation.finish() }
+            if listening?.id == session.id {
+                releasedAt = Date()
+                dictation.finish()
+            }
             return
         }
         if listening != nil { dictation.finish() }
@@ -94,6 +99,7 @@ final class SessionTalk {
         }
         listening = session
         listeningSince = Date()
+        releasedAt = nil
         states[session.id] = .listening(since: listeningSince, words: "")
         onVoice?(VoiceLevels(listening: false, look: session.tone.orbState))
         dictation.start()
