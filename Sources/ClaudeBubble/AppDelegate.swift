@@ -47,6 +47,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// Permission prompts approved or denied from the bubble.
     private let talk = SessionTalk()
     private let draftPanel = DraftPanel()
+    /// Hold to talk from anywhere, to the pinned session (or, with none pinned, the most pressing one).
+    private let talkKey = HotKey()
+    private var talkKeyWatch: AnyCancellable?
+    /// The session the shortcut is talking to, while it's held (its draft opens under the orb, not the pointer).
+    private var talkKeySession: Session?
+    /// The session you last switched a draft to: the shortcut keeps talking to it while it's around. Kept across
+    /// restarts.
+    private var talkTo: String? {
+        get { UserDefaults.standard.string(forKey: "talkTo") }
+        set { UserDefaults.standard.set(newValue, forKey: "talkTo") }
+    }
     private let approvals = ApprovalServer(directory: FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent(".claude-bubble"))
     private var island: IslandPanel!
@@ -142,11 +153,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.answer = { [weak self] request, answers in self?.approvals.reply(request.id, .allow, answers: answers) }
         talk.onChange = { [weak self] states in self?.model.talk = states }
         talk.onVoice = { [weak self] levels in self?.animator.voice = levels }
-        talk.onDraft = { [weak self] session, words in
+        talk.sessionNames = { [weak self] in self?.sessionNames() ?? [] }
+        talk.onDraft = { [weak self] session, words, talked in
             guard let self else { return }
-            // Opens where the mic was let go, to check and edit before it goes.
-            self.draftPanel.show(words, to: session.displayName, at: NSEvent.mouseLocation,
-                                 color: session.tone.swatch(in: self.applied.palette), send: { [weak self] text in self?.talk.send(draft: text, to: session) },
+            // Opens where the mic was let go, to check and edit before it goes; from the shortcut, under the orb.
+            let fromKey = self.talkKeySession?.id == session.id
+            self.talkKeySession = nil
+            let targets = self.model.sorted.map {
+                DraftTarget(id: $0.id, name: $0.displayName, color: $0.tone.swatch(in: self.applied.palette))
+            }
+            self.draftPanel.show(words, to: session.id, among: targets, talked: talked, at: fromKey ? self.draftAnchor() : NSEvent.mouseLocation,
+                                 send: { [weak self] text, id in
+                                     guard let self else { return }
+                                     // Switched to another session: this one's row stops saying it's being written to.
+                                     let to = self.model.byID[id] ?? session
+                                     if to.id != session.id { self.talk.send(draft: nil, to: session) }
+                                     self.talk.send(draft: text, to: to)
+                                 },
+                                 picked: { [weak self] id in self?.talkTo = id },
                                  cancel: { [weak self] in self?.talk.send(draft: nil, to: session) })
         }
         talk.onSent = { [weak self] session in
@@ -155,6 +179,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self.pushToast(.sent, name: session.displayName)
         }
         model.holdTalk = { [weak self] session, down in self?.talk.hold(session, down: down) }
+        talk.onFailed = { [weak self] session, why in
+            // The row says so while the list is open; otherwise (the shortcut, mostly) a toast does.
+            guard let self, !self.listPanel.isShown, !(self.island.isVisible && self.island.model.mode == .hover) else { return }
+            self.pushToast(.error, name: session.displayName, text: why)
+        }
+        // Listens for the shortcut you chose, re-registering when it changes; paused while you record a new one.
+        let shortcuts = TalkShortcutModel.shared
+        // ...and only while talking is on (Settings → Dictation), which also shows or hides the rows' mics.
+        let dictation = DictationVocabularyModel.shared
+        talkKeyWatch = shortcuts.$shortcut.combineLatest(shortcuts.$recording, dictation.$enabled)
+            .sink { [weak self] shortcut, recording, enabled in
+                self?.talkKey.register(recording || !enabled ? nil : shortcut)
+                self?.model.talkEnabled = enabled
+            }
+        talkKey.onDown = { [weak self] in
+            // The session you chose last, while it's around; else the pinned one (pinned sessions lead the list, most
+            // pressing first), or, with none pinned, the most pressing.
+            guard let self, let session = self.talkTo.flatMap({ self.model.byID[$0] }) ?? self.model.sorted.first else { return }
+            self.talkKeySession = session
+            self.talk.hold(session, down: true)
+        }
+        talkKey.onUp = { [weak self] in
+            guard let self, let session = self.talkKeySession else { return }
+            self.talk.hold(session, down: false)
+        }
         model.dropOn = { [weak self] session, providers in self?.talk.drop(providers, on: session) ?? false }
         if applied.approvals { approvals.start() }
         toastModel.palette = applied.palette
@@ -844,6 +893,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Your sessions' names and their projects', each once: what dictation also listens for.
+    private func sessionNames() -> [String] {
+        var seen = Set<String>()
+        return model.sorted.flatMap { [$0.displayName, $0.project] }.filter { seen.insert($0.lowercased()).inserted }
+    }
+
+    /// Where a draft from the talk shortcut opens: centred under the orb, or under the island's pill.
+    private func draftAnchor() -> CGPoint {
+        let under: CGRect
+        if isIsland, !island.pill.isEmpty {
+            under = island.pill
+        } else {
+            // The orb is the middle of its window (the rest is glow).
+            let f = panel.frame
+            under = f.insetBy(dx: f.width * 0.2, dy: f.height * 0.2)
+        }
+        return CGPoint(x: under.midX + DraftPanel.width / 2 - 24, y: under.minY)
+    }
+
     /// Shows a toast, or holds it for the catch-up while quiet.
     private func pushToast(_ kind: ToastKind, name: String, text: String? = nil) {
         if quiet {
@@ -1170,7 +1238,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openSimulator: { [weak self] in self?.openSimulator() },
         installUpdate: { [weak self] in self?.offerUpdate() },
         checkForUpdates: { [weak self] in self?.checkForUpdates() },
-        previewColor: { [weak self] color in self?.preview(color) }
+        previewColor: { [weak self] color in self?.preview(color) },
+        sessionNames: { [weak self] in self?.sessionNames() ?? [] }
     ))
 
     private func preview(_ color: PaletteColor?) {

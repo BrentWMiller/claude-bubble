@@ -32,6 +32,10 @@ Claude Bubble updates itself: new versions show up in the app.
 Everything stays on your Mac. The only network requests are a daily update check against this repository's
 releases (you can turn it off in Settings), and the GitHub CLI's, if you've installed it.
 
+Talking to a session is recognised on your Mac too, never on Apple's servers. On macOS 26 and later, macOS downloads
+its dictation model for your language the first time you use it; if your Mac can't recognise your language itself,
+the bubble says so instead of sending your voice anywhere.
+
 ## Uninstall
 
 Right-click the orb, open **Settings…**, and choose **Uninstall Claude Bubble…**.

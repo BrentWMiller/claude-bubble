@@ -204,7 +204,9 @@ final class OrbRenderer: NSObject, MTKViewDelegate {
             n: [f.fan, 0, 0, 0],
             o: edgeSquash(view, scale: f.scale, dt: Float(dt)),
             p: [f.voice, f.voicePhase, f.listening, 0],
-            q: SIMD4(f.voiceBands, 0)
+            q: SIMD4(f.voiceBands, 0),
+            spec0: f.voiceSpectrum.lowHalf.lowHalf, spec1: f.voiceSpectrum.lowHalf.highHalf,
+            spec2: f.voiceSpectrum.highHalf.lowHalf, spec3: f.voiceSpectrum.highHalf.highHalf
         )
         let len = MemoryLayout<OrbUniforms>.stride
 

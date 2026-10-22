@@ -118,6 +118,24 @@ final class OrbAnimatorTests: XCTestCase {
         XCTAssertEqual(StatusTone.completed.orbState, .idle)
     }
 
+    // The orb traces the voice's spectrum: a band jumps up with it, falls back slower, and clears once you stop.
+    func testSpectrumRisesFastFallsSlowerAndClears() {
+        let a = OrbAnimator(state: .idle)
+        var levels = VoiceLevels(level: 1, listening: false)
+        levels.spectrum[3] = 1
+        a.voice = levels
+        run(a, seconds: 0.1)
+        XCTAssertGreaterThan(a.step(dt: 1.0 / 60).voiceSpectrum[3], 0.6, "rises within a few frames")
+        XCTAssertEqual(a.step(dt: 1.0 / 60).voiceSpectrum[9], 0, accuracy: 0.001, "a quiet band stays flat")
+        levels.spectrum[3] = 0
+        a.voice = levels
+        run(a, seconds: 0.1)
+        XCTAssertGreaterThan(a.step(dt: 1.0 / 60).voiceSpectrum[3], 0.3, "falls back more slowly")
+        a.voice = nil
+        run(a, seconds: 3)
+        XCTAssertLessThan(a.step(dt: 1.0 / 60).voiceSpectrum.max(), 0.01)
+    }
+
     func testListeningRunsTheRipplesInwardAndSpeakingOutward() {
         let a = OrbAnimator(state: .idle)
         a.voice = VoiceLevels(level: 0.8, low: 0.5, mid: 0.5, high: 0.5, listening: true)

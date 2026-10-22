@@ -40,6 +40,8 @@ public struct OrbFrame: Sendable {
     public var listening: Float = 0
     /// The voice's low, mid and high bands (eased).
     public var voiceBands = SIMD3<Float>(0, 0, 0)
+    /// The voice's spectrum, low to high (eased): the rim and dots trace it.
+    public var voiceSpectrum = SIMD16<Float>(repeating: 0)
     /// Colour fan: 0…1 while new colours sweep out from the top of the orb (-1 when settled), and the colours it
     /// sweeps away from. `params` holds the colours it sweeps to.
     public var fan: Float = -1
@@ -51,6 +53,8 @@ public struct OrbFrame: Sendable {
 /// (listening) or Claude (speaking), and whose colours to wear (the session's, as its row shows them).
 public struct VoiceLevels: Equatable, Sendable {
     public var level, low, mid, high: Float
+    /// Sixteen bands from about 80Hz to 8kHz, each about 0…1, low to high: the shape of the voice.
+    public var spectrum = SIMD16<Float>(repeating: 0)
     public var listening: Bool
     public var look: BubbleState
 
@@ -106,6 +110,7 @@ public final class OrbAnimator {
     public var voice: VoiceLevels?
     private var vox: Float = 0
     private var voxBands = SIMD3<Float>(0, 0, 0)
+    private var voxSpectrum = SIMD16<Float>(repeating: 0)
     private var listen: Float = 0
     private var voxPhase: Float = 0
     private let director = MotionDirector()
@@ -342,6 +347,11 @@ public final class OrbAnimator {
         vox += (heard - vox) * (1 - powf(heard > vox ? 0.00002 : 0.006, dt))
         let bands = voice.map { SIMD3($0.low, $0.mid, $0.high) } ?? .zero
         voxBands += (bands - voxBands) * (1 - powf(0.0005, dt))
+        // Each band jumps up with the voice and falls back more slowly, so its shape holds long enough to read.
+        let heardSpectrum = voice?.spectrum ?? SIMD16(repeating: 0)
+        let rise = 1 - powf(0.000001, dt), fall = 1 - powf(0.02, dt)
+        let ease = SIMD16<Float>(repeating: fall).replacing(with: rise, where: heardSpectrum .> voxSpectrum)
+        voxSpectrum += (heardSpectrum - voxSpectrum) * ease
         let you: Float = voice?.listening == true ? 1 : 0
         listen += (you - listen) * (1 - powf(0.03, dt))
         voxPhase = (voxPhase + dt * (2 + vox * 10) * (you > 0 ? -1 : 1)).truncatingRemainder(dividingBy: 400 * .pi)
@@ -391,6 +401,7 @@ public final class OrbAnimator {
         frame.voicePhase = voxPhase
         frame.listening = listen
         frame.voiceBands = voxBands
+        frame.voiceSpectrum = voxSpectrum
         if let f = failAt { if time - f < 1.2 { frame.failAge = Float(time - f) } else { failAt = nil } }
         if let s = skillAt { if time - s < 1.6 { frame.skillAge = Float(time - s) } else { skillAt = nil } }
         ticks.removeAll { time - $0.at >= 0.8 }

@@ -23,6 +23,8 @@ struct QuickPanelActions {
     var checkForUpdates: () -> Void
     /// Shows the orb/island in the state a colour belongs to while it's being edited (nil: back to normal).
     var previewColor: (PaletteColor?) -> Void
+    /// Your sessions' and projects' names (Settings → Dictation shows them).
+    var sessionNames: () -> [String]
 }
 
 /// The right-click panel: the bubble's own dark card with one-click controls, instead of a system menu.
@@ -110,6 +112,7 @@ final class QuickPanel: NSPanel {
 
     func dismiss() {
         actions.previewColor(nil)
+        TalkShortcutModel.shared.stopRecording()   // closed mid-recording: the old shortcut stays
         monitors.forEach(NSEvent.removeMonitor)
         monitors = []
         guard isVisible else { return }
@@ -119,7 +122,7 @@ final class QuickPanel: NSPanel {
 
 /// The panel's page and pop-in.
 final class QuickPanelState: ObservableObject {
-    enum Page { case main, advanced }
+    enum Page { case main, advanced, dictation }
     @Published var page: Page = .main
     @Published var shown = false
     var anchor: CGPoint = .zero
@@ -146,6 +149,7 @@ struct QuickPanelView: View {
     let actions: QuickPanelActions
     let close: () -> Void
     @ObservedObject var state = QuickPanelState()
+    @ObservedObject private var dictation = DictationVocabularyModel.shared
     @State private var hoveredTheme: String?
     /// The custom colour wells under the theme grid are open.
     @State private var editingColors = false
@@ -165,8 +169,13 @@ struct QuickPanelView: View {
             .frame(height: 14)
             .help("Drag to move")
             Group {
-                if state.page == .main { mainPage.transition(.move(edge: .leading).combined(with: .opacity)) }
-                else { advancedPage.transition(.move(edge: .trailing).combined(with: .opacity)) }
+                switch state.page {
+                case .main: mainPage.transition(.move(edge: .leading).combined(with: .opacity))
+                case .advanced: advancedPage.transition(.move(edge: .trailing).combined(with: .opacity))
+                case .dictation: DictationPage(names: actions.sessionNames(), back: { state.go(.main) },
+                                               resized: { state.resized() })
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                }
             }
         }
         .padding([.horizontal, .bottom], 10)
@@ -181,6 +190,7 @@ struct QuickPanelView: View {
         // Switching style (or quiet) shows different controls: fit the window to them.
         .onChange(of: prefs.style) { state.resized() }
         .onChange(of: prefs.quiet) { state.resized() }
+        .onChange(of: dictation.enabled) { state.resized() }
         .onChange(of: updater.available?.version.description) { state.resized() }
     }
 
@@ -447,6 +457,25 @@ struct QuickPanelView: View {
                 .help("How much of the 5-hour limit is used, on the bubble and in the session list.")
             toggleRow("Approve from the bubble", Binding(get: { prefs.approvals }, set: { settings.prefs.approvals = $0 }))
                 .help("Allow or deny permission prompts, and answer Claude's questions, from the bubble.")
+            divider
+            // Talking to sessions, in one place: on or off, its shortcut, and what dictation listens for.
+            groupTitle("Voice")
+            toggleRow("Talk to sessions", $dictation.enabled)
+                .help("Hold a session's mic, or the talk shortcut, to say something to it.")
+            if dictation.enabled {
+                HStack {
+                    Text("Talk shortcut").foregroundStyle(Color.white.opacity(0.9))
+                    Spacer()
+                    TalkShortcutRecorder()
+                }
+                .font(.system(size: 13))
+                .help("Hold it anywhere to talk to the session you chose last, else the pinned or most pressing one.")
+                toggleRow("Lower other audio while talking", $dictation.lowersOtherAudio)
+                    .help("Music and videos turn down while you hold the mic, and come back when you let go.")
+                Row(title: "Vocabulary", shortcut: "\(dictation.words.count) \(dictation.words.count == 1 ? "word" : "words")",
+                    chevron: true) { state.go(.dictation) }
+                    .help("Words and names dictation should listen for")
+            }
             divider
             groupTitle("Alerts")
             toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
@@ -772,5 +801,166 @@ private struct UpdateRow: View {
         .buttonStyle(.plain)
         .disabled(installing)
         .onHover { hover = $0 }
+    }
+}
+
+/// Settings → Dictation (design: Dictation menu): talking on or off, the words and names to listen for, and the
+/// sessions' names it also listens for. Changes apply to the next thing you say.
+private struct DictationPage: View {
+    /// Your sessions' and projects' names, as they are now.
+    let names: [String]
+    let back: () -> Void
+    let resized: () -> Void
+    @ObservedObject private var settings = DictationVocabularyModel.shared
+    @State private var newWord = ""
+    private let dim = Color.white.opacity(0.5)
+    private let green = Color(red: 0.2, green: 0.78, blue: 0.35)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 6) {
+                Button(action: back) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
+                        Text("Dictation").font(.system(size: 14, weight: .semibold))
+                    }
+                    .foregroundStyle(Color.white)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                toggle($settings.enabled).help("Talk to sessions: the mics on the rows, and the talk shortcut")
+            }
+            .padding(.bottom, 10)
+            rule
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Vocabulary").font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.white.opacity(0.92))
+                Text("Words dictation should listen for.").font(.system(size: 12)).foregroundStyle(dim).padding(.top, 2)
+                HStack(spacing: 7) {
+                    Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).foregroundStyle(dim)
+                    TextField("Add a word or name", text: $newWord)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color.white)
+                        .onSubmit(addWord)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.25)))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1), lineWidth: 1))
+                .padding(.top, 10)
+                // Each word a chip; × removes it.
+                ChipFlow(spacing: 6) {
+                    ForEach(settings.words, id: \.self) { word in
+                        HStack(spacing: 6) {
+                            Text(word).font(.system(size: 12.5)).foregroundStyle(Color.white.opacity(0.9)).lineLimit(1)
+                            Button { settings.words.removeAll { $0 == word } } label: {
+                                Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Color.white.opacity(0.45))
+                                    .frame(width: 12, height: 12).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help("Remove")
+                        }
+                        .padding(.leading, 8).padding(.trailing, 6)
+                        .frame(height: 24)
+                        .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.08)))
+                    }
+                }
+                .padding(.top, 10)
+            }
+            .padding(.vertical, 12)
+            rule
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Also listening for").font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.75))
+                    Spacer()
+                    toggle($settings.listensForSessions).help("Your sessions' and projects' names")
+                }
+                if settings.listensForSessions {
+                    // Each name whole: lines break between names, never inside one.
+                    ChipFlow(spacing: 8) {
+                        ForEach(names.isEmpty ? ["Your sessions' names, once you have some."] : names, id: \.self) { name in
+                            Text(name).lineLimit(1)
+                        }
+                    }
+                    .font(.system(size: 11.5, design: .monospaced))
+                    .foregroundStyle(Color.white.opacity(0.4))
+                }
+            }
+            .padding(.vertical, 12)
+            rule
+
+            HStack {
+                Text(count).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(dim)
+                Spacer()
+                Button("Reset") { settings.words = DictationVocabulary.defaults }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.white.opacity(0.75))
+                    .help("Back to the built-in words")
+            }
+            .padding(.top, 10)
+        }
+        .onChange(of: settings.words.count) { resized() }
+        .onChange(of: settings.listensForSessions) { resized() }
+    }
+
+    /// "6 words · 5 names".
+    private var count: String {
+        func n(_ k: Int, _ one: String) -> String { "\(k) \(one)\(k == 1 ? "" : "s")" }
+        let words = n(settings.words.count, "word")
+        return settings.listensForSessions ? words + " · " + n(names.count, "name") : words
+    }
+
+    private var rule: some View {
+        Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.horizontal, -10)
+    }
+
+    private func toggle(_ on: Binding<Bool>) -> some View {
+        Toggle("", isOn: on).toggleStyle(.switch).controlSize(.small).tint(green).labelsHidden()
+    }
+
+    private func addWord() {
+        let word = newWord.trimmingCharacters(in: .whitespaces)
+        newWord = ""
+        guard !word.isEmpty, !settings.words.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) else { return }
+        settings.words.append(word)
+    }
+}
+
+/// Lays its children out left to right, wrapping onto new lines (the vocabulary's chips).
+private struct ChipFlow: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+        return CGSize(width: proposal.width ?? rows.map(\.width).max() ?? 0,
+                      height: rows.last.map { $0.y + $0.height } ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for row in arrange(subviews, width: bounds.width) {
+            for (index, x) in row.items { subviews[index].place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + row.y), proposal: .unspecified) }
+        }
+    }
+
+    private struct Row { var items: [(Int, CGFloat)] = []; var y: CGFloat = 0; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows = [Row()]
+        for (i, view) in subviews.enumerated() {
+            let size = view.sizeThatFits(.unspecified)
+            if rows[rows.count - 1].width > 0, rows[rows.count - 1].width + spacing + size.width > width {
+                let last = rows[rows.count - 1]
+                rows.append(Row(y: last.y + last.height + spacing))
+            }
+            let x = rows[rows.count - 1].width == 0 ? 0 : rows[rows.count - 1].width + spacing
+            rows[rows.count - 1].items.append((i, x))
+            rows[rows.count - 1].width = x + size.width
+            rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
+        }
+        return rows
     }
 }

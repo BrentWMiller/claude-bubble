@@ -20,7 +20,17 @@ struct Uniforms {
     float4 o;   // edge squash: right, top, left, bottom edges' distances from the centre, in orb radii (≥ 1 = clear)
     float4 p;   // voice: loudness 0…1, ripple phase, listening 0…1 (you talking: lightens toward c1), unused
     float4 q;   // voice bands: low, mid, high, unused
+    float4 spec[4];   // the voice's spectrum: 16 bands, low to high, each 0…1
 };
+
+/// The voice's spectrum at `t` (0 = lowest band, 1 = highest), between bands.
+float spectrumAt(constant Uniforms& u, float t) {
+    float x = clamp(t, 0., 1.) * 15.;
+    int i = int(floor(x));
+    int j = min(i + 1, 15);
+    float a = u.spec[i / 4][i % 4], b = u.spec[j / 4][j % 4];
+    return mix(a, b, smoothstep(0., 1., x - float(i)));
+}
 
 float2 unsquish(float2 q, float4 ed, float R, float ph);   // below, with the particle pass's squish
 
@@ -65,6 +75,9 @@ fragment float4 quadFragment(QuadOut in [[stage_in]], constant Uniforms& u [[buf
     float bul = u.e.y * .3 * pow(max(cos(a - u.e.z), 0.), 18.);
     // Voice (design: Talking Orb): Claude's words wobble the rim; yours draw it in a little.
     bul += u.p.x * (.035 * sin(a * 5. + u.p.y * 1.3) + .02 * sin(a * 9. - u.p.y * 2.1)) * (1. - u.p.z) - u.p.z * u.p.x * .03;
+    // ...and the rim traces the voice's spectrum, mirrored left and right: low tones at the top, high at the bottom.
+    float vsp = spectrumAt(u, abs(atan2(uv.x, uv.y)) / 3.1416);
+    bul += vsp * .14;
     float d1 = (r - R * (1.02 + bul)) / w; float ring = exp(-d1 * d1);
     float d2 = (r - R * (1.05 + bul)) / (w * 2.6); float fuzz = exp(-d2 * d2) * .45;
     // Attention: a light follows the pointer over the sphere. Off-centre effects scale with how far out it is,
@@ -314,6 +327,9 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     float vlvl = u.p.x * (1. - vth / 3.3);
     p *= 1. + u.p.x * .05 * u.q.x + vrip * vlvl * .045;
     p += (float3(hs(pos.yzx), hs(pos.zxy), hs(pos)) - .5) * u.q.z * .035;
+    // The dots trace the spectrum too, around the same circle as the rim, the front pushing out most.
+    float dsp = spectrumAt(u, abs(atan2(p.x, p.y)) / 3.1416);
+    p *= 1. + dsp * (.08 + .1 * max(p.z, 0.));
     // Attention: the sphere tilts toward the pointer (more the further off-centre it is).
     float2 po = u.d.xy; float att = u.d.z;
     p = ry(po.x * .45 * att) * rx(-po.y * .45 * att) * p;
@@ -373,6 +389,7 @@ vertex PointOut pointVertex(uint vid [[vertex_id]],
     b += fmp.y * .9 * front;   // the ripple's bright ring
     c = mix(c, float3(1.), pk * max(pullAmt, 0.) * .3);
     b += u.p.x * (.2 + max(vrip, 0.) * vlvl * 1.2);   // the ripples light the dots they pass
+    b += dsp * .9;   // and the loud bands light theirs
     c = mix(c, mix(C1, float3(1.), .45), u.p.z * .35);   // and so do the dots
     o.color = c * b * bright;
     o.size = pt * (1. + p.z * .5) * (1. + flash * .6);
@@ -415,4 +432,5 @@ struct OrbUniforms {
     /// Nobody talking by default.
     var p: SIMD4<Float> = .zero
     var q: SIMD4<Float> = .zero
+    var spec0: SIMD4<Float> = .zero, spec1: SIMD4<Float> = .zero, spec2: SIMD4<Float> = .zero, spec3: SIMD4<Float> = .zero
 }

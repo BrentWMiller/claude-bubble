@@ -25,7 +25,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Claude Bubble listens when you click the mic on a session, to send what you say to it.</string>
+	<string>Claude Bubble listens while you hold the mic on a session, to send what you say to it.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Claude Bubble turns what you say to a session into text on this Mac, to send it to that session.</string>
 </dict>

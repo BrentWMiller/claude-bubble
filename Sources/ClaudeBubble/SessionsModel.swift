@@ -65,6 +65,8 @@ final class SessionsModel: ObservableObject {
     var answer: ((ApprovalRequest, [String: String]) -> Void)?
     /// Per session, what talking to it is up to (listening, sending, sent): its row shows it.
     @Published var talk: [String: TalkState] = [:]
+    /// Talking to sessions is on (Settings → Dictation): the rows show their mics.
+    @Published var talkEnabled = true
     /// Push to talk on a session's row: the mic held down (true) or let go (false).
     var holdTalk: ((Session, Bool) -> Void)?
     /// Files, images or text dropped on a session's row; false when there's nothing it can take.
