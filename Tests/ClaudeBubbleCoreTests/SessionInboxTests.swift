@@ -69,17 +69,14 @@ final class SessionInboxTests: XCTestCase {
 
     func testSpokenSaysWhoItsFromAndSkipsSilence() {
         XCTAssertNil(SessionInbox.spoken("  \n"))
-        let m = SessionInbox.spoken(" run the tests ")!
-        XCTAssertTrue(m.contains("from the user"))
-        XCTAssertTrue(m.hasSuffix("run the tests"))
+        XCTAssertEqual(SessionInbox.spoken(" run the tests "), "run the tests\n\n(from the user, by voice)")
     }
 
     func testDroppedListsFilesThenText() {
         XCTAssertNil(SessionInbox.dropped(files: [], texts: [" "]))
         let m = SessionInbox.dropped(files: [URL(fileURLWithPath: "/a/b.png"), URL(fileURLWithPath: "/c d.txt")],
                                      texts: ["look here"])!
-        XCTAssertTrue(m.contains("- /a/b.png\n- /c d.txt"))
-        XCTAssertTrue(m.hasSuffix("look here"))
+        XCTAssertEqual(m, "/a/b.png\n/c d.txt\n\nlook here\n\n(dropped by the user)")
     }
 
     func testStageWritesAndPruneClearsOldDrops() throws {

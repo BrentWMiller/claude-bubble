@@ -75,21 +75,28 @@ public enum SessionInbox {
         }
     }
 
-    /// The message for words said to the bubble. It arrives as another session's message, so it says who it's from.
+    /// The tags that say a message is really the user's: it arrives as another session's message, so without one
+    /// Claude can't tell. Kept short so the message is mostly what was said.
+    public static let spokenTag = "(from the user, by voice)"
+    public static let droppedTag = "(dropped by the user)"
+
+    /// The message for words said to the bubble: just the words, and the tag.
     public static func spoken(_ transcript: String) -> String? {
         let words = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
-        return words.isEmpty ? nil : "Voice message from the user, sent from Claude Bubble:\n\n" + words
+        return words.isEmpty ? nil : words + "\n\n" + spokenTag
     }
 
-    /// The message for things dropped on a session: files by path (Claude reads them itself), short text inline.
+    /// The message for things dropped on a session: file paths, one a line (Claude reads them itself), short text
+    /// inline, and the tag.
     public static func dropped(files: [URL], texts: [String]) -> String? {
         let texts = texts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
         guard !files.isEmpty || !texts.isEmpty else { return nil }
-        var parts = ["The user dropped this on the session in Claude Bubble:"]
+        var parts: [String] = []
         if !files.isEmpty {
-            parts.append(files.map { "- " + $0.path }.joined(separator: "\n"))
+            parts.append(files.map(\.path).joined(separator: "\n"))
         }
         parts += texts
+        parts.append(droppedTag)
         return parts.joined(separator: "\n\n")
     }
 
