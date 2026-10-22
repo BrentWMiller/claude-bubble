@@ -104,8 +104,9 @@ final class SessionTalk {
         releasedAt = nil
         states[session.id] = .listening(since: listeningSince, words: "")
         onVoice?(VoiceLevels(listening: false, look: session.tone.orbState))
-        dictation.start(vocabulary: DictationVocabulary.words(yours: DictationVocabularyModel.shared.words,
-                                                              sessions: sessionNames?() ?? []))
+        let settings = DictationVocabularyModel.shared
+        dictation.start(vocabulary: DictationVocabulary.words(yours: settings.words,
+                                                              sessions: settings.listensForSessions ? sessionNames?() ?? [] : []))
     }
 
     /// Things dropped on `session`'s row (or on the orb, for its most pressing session).

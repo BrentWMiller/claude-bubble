@@ -529,7 +529,7 @@ struct SessionListView: View {
                            expanded: model.approval(for: session)?.id == model.expandedApproval?.id,
                            width: SessionListView.width - 16, onDecide: decide(session),
                            onAnswer: model.approval(for: session).map { request in { model.answer?(request, $0) } },
-                           talk: model.talk[session.id], onTalk: { model.holdTalk?(session, $0) },
+                           talk: model.talk[session.id], onTalk: model.talkEnabled ? { model.holdTalk?(session, $0) } : nil,
                            onDrop: { model.dropOn?(session, $0) ?? false },
                            dividerAbove: model.dividerAbove(index))
                     .onTapGesture { onSelect(session) }

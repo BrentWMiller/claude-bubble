@@ -314,7 +314,8 @@ private final class AnalyzerRecognizer: SpeechRecognizing {
     }
 }
 
-/// The words and names you add in Settings for dictation to listen for, kept across restarts.
+/// Settings → Dictation, kept across restarts: whether you can talk to sessions at all, the words and names you add
+/// for dictation to listen for, and whether it also listens for your sessions' and projects' names.
 final class DictationVocabularyModel: ObservableObject {
     static let shared = DictationVocabularyModel()
     private static let key = "dictationVocabulary"
@@ -322,9 +323,18 @@ final class DictationVocabularyModel: ObservableObject {
     @Published var words: [String] {
         didSet { UserDefaults.standard.set(words, forKey: Self.key) }
     }
+    /// Off: no mics on the rows and no talk shortcut (dropping things on a session still works).
+    @Published var enabled: Bool {
+        didSet { UserDefaults.standard.set(enabled, forKey: "dictationEnabled") }
+    }
+    @Published var listensForSessions: Bool {
+        didSet { UserDefaults.standard.set(listensForSessions, forKey: "dictationSessions") }
+    }
 
     private init() {
         words = UserDefaults.standard.stringArray(forKey: Self.key) ?? DictationVocabulary.defaults
+        enabled = UserDefaults.standard.object(forKey: "dictationEnabled") as? Bool ?? true
+        listensForSessions = UserDefaults.standard.object(forKey: "dictationSessions") as? Bool ?? true
         UserDefaults.standard.removeObject(forKey: "dictationFixes")   // the corrections list, now gone
     }
 }

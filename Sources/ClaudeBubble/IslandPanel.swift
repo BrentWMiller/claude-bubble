@@ -477,7 +477,7 @@ struct IslandView: View {
                                    width: sessions.islandRowWidth,
                                    onDecide: asking.map { request in { sessions.decide?(request, $0) } },
                                    onAnswer: asking.map { request in { sessions.answer?(request, $0) } },
-                                   talk: sessions.talk[s.id], onTalk: { sessions.holdTalk?(s, $0) },
+                                   talk: sessions.talk[s.id], onTalk: sessions.talkEnabled ? { sessions.holdTalk?(s, $0) } : nil,
                                    onDrop: { sessions.dropOn?(s, $0) ?? false },
                                    dividerAbove: sessions.dividerAbove(index))
                     }

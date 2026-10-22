@@ -153,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.answer = { [weak self] request, answers in self?.approvals.reply(request.id, .allow, answers: answers) }
         talk.onChange = { [weak self] states in self?.model.talk = states }
         talk.onVoice = { [weak self] levels in self?.animator.voice = levels }
-        talk.sessionNames = { [weak self] in self?.model.sorted.flatMap { [$0.displayName, $0.project] } ?? [] }
+        talk.sessionNames = { [weak self] in self?.sessionNames() ?? [] }
         talk.onDraft = { [weak self] session, words, talked in
             guard let self else { return }
             // Opens where the mic was let go, to check and edit before it goes; from the shortcut, under the orb.
@@ -186,8 +186,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         // Listens for the shortcut you chose, re-registering when it changes; paused while you record a new one.
         let shortcuts = TalkShortcutModel.shared
-        talkKeyWatch = shortcuts.$shortcut.combineLatest(shortcuts.$recording)
-            .sink { [weak self] shortcut, recording in self?.talkKey.register(recording ? nil : shortcut) }
+        // ...and only while talking is on (Settings → Dictation), which also shows or hides the rows' mics.
+        let dictation = DictationVocabularyModel.shared
+        talkKeyWatch = shortcuts.$shortcut.combineLatest(shortcuts.$recording, dictation.$enabled)
+            .sink { [weak self] shortcut, recording, enabled in
+                self?.talkKey.register(recording || !enabled ? nil : shortcut)
+                self?.model.talkEnabled = enabled
+            }
         talkKey.onDown = { [weak self] in
             // The session you chose last, while it's around; else the pinned one (pinned sessions lead the list, most
             // pressing first), or, with none pinned, the most pressing.
@@ -888,6 +893,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Your sessions' names and their projects', each once: what dictation also listens for.
+    private func sessionNames() -> [String] {
+        var seen = Set<String>()
+        return model.sorted.flatMap { [$0.displayName, $0.project] }.filter { seen.insert($0.lowercased()).inserted }
+    }
+
     /// Where a draft from the talk shortcut opens: centred under the orb, or under the island's pill.
     private func draftAnchor() -> CGPoint {
         let under: CGRect
@@ -1227,7 +1238,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openSimulator: { [weak self] in self?.openSimulator() },
         installUpdate: { [weak self] in self?.offerUpdate() },
         checkForUpdates: { [weak self] in self?.checkForUpdates() },
-        previewColor: { [weak self] color in self?.preview(color) }
+        previewColor: { [weak self] color in self?.preview(color) },
+        sessionNames: { [weak self] in self?.sessionNames() ?? [] }
     ))
 
     private func preview(_ color: PaletteColor?) {
