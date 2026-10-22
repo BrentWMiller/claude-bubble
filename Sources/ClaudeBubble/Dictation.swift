@@ -93,9 +93,19 @@ final class Dictation {
         }
     }
 
-    /// Fixes what the models reliably mishear here: "Claude" comes out as "clawed".
+    /// What the models reliably mishear when you talk to Claude, and what was meant (whole words, any case). "Cloud" is
+    /// only Claude before "bubble": on its own it's a real word.
+    static let fixes: [(heard: String, meant: String)] = [
+        ("\\b(clawed|clod|cloud) bubble\\b", "Claude Bubble"),
+        ("\\b(clawed|clod)\\b", "Claude"),
+        ("\\brebo\\b", "repo"),
+        ("\\bwork tree(s?)\\b", "worktree$1"),
+    ]
+
     static func tidy(_ text: String) -> String {
-        text.replacingOccurrences(of: "\\bclawed\\b", with: "Claude", options: [.regularExpression, .caseInsensitive])
+        fixes.reduce(text) { text, fix in
+            text.replacingOccurrences(of: fix.heard, with: fix.meant, options: [.regularExpression, .caseInsensitive])
+        }
     }
 
     private func listen(with recognizer: SpeechRecognizing) {
