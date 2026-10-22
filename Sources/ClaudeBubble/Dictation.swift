@@ -28,7 +28,11 @@ final class Dictation {
     private var run = 0
     private let meter = VoiceMeter()
 
-    func start() {
+    /// Words and names to listen for this time (your vocabulary and your sessions').
+    private var vocabulary: [String] = []
+
+    func start(vocabulary: [String] = []) {
+        self.vocabulary = vocabulary
         heard = ""
         running = true
         run += 1
@@ -58,7 +62,7 @@ final class Dictation {
     private func chooseRecognizer(_ run: Int) {
         guard #available(macOS 26, *) else { return olderRecognizer(run) }
         Task { @MainActor in
-            let modern = await AnalyzerRecognizer.make(locale: .current, onText: self.texts(run))
+            let modern = await AnalyzerRecognizer.make(locale: .current, vocabulary: self.vocabulary, onText: self.texts(run))
             guard self.current(run) else { modern?.cancel(); return }
             if let modern { self.listen(with: modern) } else { self.olderRecognizer(run) }
         }
@@ -69,7 +73,9 @@ final class Dictation {
             DispatchQueue.main.async {
                 guard self.current(run) else { return }
                 guard status == .authorized else { return self.end("Speech recognition is off for Claude Bubble") }
-                guard let older = OnDeviceRecognizer(onText: self.texts(run)) else { return self.end(Self.unavailable) }
+                guard let older = OnDeviceRecognizer(vocabulary: self.vocabulary, onText: self.texts(run)) else {
+                    return self.end(Self.unavailable)
+                }
                 self.listen(with: older)
             }
         }
@@ -150,12 +156,13 @@ private final class OnDeviceRecognizer: SpeechRecognizing {
     private var task: SFSpeechRecognitionTask?
 
     /// Nil when this Mac can't recognise the language itself.
-    init?(onText: @escaping (String, Bool) -> Void) {
+    init?(vocabulary: [String], onText: @escaping (String, Bool) -> Void) {
         guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable, recognizer.supportsOnDeviceRecognition else {
             return nil
         }
         request.shouldReportPartialResults = true
         request.requiresOnDeviceRecognition = true
+        request.contextualStrings = vocabulary
         var last = ""
         task = recognizer.recognitionTask(with: request) { result, error in
             DispatchQueue.main.async {
@@ -186,25 +193,27 @@ private final class AnalyzerRecognizer: SpeechRecognizing {
     private var converter: AVAudioConverter?
 
     /// Nil when it can't listen yet: the language isn't supported, or its model isn't installed (the download starts
-    /// now, for next time). Apple's newer transcription model (`SpeechTranscriber`) first: far better on natural,
-    /// run-on speech than the classic dictation one (`DictationTranscriber`), which covers the languages it doesn't.
-    static func make(locale: Locale, onText: @escaping (String, Bool) -> Void) async -> AnalyzerRecognizer? {
-        if SpeechTranscriber.isAvailable, let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
-            let t = SpeechTranscriber(locale: supported, preset: .progressiveTranscription)
-            return await ready(t, named: "SpeechTranscriber", onText: onText) {
+    /// now, for next time). The dictation model (`DictationTranscriber`) first: given your vocabulary it gets names
+    /// right that the newer transcription model (`SpeechTranscriber`, which ignores it) mishears; that one covers the
+    /// languages dictation doesn't.
+    static func make(locale: Locale, vocabulary: [String], onText: @escaping (String, Bool) -> Void) async -> AnalyzerRecognizer? {
+        if let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
+            let t = DictationTranscriber(locale: supported, preset: .progressiveShortDictation)
+            return await ready(t, named: "DictationTranscriber", vocabulary: vocabulary, onText: onText) {
                 texts(t.results) { (String($0.text.characters), $0.isFinal) }
             }
         }
-        if let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
-            let t = DictationTranscriber(locale: supported, preset: .progressiveShortDictation)
-            return await ready(t, named: "DictationTranscriber", onText: onText) {
+        if SpeechTranscriber.isAvailable, let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+            let t = SpeechTranscriber(locale: supported, preset: .progressiveTranscription)
+            return await ready(t, named: "SpeechTranscriber", vocabulary: vocabulary, onText: onText) {
                 texts(t.results) { (String($0.text.characters), $0.isFinal) }
             }
         }
         return nil
     }
 
-    private static func ready(_ module: any SpeechModule, named name: String, onText: @escaping (String, Bool) -> Void,
+    private static func ready(_ module: any SpeechModule, named name: String, vocabulary: [String],
+                              onText: @escaping (String, Bool) -> Void,
                               results: @escaping () -> AsyncThrowingStream<(String, Bool), Error>) async -> AnalyzerRecognizer? {
         guard await AssetInventory.status(forModules: [module]) == .installed else {
             if !downloading, let request = try? await AssetInventory.assetInstallationRequest(supporting: [module]) {
@@ -217,8 +226,8 @@ private final class AnalyzerRecognizer: SpeechRecognizing {
             return nil
         }
         let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
-        NSLog("ClaudeBubble: dictation with %@", name)
-        return AnalyzerRecognizer(module, results: results(), format: format, onText: onText)
+        NSLog("ClaudeBubble: dictation with %@, %d vocabulary words", name, vocabulary.count)
+        return AnalyzerRecognizer(module, results: results(), format: format, vocabulary: vocabulary, onText: onText)
     }
 
     /// A module's results as (text, final), whichever module it is.
@@ -237,13 +246,19 @@ private final class AnalyzerRecognizer: SpeechRecognizing {
     }
 
     private init(_ module: any SpeechModule, results: AsyncThrowingStream<(String, Bool), Error>, format: AVAudioFormat?,
-                 onText: @escaping (String, Bool) -> Void) {
+                 vocabulary: [String], onText: @escaping (String, Bool) -> Void) {
         self.format = format
         let (stream, input) = AsyncStream<AnalyzerInput>.makeStream()
         self.input = input
         let analyzer = SpeechAnalyzer(modules: [module])
         self.analyzer = analyzer
-        Task { try? await analyzer.start(inputSequence: stream) }
+        let context = AnalysisContext()
+        context.contextualStrings[.general] = vocabulary
+        Task {
+            // The words to listen for, before the first audio.
+            if !vocabulary.isEmpty { try? await analyzer.setContext(context) }
+            try? await analyzer.start(inputSequence: stream)
+        }
         Task {
             // Finished stretches stay; the latest, still-changing one is replaced each time.
             var done = "", live = ""
@@ -319,4 +334,18 @@ final class DictationFixesModel: ObservableObject {
     func add() { fixes.append(DictationFix(heard: "", meant: "")) }
     func remove(_ id: UUID) { fixes.removeAll { $0.id == id } }
     func reset() { fixes = DictationFixes.defaults }
+}
+
+/// The words and names you add in Settings for dictation to listen for, kept across restarts.
+final class DictationVocabularyModel: ObservableObject {
+    static let shared = DictationVocabularyModel()
+    private static let key = "dictationVocabulary"
+
+    @Published var words: [String] {
+        didSet { UserDefaults.standard.set(words, forKey: Self.key) }
+    }
+
+    private init() {
+        words = UserDefaults.standard.stringArray(forKey: Self.key) ?? DictationVocabulary.defaults
+    }
 }

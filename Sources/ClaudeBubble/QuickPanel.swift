@@ -252,7 +252,7 @@ struct QuickPanelView: View {
                                                                      set: { updater.checksAutomatically = $0 }))
             }
             divider
-            Row(title: "Dictation corrections…", chevron: true) { state.go(.dictation) }
+            Row(title: "Dictation…", chevron: true) { state.go(.dictation) }
             Row(title: "Check for updates…") { close(); actions.checkForUpdates() }
             Row(title: "Setup…") { close(); actions.openSetup() }
             Row(title: "Reset position") { actions.resetPosition() }
@@ -788,73 +788,127 @@ private struct UpdateRow: View {
     }
 }
 
-/// Settings → Dictation corrections: what dictation hears, and what to write instead. Add your own; they apply to the
-/// next thing you say.
+/// Settings → Dictation: words and names to listen for (vocabulary), and what to write instead of a mishearing
+/// (corrections). Add your own; they apply to the next thing you say.
 private struct DictationFixesPage: View {
     let back: () -> Void
     let resized: () -> Void
     @ObservedObject private var model = DictationFixesModel.shared
-    @FocusState private var focus: UUID?
+    @ObservedObject private var vocabulary = DictationVocabularyModel.shared
+    @FocusState private var focus: String?
+    @State private var newWord = ""
     private let dim = Color.white.opacity(0.5)
+
+    private func addWord() {
+        let word = newWord.trimmingCharacters(in: .whitespaces)
+        newWord = ""
+        guard !word.isEmpty, !vocabulary.words.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) else { return }
+        vocabulary.words.append(word)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: back) {
                 HStack(spacing: 6) {
                     Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
-                    Text("Dictation corrections").font(.system(size: 14, weight: .semibold))
+                    Text("Dictation").font(.system(size: 14, weight: .semibold))
                     Spacer()
                 }
                 .foregroundStyle(Color.white)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .padding(.bottom, 6)
-            Text("When dictation hears the words on the left, it writes the ones on the right. Whole words, any case.")
-                .font(.system(size: 12))
-                .foregroundStyle(dim)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.bottom, 10)
-            // About ten rows, then it scrolls (the panel would otherwise outgrow the screen).
-            ScrollView {
-            VStack(spacing: 6) {
-                ForEach($model.fixes) { $fix in
-                    HStack(spacing: 6) {
-                        field("Heard", $fix.heard).focused($focus, equals: fix.id)
-                        Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(dim)
-                        field("Meant", $fix.meant)
-                        Button { model.remove(fix.id) } label: {
-                            Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(Color.white.opacity(0.45))
-                                .frame(width: 18, height: 22)
-                                .contentShape(Rectangle())
+            .padding(.bottom, 10)
+
+            heading("Vocabulary", "Words and names you use. Dictation listens for them; your sessions' and projects' names are added too.")
+            // Each word a chip (× removes it); type a new one below and press Return.
+            ChipFlow(spacing: 6) {
+                ForEach(vocabulary.words, id: \.self) { word in
+                    HStack(spacing: 5) {
+                        Text(word).font(.system(size: 12.5)).foregroundStyle(Color.white.opacity(0.9)).lineLimit(1)
+                        Button { vocabulary.words.removeAll { $0 == word } } label: {
+                            Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).foregroundStyle(Color.white.opacity(0.45))
+                                .frame(width: 12, height: 12).contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .help("Remove")
                     }
+                    .padding(.leading, 9).padding(.trailing, 6)
+                    .frame(height: 24)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
+                    .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
                 }
             }
-            }
-            .scrollIndicators(.automatic)
-            .frame(height: min(CGFloat(model.fixes.count) * 30, 300))
-            HStack {
-                Button {
-                    model.add()
-                    focus = model.fixes.last?.id
-                } label: {
-                    Label("Add correction", systemImage: "plus").font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.9))
-                }
-                .buttonStyle(.plain)
-                Spacer()
-                Button("Reset") { model.reset() }
+            HStack(spacing: 6) {
+                field("Add a word or name", $newWord)
+                    .focused($focus, equals: "newWord")
+                    .onSubmit(addWord)
+                Button("Reset") { vocabulary.words = DictationVocabulary.defaults }
                     .buttonStyle(.plain)
                     .font(.system(size: 12))
                     .foregroundStyle(dim)
-                    .help("Back to the built-in corrections")
+                    .help("Back to the built-in list")
             }
-            .padding(.top, 10)
+            .padding(.top, 8)
+
+            Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.vertical, 10)
+
+            heading("Corrections", "When dictation hears the words on the left, it writes the ones on the right. Whole words, any case.")
+            ScrollView {
+                VStack(spacing: 6) {
+                    ForEach($model.fixes) { $fix in
+                        HStack(spacing: 6) {
+                            field("Heard", $fix.heard).focused($focus, equals: fix.id.uuidString)
+                            Image(systemName: "arrow.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(dim)
+                            field("Meant", $fix.meant)
+                            remove { model.remove(fix.id) }
+                        }
+                    }
+                }
+            }
+            .frame(height: min(CGFloat(model.fixes.count) * 30, 180))
+            footer(add: "Add correction", {
+                model.add()
+                focus = model.fixes.last?.id.uuidString
+            }, reset: { model.reset() })
         }
         .onChange(of: model.fixes.count) { resized() }
+        .onChange(of: vocabulary.words.count) { resized() }
+    }
+
+    private func heading(_ title: String, _ note: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.white.opacity(0.9))
+            Text(note).font(.system(size: 12)).foregroundStyle(dim).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.bottom, 8)
+    }
+
+    private func footer(add: String, _ adding: @escaping () -> Void, reset: @escaping () -> Void) -> some View {
+        HStack {
+            Button(action: adding) {
+                Label(add, systemImage: "plus").font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.9))
+            }
+            .buttonStyle(.plain)
+            Spacer()
+            Button("Reset", action: reset)
+                .buttonStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(dim)
+                .help("Back to the built-in list")
+        }
+        .padding(.top, 8)
+    }
+
+    private func remove(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "xmark").font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.45))
+                .frame(width: 18, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Remove")
     }
 
     private func field(_ prompt: String, _ text: Binding<String>) -> some View {
@@ -866,5 +920,40 @@ private struct DictationFixesPage: View {
             .frame(height: 24)
             .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(0.06)))
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
+    }
+}
+
+/// Lays its children out left to right, wrapping onto new lines (the vocabulary's chips).
+private struct ChipFlow: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+        return CGSize(width: proposal.width ?? rows.map(\.width).max() ?? 0,
+                      height: rows.last.map { $0.y + $0.height } ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for row in arrange(subviews, width: bounds.width) {
+            for (index, x) in row.items { subviews[index].place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + row.y), proposal: .unspecified) }
+        }
+    }
+
+    private struct Row { var items: [(Int, CGFloat)] = []; var y: CGFloat = 0; var width: CGFloat = 0; var height: CGFloat = 0 }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows = [Row()]
+        for (i, view) in subviews.enumerated() {
+            let size = view.sizeThatFits(.unspecified)
+            if rows[rows.count - 1].width > 0, rows[rows.count - 1].width + spacing + size.width > width {
+                let last = rows[rows.count - 1]
+                rows.append(Row(y: last.y + last.height + spacing))
+            }
+            let x = rows[rows.count - 1].width == 0 ? 0 : rows[rows.count - 1].width + spacing
+            rows[rows.count - 1].items.append((i, x))
+            rows[rows.count - 1].width = x + size.width
+            rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
+        }
+        return rows
     }
 }

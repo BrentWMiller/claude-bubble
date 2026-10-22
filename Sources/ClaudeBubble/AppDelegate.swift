@@ -153,6 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.answer = { [weak self] request, answers in self?.approvals.reply(request.id, .allow, answers: answers) }
         talk.onChange = { [weak self] states in self?.model.talk = states }
         talk.onVoice = { [weak self] levels in self?.animator.voice = levels }
+        talk.sessionNames = { [weak self] in self?.model.sorted.flatMap { [$0.displayName, $0.project] } ?? [] }
         talk.onDraft = { [weak self] session, words, talked in
             guard let self else { return }
             // Opens where the mic was let go, to check and edit before it goes; from the shortcut, under the orb.

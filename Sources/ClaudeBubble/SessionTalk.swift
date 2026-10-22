@@ -26,6 +26,8 @@ final class SessionTalk {
     var onSent: ((Session) -> Void)?
     /// What the orb should hear: your voice while it listens, nil once it stops (main thread).
     var onVoice: ((VoiceLevels?) -> Void)?
+    /// Your sessions' and projects' names, for dictation to listen for.
+    var sessionNames: (() -> [String])?
     /// Talking to `session` failed, and why (main thread).
     var onFailed: ((Session, String) -> Void)?
     /// You let go of the mic: what it heard, to edit before it goes (send it with `send(_:to:)`).
@@ -102,7 +104,8 @@ final class SessionTalk {
         releasedAt = nil
         states[session.id] = .listening(since: listeningSince, words: "")
         onVoice?(VoiceLevels(listening: false, look: session.tone.orbState))
-        dictation.start()
+        dictation.start(vocabulary: DictationVocabulary.words(yours: DictationVocabularyModel.shared.words,
+                                                              sessions: sessionNames?() ?? []))
     }
 
     /// Things dropped on `session`'s row (or on the orb, for its most pressing session).
