@@ -223,7 +223,18 @@ struct SessionRow: View {
     private var showControls: Bool { hover || talking }
 
     private var header: some View {
-        // Top-aligned so the pip and the times sit on the title's line, however tall the row grows (chips).
+        VStack(alignment: .leading, spacing: 0) {
+            headerLine
+            // Under the whole header, not the title's column: the controls showing on hover widen the times' column,
+            // and would squeeze the chips down to icons.
+            if !session.links.isEmpty {
+                LinkChips(links: session.links).padding(.top, 8).padding(.leading, 26 + 12)
+            }
+        }
+    }
+
+    private var headerLine: some View {
+        // Top-aligned so the pip and the times sit on the title's line.
         HStack(alignment: .top, spacing: 12) {
             Group {
                 // A pip, coloured like the ones under the orb; blue while you talk to it.
@@ -247,9 +258,6 @@ struct SessionRow: View {
                     }
                 }
                 statusLine
-                if !session.links.isEmpty {
-                    LinkChips(links: session.links).padding(.top, 6)
-                }
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 2) {
