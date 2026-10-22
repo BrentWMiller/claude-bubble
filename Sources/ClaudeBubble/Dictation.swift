@@ -87,10 +87,15 @@ final class Dictation {
     private func texts(_ run: Int) -> (String, Bool) -> Void {
         { [weak self] text, final in
             guard let self, self.current(run) else { return }
-            self.heard = text
+            self.heard = Self.tidy(text)
             self.onHeard?(text)
             if final { self.end(nil) }
         }
+    }
+
+    /// Fixes what the models reliably mishear here: "Claude" comes out as "clawed".
+    static func tidy(_ text: String) -> String {
+        text.replacingOccurrences(of: "\\bclawed\\b", with: "Claude", options: [.regularExpression, .caseInsensitive])
     }
 
     private func listen(with recognizer: SpeechRecognizing) {
@@ -182,12 +187,28 @@ private final class AnalyzerRecognizer: SpeechRecognizing {
     private var converter: AVAudioConverter?
 
     /// Nil when it can't listen yet: the language isn't supported, or its model isn't installed (the download starts
-    /// now, for next time).
+    /// now, for next time). Apple's newer transcription model (`SpeechTranscriber`) first: far better on natural,
+    /// run-on speech than the classic dictation one (`DictationTranscriber`), which covers the languages it doesn't.
     static func make(locale: Locale, onText: @escaping (String, Bool) -> Void) async -> AnalyzerRecognizer? {
-        guard let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale) else { return nil }
-        let transcriber = DictationTranscriber(locale: supported, preset: .progressiveShortDictation)
-        guard await AssetInventory.status(forModules: [transcriber]) == .installed else {
-            if !downloading, let request = try? await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+        if SpeechTranscriber.isAvailable, let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+            let t = SpeechTranscriber(locale: supported, preset: .progressiveTranscription)
+            return await ready(t, named: "SpeechTranscriber", onText: onText) {
+                texts(t.results) { (String($0.text.characters), $0.isFinal) }
+            }
+        }
+        if let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
+            let t = DictationTranscriber(locale: supported, preset: .progressiveShortDictation)
+            return await ready(t, named: "DictationTranscriber", onText: onText) {
+                texts(t.results) { (String($0.text.characters), $0.isFinal) }
+            }
+        }
+        return nil
+    }
+
+    private static func ready(_ module: any SpeechModule, named name: String, onText: @escaping (String, Bool) -> Void,
+                              results: @escaping () -> AsyncThrowingStream<(String, Bool), Error>) async -> AnalyzerRecognizer? {
+        guard await AssetInventory.status(forModules: [module]) == .installed else {
+            if !downloading, let request = try? await AssetInventory.assetInstallationRequest(supporting: [module]) {
                 downloading = true
                 Task.detached {
                     try? await request.downloadAndInstall()
@@ -196,24 +217,40 @@ private final class AnalyzerRecognizer: SpeechRecognizing {
             }
             return nil
         }
-        let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber])
-        return AnalyzerRecognizer(transcriber, format: format, onText: onText)
+        let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module])
+        NSLog("ClaudeBubble: dictation with %@", name)
+        return AnalyzerRecognizer(module, results: results(), format: format, onText: onText)
     }
 
-    private init(_ transcriber: DictationTranscriber, format: AVAudioFormat?, onText: @escaping (String, Bool) -> Void) {
+    /// A module's results as (text, final), whichever module it is.
+    private static func texts<S: AsyncSequence & Sendable>(_ results: S, _ read: @escaping @Sendable (S.Element) -> (String, Bool))
+        -> AsyncThrowingStream<(String, Bool), Error> {
+        AsyncThrowingStream { out in
+            Task {
+                do {
+                    for try await result in results { out.yield(read(result)) }
+                    out.finish()
+                } catch {
+                    out.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    private init(_ module: any SpeechModule, results: AsyncThrowingStream<(String, Bool), Error>, format: AVAudioFormat?,
+                 onText: @escaping (String, Bool) -> Void) {
         self.format = format
         let (stream, input) = AsyncStream<AnalyzerInput>.makeStream()
         self.input = input
-        let analyzer = SpeechAnalyzer(modules: [transcriber])
+        let analyzer = SpeechAnalyzer(modules: [module])
         self.analyzer = analyzer
         Task { try? await analyzer.start(inputSequence: stream) }
         Task {
             // Finished stretches stay; the latest, still-changing one is replaced each time.
             var done = "", live = ""
             do {
-                for try await result in transcriber.results {
-                    let text = String(result.text.characters)
-                    if result.isFinal {
+                for try await (text, final) in results {
+                    if final {
                         done = Self.join(done, text)
                         live = ""
                     } else {
