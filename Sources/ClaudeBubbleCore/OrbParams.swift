@@ -25,6 +25,14 @@ public struct OrbParams: Equatable, Sendable {
         }
     }
 
+    /// Talking with a session (design: Talking Orb's `voice` state): working's colours, a calmer motion, so the
+    /// voice ripples carry it.
+    public static func voice(palette: OrbPalette = .agentsView) -> OrbParams {
+        var p = target(for: .working, palette: palette)
+        p.energy = 0.3; p.wave = 0.12; p.glow = 0.8; p.bright = 0.9; p.ring = 0.9; p.scale = 0.96; p.glitch = 0
+        return p
+    }
+
     /// Moves every value a fraction `k` of the way toward `t`.
     public func approached(_ t: OrbParams, k: Float) -> OrbParams {
         func m(_ a: Float, _ b: Float) -> Float { a + (b - a) * k }

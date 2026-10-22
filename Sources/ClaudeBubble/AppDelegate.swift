@@ -140,6 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.decide = { [weak self] request, behavior in self?.approvals.reply(request.id, behavior) }
         model.answer = { [weak self] request, answers in self?.approvals.reply(request.id, .allow, answers: answers) }
         talk.onChange = { [weak self] states in self?.model.talk = states }
+        talk.onVoice = { [weak self] levels in self?.animator.voice = levels }
         talk.onSent = { [weak self] session in
             // The row says so while the list is open; otherwise a toast does.
             guard let self, !self.listPanel.isShown, !(self.island.isVisible && self.island.model.mode == .hover) else { return }

@@ -1,3 +1,4 @@
+import Accelerate
 import AppKit
 import AVFoundation
 import ClaudeBubbleCore
@@ -21,6 +22,8 @@ final class SessionTalk {
     var onChange: (([String: TalkState]) -> Void)?
     /// A message reached `session`.
     var onSent: ((Session) -> Void)?
+    /// What the orb should hear: your voice while it listens, nil once it stops (main thread).
+    var onVoice: ((VoiceLevels?) -> Void)?
 
     private(set) var states: [String: TalkState] = [:] {
         didSet { onChange?(states) }
@@ -34,9 +37,14 @@ final class SessionTalk {
             guard let self, let s = self.listening else { return }
             self.states[s.id] = .listening(text)
         }
+        dictation.onLevels = { [weak self] levels in
+            guard self?.listening != nil else { return }
+            self?.onVoice?(levels)
+        }
         dictation.onFinished = { [weak self] text, error in
             guard let self, let s = self.listening else { return }
             self.listening = nil
+            self.onVoice?(nil)
             if let message = SessionInbox.spoken(text) {
                 self.send(message, to: s)
             } else {
@@ -58,6 +66,7 @@ final class SessionTalk {
         }
         listening = session
         states[session.id] = .listening("")
+        onVoice?(VoiceLevels(listening: true))
         dictation.start()
     }
 
@@ -110,6 +119,8 @@ enum InboxSender {
 final class Dictation {
     /// What it's heard so far (main thread).
     var onHeard: ((String) -> Void)?
+    /// How loud the mic is, about 47 times a second (main thread).
+    var onLevels: ((VoiceLevels) -> Void)?
     /// The final words, and why it stopped early if it failed (main thread). Called once per `start`.
     var onFinished: ((String, String?) -> Void)?
 
@@ -122,6 +133,7 @@ final class Dictation {
     private var heard = ""
     private var quiet: DispatchWorkItem?
     private var running = false
+    private let meter = VoiceMeter()
 
     func start() {
         heard = ""
@@ -151,8 +163,12 @@ final class Dictation {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         guard format.channelCount > 0 else { return end("No microphone") }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
+        let meter = meter, rate = Float(format.sampleRate)
+        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
             request.append(buffer)
+            guard let samples = buffer.floatChannelData?[0] else { return }
+            let levels = meter.measure(samples, count: Int(buffer.frameLength), sampleRate: rate)
+            DispatchQueue.main.async { self?.onLevels?(levels) }
         }
         self.request = request
         engine.prepare()
@@ -191,6 +207,52 @@ final class Dictation {
         request = nil
         task = nil
         onFinished?(heard, error)
+    }
+}
+
+/// The mic's loudness and bands, measured like the design's Web Audio analyser (512-point FFT, decibels from -100 to
+/// -30 mapped to 0…1, the same three bands and gains), so the orb moves as it does there.
+final class VoiceMeter {
+    private static let size = 512
+    private let setup = vDSP_create_fftsetup(9, FFTRadix(kFFTRadix2))
+    private var window = [Float](repeating: 0, count: VoiceMeter.size)
+
+    init() { vDSP_hann_window(&window, vDSP_Length(Self.size), Int32(vDSP_HANN_NORM)) }
+    deinit { if let setup { vDSP_destroy_fftsetup(setup) } }
+
+    /// Called on the audio thread, one buffer at a time.
+    func measure(_ samples: UnsafePointer<Float>, count: Int, sampleRate: Float) -> VoiceLevels {
+        var rms: Float = 0
+        vDSP_rmsqv(samples, 1, &rms, vDSP_Length(count))
+        let n = Self.size
+        guard let setup, count >= n else { return VoiceLevels(level: min(1, rms * 5), listening: true) }
+        var windowed = [Float](repeating: 0, count: n)
+        vDSP_vmul(samples, 1, window, 1, &windowed, 1, vDSP_Length(n))
+        var real = [Float](repeating: 0, count: n / 2), imag = [Float](repeating: 0, count: n / 2)
+        var power = [Float](repeating: 0, count: n / 2)
+        real.withUnsafeMutableBufferPointer { re in
+            imag.withUnsafeMutableBufferPointer { im in
+                var split = DSPSplitComplex(realp: re.baseAddress!, imagp: im.baseAddress!)
+                windowed.withUnsafeBytes { raw in
+                    vDSP_ctoz(raw.bindMemory(to: DSPComplex.self).baseAddress!, 2, &split, 1, vDSP_Length(n / 2))
+                }
+                vDSP_fft_zrip(setup, &split, 1, 9, FFTDirection(FFT_FORWARD))
+                vDSP_zvmags(&split, 1, &power, 1, vDSP_Length(n / 2))
+            }
+        }
+        // Bin k of the design's analyser at 48kHz is k × 93.75Hz: lows 1–8, mids 8–40, highs 40–120.
+        let hz = sampleRate / Float(n)
+        func band(_ lo: Float, _ hi: Float) -> Float {
+            let a = max(1, Int(lo / hz)), b = min(n / 2, max(a + 1, Int(hi / hz)))
+            var sum: Float = 0
+            for k in a..<b {
+                let db = 10 * log10f(max(power[k], 1e-12)) - 20 * log10f(Float(n))   // zrip's scale, to the analyser's
+                sum += min(max((db + 100) / 70, 0), 1)
+            }
+            return sum / Float(b - a)
+        }
+        return VoiceLevels(level: min(1, rms * 5), low: min(1, band(94, 750) * 1.4), mid: min(1, band(750, 3750) * 1.8),
+                           high: min(1, band(3750, 11250) * 2.5), listening: true)
     }
 }
 

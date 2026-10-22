@@ -94,4 +94,47 @@ final class OrbAnimatorTests: XCTestCase {
     func testStartsFullyPresent() {
         XCTAssertEqual(OrbAnimator(state: .idle).presence, 1)
     }
+
+    // Talking Orb: a conversation takes the voice look whatever the sessions are doing, and lets it go after.
+    func testVoiceTakesTheVoiceLookThenGoesBack() {
+        let a = OrbAnimator(state: .idle)
+        a.voice = VoiceLevels(listening: true)
+        run(a, seconds: 3)
+        XCTAssertEqual(a.current.energy, OrbParams.voice().energy, accuracy: 0.01)
+        XCTAssertEqual(a.current.halo, OrbParams.voice().halo)
+        a.voice = nil
+        run(a, seconds: 3)
+        XCTAssertEqual(a.current.scale, OrbParams.target(for: .idle).scale, accuracy: 0.01)
+    }
+
+    func testListeningRunsTheRipplesInwardAndSpeakingOutward() {
+        let a = OrbAnimator(state: .idle)
+        a.voice = VoiceLevels(level: 0.8, low: 0.5, mid: 0.5, high: 0.5, listening: true)
+        run(a, seconds: 0.5)
+        var f = a.step(dt: 1.0 / 60)
+        let start = f.voicePhase
+        run(a, seconds: 0.5)
+        f = a.step(dt: 1.0 / 60)
+        XCTAssertLessThan(f.voicePhase, start, "listening turns the ripples inward")
+        XCTAssertGreaterThan(f.voice, 0.5, "loudness swells in fast")
+        XCTAssertGreaterThan(f.listening, 0.5)
+        XCTAssertGreaterThan(f.voiceBands.x, 0.1)
+        a.voice = VoiceLevels(level: 0.8, listening: false)
+        run(a, seconds: 2)
+        let speaking = a.step(dt: 1.0 / 60).voicePhase
+        run(a, seconds: 0.5)
+        XCTAssertGreaterThan(a.step(dt: 1.0 / 60).voicePhase, speaking, "Claude speaking turns them outward")
+        XCTAssertLessThan(a.step(dt: 1.0 / 60).listening, 0.1)
+    }
+
+    func testVoiceFadesWhenTheConversationEnds() {
+        let a = OrbAnimator(state: .idle)
+        a.voice = VoiceLevels(level: 1, listening: true)
+        run(a, seconds: 1)
+        a.voice = nil
+        run(a, seconds: 4)
+        let f = a.step(dt: 1.0 / 60)
+        XCTAssertLessThan(f.voice, 0.01)
+        XCTAssertLessThan(f.listening, 0.01)
+    }
 }
