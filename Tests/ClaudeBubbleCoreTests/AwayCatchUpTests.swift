@@ -58,4 +58,11 @@ final class AwayCatchUpTests: XCTestCase {
         let needs: CGFloat = 52 + 30 + 66 * 2 + (100 + 12) + 48 + 44   // one with an approval card, one with reply buttons
         XCTAssertEqual(AwayLayout.height(groups: [(.needsYou, [many[0], many[1]])], approvalHeights: ["0": 100], footer: true), needs)
     }
+
+    func testViewKeepsTheListsHeightSoThePointerStaysOnIt() {
+        let one = [(AwayGroup.finished, [AwayItem(sessionID: "a", line: .plain("x"))])]
+        XCTAssertEqual(AwayLayout.height(groups: one, approvalHeights: [:], footer: false, atLeast: 400), 400)
+        XCTAssertEqual(AwayLayout.height(groups: one, approvalHeights: [:], footer: false, atLeast: 100), 52 + 30 + 66)
+        XCTAssertEqual(AwayLayout.height(groups: one, approvalHeights: [:], footer: false, atLeast: 600), 600)
+    }
 }

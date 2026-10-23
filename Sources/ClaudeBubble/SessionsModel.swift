@@ -80,9 +80,15 @@ final class SessionsModel: ObservableObject {
     var catchUpSummaries = false
 
     func openCatchUp() {
+        catchUpFloor = listHeight?() ?? 0
         catchUp?.seen = true
         catchUpOpen = true
     }
+
+    /// The session list's content height as it shows now (orb's card or island's panel), supplied by the app.
+    var listHeight: (() -> CGFloat)?
+    /// The list's height when the catch-up opened: the view keeps at least that, so the pointer stays on it.
+    private var catchUpFloor: CGFloat = 0
 
     /// Seen and closed: it's gone.
     func closeCatchUp() {
@@ -113,7 +119,7 @@ final class SessionsModel: ObservableObject {
                 }
             }
         }
-        return AwayLayout.height(groups: groups, approvalHeights: cards, footer: catchUpSummaries)
+        return AwayLayout.height(groups: groups, approvalHeights: cards, footer: catchUpSummaries, atLeast: catchUpFloor)
     }
 
     /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).

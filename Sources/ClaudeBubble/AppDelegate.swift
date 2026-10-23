@@ -128,6 +128,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.hover.dismiss()
             self?.listPanel.popOut()
         }
+        model.listHeight = { [weak self] in
+            guard let self else { return 0 }
+            guard self.isIsland else { return max(0, self.listPanel.frame.height - 16) }   // less the card's padding
+            let m = self.island.model, model = self.model
+            let hover = IslandLayout.size(mode: .hover, dock: m.dock, rest: m.rest, pips: model.sessions.count,
+                                          rows: model.sessions.count, footer: model.today != nil || model.usage != nil,
+                                          linked: model.linkedRows, approval: model.islandApprovalHeight(.hover),
+                                          width: m.width, catchUpBanner: true)
+            return hover.height - IslandLayout.barHeight - 2 - IslandLayout.openPadding
+        }
         model.openSession = { [weak self] session in
             self?.focusTerminal(session)
             self?.hover.dismiss()

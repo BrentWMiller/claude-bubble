@@ -116,8 +116,10 @@ public enum AwayLayout {
     public static let maxHeight: CGFloat = 460
 
     /// The catch-up view's height: header, group headings, items, needs-you items' approval card (by session id) or
-    /// reply buttons, and the footer; at most `maxHeight` (it scrolls beyond).
-    public static func height(groups: [(AwayGroup, [AwayItem])], approvalHeights: [String: CGFloat], footer: Bool) -> CGFloat {
+    /// reply buttons, and the footer; at most `maxHeight` (it scrolls beyond), but never less than `atLeast`, the list
+    /// it replaced (a shorter card would slip out from under the pointer that opened it, and close).
+    public static func height(groups: [(AwayGroup, [AwayItem])], approvalHeights: [String: CGFloat], footer: Bool,
+                              atLeast: CGFloat = 0) -> CGFloat {
         var h: CGFloat = 52
         for (group, items) in groups {
             h += 30 + 66 * CGFloat(items.count)
@@ -126,6 +128,6 @@ public enum AwayLayout {
             }
         }
         if footer { h += 44 }
-        return min(h, maxHeight)
+        return max(min(h, maxHeight), atLeast)
     }
 }
