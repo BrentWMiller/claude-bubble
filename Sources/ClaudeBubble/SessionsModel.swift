@@ -72,6 +72,24 @@ final class SessionsModel: ObservableObject {
     /// Files, images or text dropped on a session's row; false when there's nothing it can take.
     var dropOn: ((Session, [NSItemProvider]) -> Bool)?
 
+    /// What changed while you were away, until you've seen it and closed it (a banner atop the list, then its view).
+    @Published var catchUp: AwayCatchUp?
+    /// The catch-up view is showing in place of the list.
+    @Published var catchUpOpen = false
+    /// Its lines are written by Claude (the view's footer says so).
+    var catchUpSummaries = false
+
+    func openCatchUp() {
+        catchUp?.seen = true
+        catchUpOpen = true
+    }
+
+    /// Seen and closed: it's gone.
+    func closeCatchUp() {
+        catchUpOpen = false
+        catchUp = nil
+    }
+
     /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).
     func approval(for session: Session) -> ApprovalRequest? {
         guard session.state == .needs else { return nil }

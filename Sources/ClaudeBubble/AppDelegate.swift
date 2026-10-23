@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var watcher: SessionWatcher!
     private let model = SessionsModel()
+    private lazy var catchUp = CatchUpCoordinator(model: model, settings: settings)
     private var listPanel: SessionListPanel!
     private var hover = HoverTracker()
     private var hoverTimer: Timer?
@@ -313,6 +314,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             prStatus.refresh(model.sessions)
             liveState = watchedState
         }
+        catchUp.sessionsChanged(model.sessions)
         applyState()
         updateMotion()
         refreshUsage()
