@@ -200,6 +200,8 @@ struct QuickPanelView: View {
     @State private var customPicked = false
     /// The colour open in the editor under the colours by state.
     @State private var editingColor: PaletteColor?
+    /// Launch at login, read when Settings opens (asking the system is slow: not on every redraw).
+    @State private var launchesAtLogin = false
     /// Where the tiles and the Settings row sit in the menu, so the side card lines up with them.
     @State private var tilesTop: CGFloat = 0
     @State private var settingsTop: CGFloat = 0
@@ -224,7 +226,6 @@ struct QuickPanelView: View {
             if let side = state.side {
                 card(width: Self.sideWidth) { sideCard(side).padding(.top, 8) }
                     .padding(.top, sideTop(side))
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
             }
         }
         .coordinateSpace(name: "menu")
@@ -232,7 +233,6 @@ struct QuickPanelView: View {
         .scaleEffect(state.shown ? 1 : 0.95, anchor: .topLeading)
         .opacity(state.shown ? 1 : 0)
         .environment(\.colorScheme, .dark)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: state.side)
         // Switching style (or quiet) shows different controls: fit the window to them.
         .onChange(of: prefs.style) { state.resized() }
         .onChange(of: prefs.quiet) { state.resized() }
@@ -319,14 +319,11 @@ struct QuickPanelView: View {
                 toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
                     .help("A light along the screen's edge when the orb is near it.")
             } else {
-                HStack(spacing: 12) {
-                    Segmented(options: IslandDock.allCases.map { ($0, icon(for: $0), $0.rawValue.capitalized) },
-                              selection: Binding(get: { prefs.islandDock }, set: { settings.prefs.islandDock = $0 }))
-                    Slider(value: Binding(get: { prefs.islandWidth }, set: { settings.prefs.islandWidth = ($0 * 20).rounded() / 20 }),
-                           in: Double(IslandLayout.minWidth)...Double(IslandLayout.maxWidth))
-                        .controlSize(.small).tint(.white)
-                        .help("Width: \(Int((prefs.islandWidth * 100).rounded()))%")
-                }
+                choiceRow("Edge", Segmented(options: IslandDock.allCases.map { ($0, icon(for: $0), $0.rawValue.capitalized) },
+                                            selection: Binding(get: { prefs.islandDock }, set: { settings.prefs.islandDock = $0 })))
+                sliderRow("Width", value: Binding(get: { prefs.islandWidth }, set: { settings.prefs.islandWidth = ($0 * 20).rounded() / 20 }),
+                          range: Double(IslandLayout.minWidth)...Double(IslandLayout.maxWidth),
+                          text: "\(Int((prefs.islandWidth * 100).rounded()))%")
                 choiceRow("At rest", Segmented(options: [(IslandRest.live, nil, "Live"), (.compact, nil, "Compact")],
                                                selection: Binding(get: { prefs.islandRest }, set: { settings.prefs.islandRest = $0 })))
                 choiceRow("Glow", Segmented(options: [(IslandGlow.waves, nil, "Waves"), (.none, nil, "None")],
@@ -599,7 +596,11 @@ struct QuickPanelView: View {
         VStack(alignment: .leading, spacing: 0) {
             sectionTitle("Settings")
             VStack(spacing: 6) {
-                toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
+                toggleRow("Launch at login", Binding(get: { launchesAtLogin }, set: { on in
+                    launchesAtLogin = on
+                    actions.toggleLaunchAtLogin()
+                    launchesAtLogin = actions.launchAtLogin()   // it may need approval in System Settings first
+                }))
                 toggleRow("Check for updates automatically", Binding(get: { updater.checksAutomatically },
                                                                      set: { updater.checksAutomatically = $0 }))
             }
@@ -619,6 +620,7 @@ struct QuickPanelView: View {
             Row(title: "Disconnect from Claude Code…") { close(); actions.disconnect() }
             Row(title: "Uninstall Claude Bubble…", destructive: true) { close(); actions.uninstall() }
         }
+        .onAppear { launchesAtLogin = actions.launchAtLogin() }
     }
 
     // MARK: Pieces
