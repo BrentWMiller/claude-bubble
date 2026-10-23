@@ -126,7 +126,7 @@ final class QuickPanel: NSPanel {
 final class QuickPanelState: ObservableObject {
     /// Where the panel opens: the menu, or the menu with Settings or Vocabulary open beside it.
     enum Page { case main, advanced, dictation }
-    /// What's open beside the menu (design: Menu slim-down 1a): a tile's options, Settings, or the vocabulary.
+    /// What's open in the menu's place: a tile's options, Settings, or the vocabulary (each with a way back).
     enum Side: Equatable { case tile(QuickTile), settings, vocabulary }
     @Published var side: Side?
     @Published var shown = false
@@ -147,11 +147,11 @@ final class QuickPanelState: ObservableObject {
         }
     }
 
-    /// Opens `side` beside the menu, or closes it if it's already open.
+    /// Opens `side` in the menu's place, or goes back to the menu if it's already open.
     func toggle(_ side: Side) { open(self.side == side ? nil : side) }
 
     func open(_ side: Side?) {
-        self.side = side
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { self.side = side }
         resized()
     }
 
@@ -202,34 +202,28 @@ struct QuickPanelView: View {
     @State private var editingColor: PaletteColor?
     /// Launch at login, read when Settings opens (asking the system is slow: not on every redraw).
     @State private var launchesAtLogin = false
-    /// Where the tiles and the Settings row sit in the menu, so the side card lines up with them.
-    @State private var tilesTop: CGFloat = 0
-    @State private var settingsTop: CGFloat = 0
 
     private var prefs: BubblePreferences { settings.prefs }
     private let dim = Color.white.opacity(0.5)
     private let green = Color(red: 0.2, green: 0.78, blue: 0.35)
-    static let sideWidth: CGFloat = 260
 
     var body: some View {
-        HStack(alignment: .top, spacing: 4) {
-            card(width: QuickPanel.width) {
-                // A grab handle: drag the panel anywhere (dragging its background would fight the sliders).
-                ZStack {
-                    Capsule().fill(Color.white.opacity(0.18)).frame(width: 32, height: 4)
-                    WindowDragArea()
-                }
-                .frame(height: 14)
-                .help("Drag to move")
-                mainPage
+        card(width: QuickPanel.width) {
+            // A grab handle: drag the panel anywhere (dragging its background would fight the sliders).
+            ZStack {
+                Capsule().fill(Color.white.opacity(0.18)).frame(width: 32, height: 4)
+                WindowDragArea()
             }
-            if let side = state.side {
-                card(width: Self.sideWidth) { sideCard(side).padding(.top, 8) }
-                    .padding(.top, sideTop(side))
+            .frame(height: 14)
+            .help("Drag to move")
+            Group {
+                if let side = state.side {
+                    page(side).transition(.move(edge: .trailing).combined(with: .opacity))
+                } else {
+                    mainPage.transition(.move(edge: .leading).combined(with: .opacity))
+                }
             }
         }
-        .coordinateSpace(name: "menu")
-        .fixedSize()
         .scaleEffect(state.shown ? 1 : 0.95, anchor: .topLeading)
         .opacity(state.shown ? 1 : 0)
         .environment(\.colorScheme, .dark)
@@ -258,14 +252,6 @@ struct QuickPanelView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14))
     }
 
-    /// Lined up with what opened it: a tile's row, or for Settings and the vocabulary, the tiles' second row.
-    private func sideTop(_ side: QuickPanelState.Side) -> CGFloat {
-        switch side {
-        case let .tile(tile): max(0, tilesTop - 10 + (QuickTile.allCases.firstIndex(of: tile)! >= 3 ? 64 : 0))
-        case .settings, .vocabulary: max(0, min(tilesTop + 54, settingsTop - 40))
-        }
-    }
-
     private var mainPage: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let release = updater.available {
@@ -280,7 +266,6 @@ struct QuickPanelView: View {
             divider
             Row(title: "Hide for an hour", shortcut: "⌘H") { close(); actions.hideForAnHour() }
             Row(title: "Settings", shortcut: "⌘,", chevron: true, selected: state.side == .settings) { state.toggle(.settings) }
-                .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named("menu")).minY }) { settingsTop = $0 }
             Row(title: "Quit Claude Bubble", shortcut: "⌘Q") { actions.quit() }
         }
     }
@@ -468,7 +453,6 @@ struct QuickPanelView: View {
                 TileButton(tile: tile, on: isOn(tile), open: state.side == .tile(tile)) { state.toggle(.tile(tile)) }
             }
         }
-        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named("menu")).minY }) { tilesTop = $0 }
     }
 
     private func isOn(_ tile: QuickTile) -> Bool {
@@ -494,19 +478,36 @@ struct QuickPanelView: View {
         .help("Sound volume")
     }
 
-    // MARK: The side card
+    // MARK: Pages in the menu's place
 
-    @ViewBuilder private func sideCard(_ side: QuickPanelState.Side) -> some View {
+    @ViewBuilder private func page(_ side: QuickPanelState.Side) -> some View {
         switch side {
-        case let .tile(tile): tileOptions(tile)
-        case .settings: settingsCard
+        case let .tile(tile): VStack(alignment: .leading, spacing: 0) { back(tile.title); tileOptions(tile) }
+        case .settings: VStack(alignment: .leading, spacing: 0) { back("Settings"); settingsCard }
         case .vocabulary: DictationPage(names: actions.sessionNames(), back: { state.open(.tile(.voice)) }, resized: { state.resized() })
+        }
+    }
+
+    /// "‹ Title": back to the menu.
+    private func back(_ title: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { state.open(nil) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
+                    Text(title).font(.system(size: 14, weight: .semibold))
+                    Spacer()
+                }
+                .foregroundStyle(Color.white)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 4)
+            divider
         }
     }
 
     @ViewBuilder private func tileOptions(_ tile: QuickTile) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle(tile.title)
             switch tile {
             case .usage:
                 option("Usage meter", Binding(get: { prefs.usage }, set: { settings.prefs.usage = $0 }),
@@ -594,7 +595,6 @@ struct QuickPanelView: View {
 
     private var settingsCard: some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionTitle("Settings")
             VStack(spacing: 6) {
                 toggleRow("Launch at login", Binding(get: { launchesAtLogin }, set: { on in
                     launchesAtLogin = on
