@@ -151,7 +151,7 @@ final class QuickPanelState: ObservableObject {
     func toggle(_ side: Side) { open(self.side == side ? nil : side) }
 
     func open(_ side: Side?) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { self.side = side }
+        withAnimation(.easeInOut(duration: 0.15)) { self.side = side }
         resized()
     }
 
@@ -218,9 +218,9 @@ struct QuickPanelView: View {
             .help("Drag to move")
             Group {
                 if let side = state.side {
-                    page(side).transition(.move(edge: .trailing).combined(with: .opacity))
+                    page(side).transition(.opacity)
                 } else {
-                    mainPage.transition(.move(edge: .leading).combined(with: .opacity))
+                    mainPage.transition(.opacity)
                 }
             }
         }
