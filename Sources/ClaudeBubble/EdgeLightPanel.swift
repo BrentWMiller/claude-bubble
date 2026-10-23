@@ -1,27 +1,17 @@
 import AppKit
 import ClaudeBubbleCore
-import Combine
-import SwiftUI
-
-/// What one edge's light draws.
-final class EdgeGlowModel: ObservableObject {
-    @Published var strength: Double = 0
-    /// The light's centre, measured along the panel from its start.
-    @Published var centre: CGFloat = 0
-    /// The edge's full length (sets the falloff).
-    @Published var length: CGFloat = 1
-    @Published var color: Color = .white
-    @Published var state: BubbleState = .idle
-}
+import MetalKit
 
 /// A thin click-through strip along one screen edge, lit near the orb.
 final class EdgeLightPanel: NSPanel {
     static let thickness: CGFloat = 16
     let edge: EdgeStrip.Edge
-    let model = EdgeGlowModel()
+    /// Nil only where Metal isn't available (nothing is drawn then).
+    let glow: EdgeGlowMetalView?
 
     init(edge: EdgeStrip.Edge) {
         self.edge = edge
+        glow = EdgeGlowMetalView(edge: edge)
         super.init(contentRect: CGRect(x: 0, y: 0, width: 10, height: 10), styleMask: [.borderless, .nonactivatingPanel],
                    backing: .buffered, defer: true)
         isFloatingPanel = true
@@ -33,12 +23,15 @@ final class EdgeLightPanel: NSPanel {
         hidesOnDeactivate = false
         isReleasedWhenClosed = false
         ignoresMouseEvents = true
-        let host = NSHostingView(rootView: EdgeGlowView(model: model, edge: edge))
-        host.sizingOptions = []   // sized by hand; see SwiftUI sizing note in IslandPanel
-        contentView = host
+        contentView = glow ?? NSView()
     }
 
     override var canBecomeKey: Bool { false }
+
+    override func orderOut(_ sender: Any?) {
+        glow?.isPaused = true
+        super.orderOut(sender)
+    }
 }
 
 /// Owns the four edge panels and places them each tick.
@@ -49,7 +42,7 @@ final class EdgeLightController {
 
     /// `orb` is the orb panel; nil (orb hidden, popping out, or the light turned off) hides everything at once.
     /// `screen` is the visible frame the light runs along; `shared` are its edges that meet another display.
-    func update(orb: NSWindow?, screen: CGRect?, shared: Set<EdgeStrip.Edge>, color: Color, state: BubbleState,
+    func update(orb: NSWindow?, screen: CGRect?, shared: Set<EdgeStrip.Edge>, color: SIMD3<Float>, state: BubbleState,
                 opacity: Double, dt: Double) {
         guard let orb, let screen else {
             for (edge, panel) in panels where panel.isVisible { panel.orderOut(nil); shown[edge] = 0 }
@@ -70,7 +63,7 @@ final class EdgeLightController {
             panels[edge] = panel
             guard let strip else {
                 // Fading out after the orb moved away: stay where it was (even if the orb changed displays).
-                if panel.isVisible { panel.model.strength = value * opacity } else { panel.orderOut(nil) }
+                if panel.isVisible { panel.glow?.strength = Float(value * opacity) } else { panel.orderOut(nil) }
                 continue
             }
             let centre = strip.centre
@@ -89,107 +82,153 @@ final class EdgeLightController {
             else { f.size.height = min(screen.maxY, centre + reach) - f.minY }
             guard f.width > 1, f.height > 1 else { panel.orderOut(nil); continue }
             if panel.frame != f { panel.setFrame(f, display: true) }
-            let m = panel.model
-            let along = edge == .bottom || edge == .top ? centre - f.minX : centre - f.minY
-            if abs(m.centre - along) > 0.5 { m.centre = along }
-            if m.length != length { m.length = length }
-            if abs(m.strength - value * opacity) > 0.005 { m.strength = value * opacity }
-            if m.state != state { m.state = state }
-            if m.color != color { m.color = color }
+            if let g = panel.glow {
+                let along = edge == .bottom || edge == .top ? centre - f.minX : centre - f.minY
+                if abs(g.centre - Float(along)) > 0.5 { g.centre = Float(along) }
+                if g.length != Float(length) { g.length = Float(length) }
+                if abs(g.strength - Float(value * opacity)) > 0.005 { g.strength = Float(value * opacity) }
+                if g.state != state { g.state = state }
+                if g.color != color { g.color = color }
+            }
             if !panel.isVisible {
                 panel.orderFrontRegardless()
                 panel.order(.below, relativeTo: orb.windowNumber)
+                panel.glow?.resume()
             }
         }
     }
 }
 
-/// The light: a bright 2pt line on the edge with a soft glow fading inward, brightest at the orb and fading
-/// along the edge. Its activity follows the orb's state.
-struct EdgeGlowView: View {
-    @ObservedObject var model: EdgeGlowModel
+/// The light, drawn with Metal: a bright line on the edge with a hot near-white core and a soft glow fading inward,
+/// brightest at the orb and fading along the edge. Working shimmers, needs breathes and error flickers; idle is
+/// still (drawn only when something changes). In SwiftUI each frame rebuilt ~100-stop gradients and committed them
+/// on the main thread, most of its time while the orb worked.
+final class EdgeGlowMetalView: MTKView {
     let edge: EdgeStrip.Edge
+    /// The light's centre, measured along the panel from its start (from the bottom on a side edge).
+    var centre: Float = 0 { didSet { redraw() } }
+    /// The edge's full length (sets the falloff).
+    var length: Float = 1 { didSet { redraw() } }
+    var strength: Float = 0 { didSet { redraw() } }
+    var color = SIMD3<Float>(1, 1, 1) { didSet { redraw() } }
+    var state: BubbleState = .idle { didSet { resume() } }
 
-    private var horizontal: Bool { edge == .bottom || edge == .top }
+    private let queue: MTLCommandQueue
+    private let pipeline: MTLRenderPipelineState
 
-    var body: some View {
-        // Working shimmers, needs breathes and error flickers, so those animate; idle is still.
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: model.state == .idle)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            GeometryReader { geo in
-                let span = horizontal ? geo.size.width : geo.size.height
-                let along = alongGradient(span: span, t: t)
-                ZStack(alignment: inwardAlignment.opposite) {
-                    // Soft glow fading inward from the edge.
-                    Rectangle().fill(along)
-                        .mask(LinearGradient(stops: [.init(color: .white, location: 0), .init(color: .white.opacity(0.35), location: 0.3),
-                                                     .init(color: .clear, location: 1)],
-                                             startPoint: inwardAlignment.opposite.unit, endPoint: inwardAlignment.unit))
-                    // The line itself: the colour, with a hot near-white core like the orb's rim.
-                    Rectangle().fill(along)
-                        .frame(width: horizontal ? nil : 3, height: horizontal ? 3 : nil)
-                    Rectangle().fill(along).blendMode(.plusLighter)
-                        .frame(width: horizontal ? nil : 1.5, height: horizontal ? 1.5 : nil)
-                        .overlay(Rectangle().fill(.white.opacity(0.35)).mask(Rectangle().fill(along)))
-                }
-            }
-            .opacity(model.strength * level(t))
+    init?(edge: EdgeStrip.Edge) {
+        guard let device = MTLCreateSystemDefaultDevice(), let queue = device.makeCommandQueue() else { return nil }
+        self.edge = edge
+        self.queue = queue
+        do {
+            let library = try device.makeLibrary(source: Self.source, options: nil)
+            let d = MTLRenderPipelineDescriptor()
+            d.vertexFunction = library.makeFunction(name: "edgeVertex")
+            d.fragmentFunction = library.makeFunction(name: "edgeFragment")
+            d.colorAttachments[0].pixelFormat = .bgra8Unorm
+            pipeline = try device.makeRenderPipelineState(descriptor: d)
+        } catch {
+            NSLog("ClaudeBubble: edge light shader setup failed: \(error)")
+            return nil
         }
+        super.init(frame: .zero, device: device)
+        wantsLayer = true
+        layer?.isOpaque = false
+        colorPixelFormat = .bgra8Unorm
+        clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 0)
+        preferredFramesPerSecond = 30
+        enableSetNeedsDisplay = true
+        isPaused = true
     }
 
-    /// Where the screen's inside is, from this edge.
-    private var inwardAlignment: Alignment {
-        switch edge {
-        case .bottom: .top
-        case .top: .bottom
-        case .left: .trailing
-        case .right: .leading
-        }
+    required init(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    /// Animating states run at 30fps while shown; idle draws once.
+    func resume() {
+        isPaused = state == .idle || window?.isVisible != true
+        redraw()
     }
 
-    private func level(_ t: Double) -> Double {
-        switch model.state {
+    private func redraw() { if isPaused { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let size = bounds.size
+        guard size.width > 1, size.height > 1, let pass = currentRenderPassDescriptor, let drawable = currentDrawable,
+              let cmd = queue.makeCommandBuffer(), let enc = cmd.makeRenderCommandEncoder(descriptor: pass) else { return }
+        let t = Date().timeIntervalSinceReferenceDate
+        let level: Double = switch state {
         case .working: 1
         case .needs: 0.45 + 0.55 * (0.5 + 0.5 * sin(t * 2 * .pi / 1.4))
         case .error: 0.8 * (Int(t * 14) % 7 == 0 ? 0.55 : 1)
         case .idle: 0.35
         }
+        let side: Float = switch edge {
+        case .bottom: 0
+        case .top: 1
+        case .left: 2
+        case .right: 3
+        }
+        var u = EdgeUniforms(
+            // The shimmer turns at 3 rad/s: wrapping time every 2π/3 × 1000 s changes nothing and keeps Float precise.
+            frame: [Float(size.width), Float(size.height), Float(drawableSize.width / size.width),
+                    Float(t.truncatingRemainder(dividingBy: 2000 * .pi / 3))],
+            along: [centre, length, state == .working ? 1 : 0, side],
+            color: SIMD4(color, strength * Float(level)))
+        enc.setRenderPipelineState(pipeline)
+        enc.setFragmentBytes(&u, length: MemoryLayout<EdgeUniforms>.stride, index: 0)
+        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        enc.endEncoding()
+        cmd.present(drawable)
+        cmd.commit()
     }
 
-    private func alongGradient(span: CGFloat, t: Double) -> LinearGradient {
-        // Enough stops to draw the shimmer's ~240pt waves smoothly across a whole edge.
-        let n = max(24, Int(span / 16))
-        let stops = (0...n).map { i -> Gradient.Stop in
-            let pos = CGFloat(i) / CGFloat(n)
-            let x = pos * span - model.centre
-            var a = EdgeLight.falloff(x, length: model.length)
-            // Working: a slow shimmer travelling outward from the orb.
-            if model.state == .working { a *= 0.8 + 0.2 * sin(Double(abs(x)) / 38 - t * 3) }
-            return Gradient.Stop(color: model.color.opacity(a), location: pos)
-        }
-        // Along a vertical edge `centre` is measured up from the panel's bottom, so the gradient runs bottom → top.
-        return horizontal
-            ? LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing)
-            : LinearGradient(stops: stops, startPoint: .bottom, endPoint: .top)
-    }
-}
-
-private extension Alignment {
-    var opposite: Alignment {
-        switch self {
-        case .top: .bottom
-        case .bottom: .top
-        case .leading: .trailing
-        default: .leading
-        }
+    private struct EdgeUniforms {
+        /// width, height (pt), backing scale, time.
+        var frame: SIMD4<Float>
+        /// centre, edge length, shimmering (0/1), which edge (bottom, top, left, right).
+        var along: SIMD4<Float>
+        /// The colour (rgb) and overall opacity.
+        var color: SIMD4<Float>
     }
 
-    var unit: UnitPoint {
-        switch self {
-        case .top: .top
-        case .bottom: .bottom
-        case .leading: .leading
-        default: .trailing
-        }
+    private static let source = """
+    #include <metal_stdlib>
+    using namespace metal;
+
+    struct EdgeUniforms { float4 frame; float4 along; float4 color; };
+    struct QuadOut { float4 position [[position]]; };
+
+    vertex QuadOut edgeVertex(uint vid [[vertex_id]]) {
+        float2 p = float2((vid << 1) & 2, vid & 2);
+        QuadOut o; o.position = float4(p * 2.0 - 1.0, 0, 1); return o;
     }
+
+    // Premultiplied, as the SwiftUI layers composited: the inward glow, the 3pt line over it, the 1.5pt line added
+    // on (plus-lighter), and a white core over that.
+    fragment float4 edgeFragment(QuadOut in [[stage_in]], constant EdgeUniforms &u [[buffer(0)]]) {
+        float2 p = in.position.xy / u.frame.z;
+        float w = u.frame.x, h = u.frame.y;
+        int side = int(u.along.w);
+        // s: along the edge from the panel's start (bottom up on a side edge); d: in from the screen's edge.
+        float s = side < 2 ? p.x : h - p.y;
+        float d = side == 0 ? h - p.y : side == 1 ? p.y : side == 2 ? p.x : w - p.x;
+        float x = s - u.along.x;
+        float l = u.along.y / 3.0;
+        float a = abs(x) <= 2.0 * l ? exp(-(x / l) * (x / l)) : 0.0;
+        if (u.along.z > 0.5) a *= 0.8 + 0.2 * sin(abs(x) / 38.0 - u.frame.w * 3.0);
+        float depth = d / 16.0;
+        float m = depth <= 0.3 ? mix(1.0, 0.35, depth / 0.3) : mix(0.35, 0.0, (depth - 0.3) / 0.7);
+        float3 c = u.color.rgb;
+        float4 out = float4(c, 1) * a * clamp(m, 0.0, 1.0);
+        if (d < 3.0) out = float4(c, 1) * a + out * (1.0 - a);
+        if (d < 1.5) {
+            out = min(out + float4(c, 1) * a, 1.0);
+            float core = 0.35 * a;
+            out = float4(1, 1, 1, 1) * core + out * (1.0 - core);
+        }
+        return out * u.color.a;
+    }
+    """
 }

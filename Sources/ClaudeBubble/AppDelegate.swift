@@ -1083,7 +1083,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         animator.motionElapsed = motionSince.map { Date().timeIntervalSince($0) } ?? 0
         if isIsland {
             // The island: no floating orb, pips, edge light, pointer attention or hover card.
-            edgeLight.update(orb: nil, screen: nil, shared: [], color: .clear, state: .idle, opacity: 1, dt: 0.05)
+            edgeLight.update(orb: nil, screen: nil, shared: [], color: .zero, state: .idle, opacity: 1, dt: 0.05)
             animator.setPointer(offset: .zero, closeness: 0)
             updatePips(mouse: mouse)
             updateIsland(mouse: mouse)
@@ -1100,7 +1100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let shared = orbScreen.map { s in EdgeLight.sharedEdges(of: s.frame, among: NSScreen.screens.filter { $0 != s }.map(\.frame)) } ?? []
         edgeLight.update(orb: applied.edgeLight && !bubbleHidden && model.present && !quiet ? panel : nil, screen: orbScreen?.visibleFrame,
                          shared: shared,
-                         color: Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)), state: shown,
+                         color: c, state: shown,
                          opacity: applied.opacity, dt: 0.05)
         updatePips(mouse: mouse)
         updateToasts(mouse: mouse, now: CACurrentMediaTime())
