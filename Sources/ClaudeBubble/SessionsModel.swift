@@ -90,6 +90,32 @@ final class SessionsModel: ObservableObject {
         catchUp = nil
     }
 
+    /// Opens a session's terminal (and closes the list), as clicking its row does.
+    var openSession: ((Session) -> Void)?
+
+    /// The banner shows atop the list until the catch-up is opened.
+    var catchUpBannerShown: Bool { catchUp != nil && !catchUpOpen }
+
+    func catchUpGroups() -> [(AwayGroup, [AwayItem])] { catchUp?.grouped(current: byID) ?? [] }
+
+    /// An approval card's width in the catch-up view of a list `width` wide (less the dot's column and padding).
+    static func catchUpCardWidth(_ width: CGFloat) -> CGFloat { width - 12 - 8 - 12 - 12 }
+
+    /// The catch-up view's height in a list `width` wide; 0 while it's closed.
+    func catchUpHeight(width: CGFloat) -> CGFloat {
+        guard catchUpOpen, catchUp != nil else { return 0 }
+        let groups = catchUpGroups()
+        var cards: [String: CGFloat] = [:]
+        for (_, items) in groups {
+            for item in items {
+                if let s = byID[item.sessionID], let r = approval(for: s) {
+                    cards[s.id] = CGFloat(ApprovalCardLayout.height(r, width: Double(Self.catchUpCardWidth(width))))
+                }
+            }
+        }
+        return AwayLayout.height(groups: groups, approvalHeights: cards, footer: catchUpSummaries)
+    }
+
     /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).
     func approval(for session: Session) -> ApprovalRequest? {
         guard session.state == .needs else { return nil }

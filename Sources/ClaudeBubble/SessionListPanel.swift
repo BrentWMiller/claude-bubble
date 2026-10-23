@@ -9,9 +9,12 @@ final class SessionListPanel: NSPanel {
     private let motion: CardMotionModel
     private var bubbleFrame: CGRect = .zero
     private var subscription: AnyCancellable?
+    private var catchUpSubscription: AnyCancellable?
+    private let model: SessionsModel
 
     init(model: SessionsModel, onSelect: @escaping (Session) -> Void) {
         let motion = CardMotionModel()
+        self.model = model
         self.motion = motion
         host = FirstMouseHostingView(rootView: SessionListView(model: model, motion: motion, onSelect: onSelect))
         host.sizingOptions = [.intrinsicContentSize]   // fittingSize needs it; no min/max constraints (costly per frame)
@@ -31,6 +34,12 @@ final class SessionListPanel: NSPanel {
             guard let self, self.isVisible else { return }
             self.show(near: self.bubbleFrame)
         }
+        // The banner, and the catch-up view in the list's place, change its size too.
+        catchUpSubscription = model.$catchUpOpen.combineLatest(model.$catchUp.map { $0 != nil })
+            .receive(on: RunLoop.main).sink { [weak self] _ in
+                guard let self, self.isVisible else { return }
+                self.show(near: self.bubbleFrame)
+            }
     }
 
     override var canBecomeKey: Bool { false }
@@ -57,6 +66,7 @@ final class SessionListPanel: NSPanel {
     /// Pop out: slip back toward the orb and close, then hide the window once the animation is done.
     func popOut() {
         guard isShown else { return }
+        if model.catchUpOpen { model.closeCatchUp() }   // seen, and the list closed
         let at = CACurrentMediaTime()
         motion.hiddenAt = at
         DispatchQueue.main.asyncAfter(deadline: .now() + CardMotion.hideDuration + 0.02) { [weak self] in

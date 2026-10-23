@@ -93,15 +93,19 @@ public enum IslandLayout {
     /// (on the needs-you card, or under one row of the hover panel), 0 for none.
     /// `width`: the Width setting, scaling every horizontal shape (not the side capsule, the tucked circle or the dot).
     public static func size(mode: IslandMode, dock: IslandDock, rest: IslandRest, pips: Int, rows: Int,
-                            footer: Bool = true, linked: Int = 0, approval: CGFloat = 0, width: CGFloat = 1) -> CGSize {
+                            footer: Bool = true, linked: Int = 0, approval: CGFloat = 0, width: CGFloat = 1,
+                            catchUpBanner: Bool = false, catchUpView: CGFloat = 0) -> CGSize {
         let w = { (design: CGFloat) in (design * width).rounded() }
         switch mode {
         case .quiet: return CGSize(width: quietDot, height: quietDot)
         case .tucked: return dock.isSide ? CGSize(width: 44, height: 44) : CGSize(width: 48, height: barHeight)
         case .hover:
+            // The catch-up view takes the rows' place; its banner sits above them.
+            if catchUpView > 0 { return CGSize(width: w(350), height: barHeight + 2 + catchUpView + openPadding) }
+            let banner = catchUpBanner ? AwayLayout.bannerHeight + 6 : 0
             let shown = CGFloat(max(shownRows(rows), 1))
             let more = rows > maxRows ? moreHeight : 0
-            return CGSize(width: w(350), height: barHeight + 2 + rowHeight * shown + linkRowHeight * CGFloat(linked) + more
+            return CGSize(width: w(350), height: barHeight + 2 + banner + rowHeight * shown + linkRowHeight * CGFloat(linked) + more
                                             + (approval > 0 ? approval + 8 : 0) + (footer ? 34 : 6) + openPadding)
         case .needs: return CGSize(width: w(360), height: barHeight + (approval > 0 ? approvalChrome + approval : 54))
         case .error: return CGSize(width: w(360), height: barHeight + 54)

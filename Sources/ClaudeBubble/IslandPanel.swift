@@ -258,7 +258,9 @@ struct IslandView: View {
     private var size: CGSize {
         IslandLayout.size(mode: model.mode, dock: model.dock, rest: model.rest, pips: live.count, rows: live.count,
                           footer: hasFooter, linked: IslandLayout.linkedRows(live),
-                          approval: sessions.islandApprovalHeight(model.mode), width: model.width)
+                          approval: sessions.islandApprovalHeight(model.mode), width: model.width,
+                          catchUpBanner: sessions.catchUpBannerShown,
+                          catchUpView: sessions.catchUpHeight(width: sessions.islandRowWidth))
     }
 
     /// The prompt the needs-you card offers Allow and Deny for.
@@ -468,7 +470,11 @@ struct IslandView: View {
         case .hover:
             // Ticks once a second so the rows' elapsed times stay current.
             TimelineView(.periodic(from: .now, by: 1)) { context in
+                if sessions.catchUpOpen {
+                    CatchUpView(model: sessions, width: sessions.islandRowWidth, now: context.date)
+                } else {
                 VStack(spacing: 2) {
+                    if sessions.catchUpBannerShown { CatchUpBanner(model: sessions, now: context.date) }
                     ForEach(Array(live.prefix(IslandLayout.maxRows).enumerated()), id: \.element.id) { index, s in
                         let asking = sessions.approval(for: s)
                         SessionRow(session: s, now: context.date, palette: sessions.palette,
@@ -491,6 +497,7 @@ struct IslandView: View {
                         Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
                         TodayFooter(summary: sessions.today, usage: sessions.usage, palette: sessions.palette)
                     }
+                }
                 }
             }
             .padding(.horizontal, 8)

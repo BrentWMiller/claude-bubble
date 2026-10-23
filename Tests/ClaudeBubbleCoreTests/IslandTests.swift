@@ -265,4 +265,13 @@ final class IslandTests: XCTestCase {
         b.links = []
         XCTAssertEqual(IslandLayout.linkedRows([a, b]), 1)
     }
+
+    func testHoverMakesRoomForCatchUp() {
+        let plain = IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 0, rows: 2)
+        let banner = IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 0, rows: 2, catchUpBanner: true)
+        XCTAssertEqual(banner.height - plain.height, AwayLayout.bannerHeight + 6)
+        let view = IslandLayout.size(mode: .hover, dock: .top, rest: .live, pips: 0, rows: 2, catchUpView: 300)
+        XCTAssertEqual(view.height, IslandLayout.barHeight + 2 + 300 + IslandLayout.openPadding)
+        XCTAssertEqual(view.width, plain.width)
+    }
 }

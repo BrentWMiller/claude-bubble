@@ -128,6 +128,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.hover.dismiss()
             self?.listPanel.popOut()
         }
+        model.openSession = { [weak self] session in
+            self?.focusTerminal(session)
+            self?.hover.dismiss()
+            self?.listPanel.popOut()
+        }
         startHoverTracking()
         listPanel.bubble = panel
         toastPanel = ToastPanel(model: toastModel)
@@ -619,7 +624,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                           rows: model.sessions.count,
                                                           footer: model.today != nil || model.usage != nil,
                                                           linked: model.linkedRows, approval: model.islandApprovalHeight(mode),
-                                                          width: m.width),
+                                                          width: m.width, catchUpBanner: model.catchUpBannerShown,
+                                                          catchUpView: model.catchUpHeight(width: model.islandRowWidth)),
                                   dock: m.dock, window: window)
         }
         let over = pill(m.mode).contains(mouse)
@@ -632,7 +638,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let mode = islandTucked ? .tucked
             : IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open,
                                 doneAt: previewColor == .done ? Date() : islandDoneAt, quiet: quiet)
-        if m.mode != mode { m.mode = mode }
+        if m.mode != mode {
+            if m.mode == .hover, model.catchUpOpen { model.closeCatchUp() }   // seen, and the island closed
+            m.mode = mode
+        }
         // Peeking at the session panel while quiet shows the orb at its normal size.
         animator.quiet = quiet && mode != .hover
         if m.state != animator.state { m.state = animator.state }
@@ -982,7 +991,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let pill = IslandLayout.pillRect(size: IslandLayout.size(mode: m.mode, dock: m.dock, rest: m.rest,
                                                                      pips: model.sessions.count, rows: model.sessions.count,
                                                                      footer: model.today != nil || model.usage != nil,
-                                                                     linked: model.linkedRows),
+                                                                     linked: model.linkedRows, catchUpBanner: model.catchUpBannerShown,
+                                                                     catchUpView: model.catchUpHeight(width: model.islandRowWidth)),
                                              dock: m.dock, window: island.frame)
             let visible = NSScreen.screens.first { $0.frame.intersects(island.frame) }.map(islandArea) ?? island.frame
             placement = ToastLayout.placeIsland(pill: pill, dock: m.dock, size: ToastPanel.size, visible: visible)
