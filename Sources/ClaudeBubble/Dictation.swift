@@ -19,6 +19,8 @@ final class Dictation {
     static let settle: TimeInterval = 1.5
 
     private let engine = AVAudioEngine()
+    /// Where the mic is started and stopped, in order, away from the main thread.
+    private let audio = DispatchQueue(label: "com.claudebubble.dictation.audio", qos: .userInitiated)
     private var recognizer: SpeechRecognizing?
     private var heard = ""
     private var settling: DispatchWorkItem?
@@ -100,17 +102,25 @@ final class Dictation {
         }
     }
 
-    private func listen(with recognizer: SpeechRecognizing, ducking: Bool = DictationVocabularyModel.shared.lowersOtherAudio) {
+    private func listen(with recognizer: SpeechRecognizing) {
+        self.recognizer = recognizer
+        let run = run, ducking = DictationVocabularyModel.shared.lowersOtherAudio
+        // Off the main thread: turning voice processing on or off takes the best part of a second, and the orb and
+        // island draw there.
+        audio.async {
+            guard let error = self.startMic(feeding: recognizer, ducking: ducking) else { return }
+            DispatchQueue.main.async { if self.current(run) { self.end(error) } }
+        }
+    }
+
+    /// Starts the mic feeding `recognizer` (on `audio`); why it couldn't, if it couldn't.
+    private func startMic(feeding recognizer: SpeechRecognizing, ducking: Bool) -> String? {
         let input = engine.inputNode
         // Lower other apps' audio while you talk (and clean up echo and noise): the system's voice processing.
         if ducking { duck(true) }
         let format = input.outputFormat(forBus: 0)
         NSLog("ClaudeBubble: mic %@, lowering other audio %d", format.description, processing ? 1 : 0)
-        guard format.channelCount > 0 else {
-            recognizer.cancel()
-            return end("No microphone")
-        }
-        self.recognizer = recognizer
+        guard format.channelCount > 0 else { return "No microphone" }
         let meter = meter, rate = Float(format.sampleRate)
         // Voice processing hands over several channels (5 on a MacBook), the cleaned-up voice in the first: listen to it.
         let mono = format.channelCount > 1 ? AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1) : nil
@@ -125,11 +135,12 @@ final class Dictation {
         engine.prepare()
         do {
             try engine.start()
+            return nil
         } catch {
-            guard processing else { return end("Couldn't start the microphone") }
+            guard processing else { return "Couldn't start the microphone" }
             // It wouldn't start with voice processing: try once without (no lowering this time).
-            stopMic()
-            return listen(with: recognizer, ducking: false)
+            stopEngine()
+            return startMic(feeding: recognizer, ducking: false)
         }
     }
 
@@ -143,7 +154,7 @@ final class Dictation {
         return out
     }
 
-    /// Voice processing is on (other audio is lowered while the mic runs).
+    /// Voice processing is on (other audio is lowered while the mic runs). On `audio`, as is all else to do with `engine`.
     private var processing = false
 
     private func duck(_ on: Bool) {
@@ -158,6 +169,10 @@ final class Dictation {
     }
 
     private func stopMic() {
+        audio.async { self.stopEngine() }
+    }
+
+    private func stopEngine() {
         if engine.isRunning { engine.stop() }
         if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }   // even if the engine never started
         if processing { duck(false) }   // other audio comes back as soon as you let go
