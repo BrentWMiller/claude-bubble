@@ -140,4 +140,25 @@ final class PreferencesTests: XCTestCase {
         XCTAssertTrue(prefs.usage)
         XCTAssertFalse(prefs.toasts)
     }
+
+    func testCatchUpDefaults() {
+        let d = BubblePreferences.defaults
+        XCTAssertTrue(d.catchUp)
+        XCTAssertFalse(d.catchUpSummaries)
+        XCTAssertEqual(d.awayMinutes, 10)
+        XCTAssertEqual(BubblePreferences.awayMinuteChoices, [5, 10, 15, 30, 60])
+    }
+
+    func testOlderSavedPreferencesGetCatchUpDefaults() throws {
+        let old = try JSONEncoder().encode(["sounds": true])   // no catch-up keys
+        let p = try JSONDecoder().decode(BubblePreferences.self, from: old)
+        XCTAssertTrue(p.catchUp)
+        XCTAssertFalse(p.catchUpSummaries)
+        XCTAssertEqual(p.awayMinutes, 10)
+    }
+
+    func testAwayMinutesOutsideTheChoicesFallsBackToTen() throws {
+        let bad = try JSONEncoder().encode(["awayMinutes": 7])
+        XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: bad).awayMinutes, 10)
+    }
 }
