@@ -477,6 +477,35 @@ struct QuickPanelView: View {
                     .help("Words and names dictation should listen for")
             }
             divider
+            // What changed while you were away, at the top of the session list.
+            groupTitle("Catch-up")
+            toggleRow("Catch-up", Binding(get: { prefs.catchUp }, set: { settings.prefs.catchUp = $0 }))
+                .help("What changed while you were away, at the top of the session list.")
+            if prefs.catchUp {
+                VStack(alignment: .leading, spacing: 2) {
+                    toggleRow("Summaries by Claude", Binding(get: { prefs.catchUpSummaries }, set: { settings.prefs.catchUpSummaries = $0 }))
+                    Text("Sends the recent part of each session's conversation to Claude to summarize.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(dim)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack(spacing: 8) {
+                    Text("Away after").foregroundStyle(dim)
+                    Spacer()
+                    Menu {
+                        ForEach(BubblePreferences.awayMinuteChoices, id: \.self) { minutes in
+                            Button("\(minutes) min") { settings.prefs.awayMinutes = minutes }
+                        }
+                    } label: {
+                        Text("\(prefs.awayMinutes) min").foregroundStyle(Color.white)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                }
+                .font(.system(size: 13))
+                .help("How long without using the Mac before you count as away (locking the screen counts at once).")
+            }
+            divider
             groupTitle("Alerts")
             toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
             toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))

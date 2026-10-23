@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var watcher: SessionWatcher!
     private let model = SessionsModel()
+    private lazy var catchUp = CatchUpCoordinator(model: model, settings: settings)
     private var listPanel: SessionListPanel!
     private var hover = HoverTracker()
     private var hoverTimer: Timer?
@@ -123,6 +124,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // @Published fires before storing; apply on the next run-loop turn so reads and writes see the new value.
         settingsSubscription = settings.$prefs.dropFirst().receive(on: RunLoop.main).sink { [weak self] prefs in self?.apply(prefs) }
         listPanel = SessionListPanel(model: model) { [weak self] session in
+            self?.focusTerminal(session)
+            self?.hover.dismiss()
+            self?.listPanel.popOut()
+        }
+        model.listHeight = { [weak self] in
+            guard let self else { return 0 }
+            guard self.isIsland else { return max(0, self.listPanel.frame.height - 16) }   // less the card's padding
+            let m = self.island.model, model = self.model
+            let hover = IslandLayout.size(mode: .hover, dock: m.dock, rest: m.rest, pips: model.sessions.count,
+                                          rows: model.sessions.count, footer: model.today != nil || model.usage != nil,
+                                          linked: model.linkedRows, approval: model.islandApprovalHeight(.hover),
+                                          width: m.width, catchUpBanner: true)
+            return hover.height - IslandLayout.barHeight - 2 - IslandLayout.openPadding
+        }
+        model.openSession = { [weak self] session in
             self?.focusTerminal(session)
             self?.hover.dismiss()
             self?.listPanel.popOut()
@@ -251,6 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(toggleItem)
         quickItems = makeQuickSettingsItems()
         quickItems.forEach(menu.addItem)
+        menu.addItem(item("Catch Up", #selector(catchUpNow)))
         menu.addItem(.separator())
         let settingsItem = item("Settings…", #selector(openSettings))
         settingsItem.keyEquivalent = ","
@@ -313,6 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             prStatus.refresh(model.sessions)
             liveState = watchedState
         }
+        catchUp.sessionsChanged(model.sessions)
         applyState()
         updateMotion()
         refreshUsage()
@@ -617,7 +635,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                                                           rows: model.sessions.count,
                                                           footer: model.today != nil || model.usage != nil,
                                                           linked: model.linkedRows, approval: model.islandApprovalHeight(mode),
-                                                          width: m.width),
+                                                          width: m.width, catchUpBanner: model.catchUpBannerShown,
+                                                          catchUpView: model.catchUpHeight(width: model.islandRowWidth)),
                                   dock: m.dock, window: window)
         }
         let over = pill(m.mode).contains(mouse)
@@ -630,7 +649,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let mode = islandTucked ? .tucked
             : IslandMode.choose(sessions: model.sessions, now: Date(), hovering: open,
                                 doneAt: previewColor == .done ? Date() : islandDoneAt, quiet: quiet)
-        if m.mode != mode { m.mode = mode }
+        if m.mode != mode {
+            if m.mode == .hover, model.catchUpOpen { model.closeCatchUp() }   // seen, and the island closed
+            m.mode = mode
+        }
         // Peeking at the session panel while quiet shows the orb at its normal size.
         animator.quiet = quiet && mode != .hover
         if m.state != animator.state { m.state = animator.state }
@@ -980,7 +1002,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let pill = IslandLayout.pillRect(size: IslandLayout.size(mode: m.mode, dock: m.dock, rest: m.rest,
                                                                      pips: model.sessions.count, rows: model.sessions.count,
                                                                      footer: model.today != nil || model.usage != nil,
-                                                                     linked: model.linkedRows),
+                                                                     linked: model.linkedRows, catchUpBanner: model.catchUpBannerShown,
+                                                                     catchUpView: model.catchUpHeight(width: model.islandRowWidth)),
                                              dock: m.dock, window: island.frame)
             let visible = NSScreen.screens.first { $0.frame.intersects(island.frame) }.map(islandArea) ?? island.frame
             placement = ToastLayout.placeIsland(pill: pill, dock: m.dock, size: ToastPanel.size, visible: visible)
@@ -1357,6 +1380,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func pickDock(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let dock = IslandDock(rawValue: raw) { settings.prefs.islandDock = dock }
     }
+
+    /// What's changed, now: the banner waits atop the session list.
+    @objc private func catchUpNow() { catchUp.catchUpNow() }
 
     @objc private func toggleEdgeLight() {
         settings.prefs.edgeLight.toggle()

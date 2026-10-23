@@ -529,6 +529,10 @@ struct SessionListView: View {
 
     private func card(now: Date, age: Double) -> some View {
         VStack(spacing: 2) {
+            if model.catchUpOpen {
+                CatchUpView(model: model, width: Self.width - 16, now: now)
+            } else {
+            if model.catchUpBannerShown { CatchUpBanner(model: model, now: now) }
             ForEach(Array(model.sorted.enumerated()), id: \.element.id) { index, session in
                 SessionRow(session: session, now: now,
                            palette: model.palette, entrance: CardMotion.row(index, age: age),
@@ -545,6 +549,7 @@ struct SessionListView: View {
             if model.today != nil || model.usage != nil {
                 Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.top, 4)
                 TodayFooter(summary: model.today, usage: model.usage, palette: model.palette, now: now)
+            }
             }
         }
         .padding(8)

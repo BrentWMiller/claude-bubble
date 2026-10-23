@@ -72,6 +72,58 @@ final class SessionsModel: ObservableObject {
     /// Files, images or text dropped on a session's row; false when there's nothing it can take.
     var dropOn: ((Session, [NSItemProvider]) -> Bool)?
 
+    /// What changed while you were away, until you've seen it and closed it (a banner atop the list, then its view).
+    @Published var catchUp: AwayCatchUp?
+    /// The catch-up view is showing in place of the list.
+    @Published var catchUpOpen = false
+    /// Its lines are written by Claude (the view's footer says so).
+    var catchUpSummaries = false
+
+    func openCatchUp() {
+        catchUpFloor = listHeight?() ?? 0
+        catchUp?.seen = true
+        catchUpOpen = true
+    }
+
+    /// The session list's content height as it shows now (orb's card or island's panel), supplied by the app.
+    var listHeight: (() -> CGFloat)?
+    /// The list's height when the catch-up opened: the view keeps at least that, so the pointer stays on it.
+    private var catchUpFloor: CGFloat = 0
+
+    /// Seen and closed: it's gone.
+    func closeCatchUp() {
+        catchUpOpen = false
+        catchUp = nil
+    }
+
+    /// Opens a session's terminal (and closes the list), as clicking its row does.
+    var openSession: ((Session) -> Void)?
+
+    /// The banner shows atop the list until the catch-up is opened.
+    var catchUpBannerShown: Bool { catchUp != nil && !catchUpOpen && !catchUpGroups().isEmpty }
+
+    func catchUpGroups() -> [(AwayGroup, [AwayItem])] { catchUp?.grouped(current: byID) ?? [] }
+
+    /// An approval card's width in the catch-up view of a list `width` wide (less the dot's column and padding).
+    static func catchUpCardWidth(_ width: CGFloat) -> CGFloat { width - 12 - 8 - 12 - 12 }
+
+    /// The catch-up view's height in a list `width` wide; 0 while it's closed.
+    func catchUpHeight(width: CGFloat) -> CGFloat {
+        guard catchUpOpen, catchUp != nil else { return 0 }
+        let groups = catchUpGroups()
+        var cards: [String: CGFloat] = [:]
+        for (_, items) in groups {
+            for item in items {
+                if let s = byID[item.sessionID], let r = approval(for: s) {
+                    cards[s.id] = CGFloat(ApprovalCardLayout.height(r, width: Double(Self.catchUpCardWidth(width))))
+                }
+            }
+        }
+        let linked = Set(groups.flatMap(\.1).map(\.sessionID).filter { byID[$0]?.links.isEmpty == false })
+        return AwayLayout.height(groups: groups, approvalHeights: cards, footer: catchUpSummaries, atLeast: catchUpFloor,
+                                 linked: linked)
+    }
+
     /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).
     func approval(for session: Session) -> ApprovalRequest? {
         guard session.state == .needs else { return nil }

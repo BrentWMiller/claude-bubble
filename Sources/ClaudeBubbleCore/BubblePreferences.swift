@@ -56,6 +56,14 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var quiet: Bool
     /// Permission prompts can be approved or denied from the bubble (the terminal's prompt shows too).
     public var approvals: Bool
+    /// What changed while you were away, at the top of the session list.
+    public var catchUp: Bool
+    /// Catch-up's lines written by Claude (Haiku), from the recent part of each session's conversation.
+    public var catchUpSummaries: Bool
+    /// How long without input before you count as away (one of `awayMinuteChoices`).
+    public var awayMinutes: Int
+
+    public static let awayMinuteChoices = [5, 10, 15, 30, 60]
 
     public static let defaults = BubblePreferences(
         palette: .agentsView, presetName: "Agents view", customized: false,
@@ -88,6 +96,9 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandWidth = 1
         quiet = false
         approvals = true
+        catchUp = true
+        catchUpSummaries = false
+        awayMinutes = 10
     }
 
     func with(style: BubbleStyle, dock: IslandDock, rest: IslandRest, glow: IslandGlow) -> BubblePreferences {
@@ -125,6 +136,10 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         islandWidth = (try? c.decodeIfPresent(Double.self, forKey: .islandWidth)) ?? d.islandWidth
         quiet = (try? c.decodeIfPresent(Bool.self, forKey: .quiet)) ?? d.quiet
         approvals = (try? c.decodeIfPresent(Bool.self, forKey: .approvals)) ?? d.approvals
+        catchUp = (try? c.decodeIfPresent(Bool.self, forKey: .catchUp)) ?? d.catchUp
+        catchUpSummaries = (try? c.decodeIfPresent(Bool.self, forKey: .catchUpSummaries)) ?? d.catchUpSummaries
+        awayMinutes = (try? c.decodeIfPresent(Int.self, forKey: .awayMinutes)).flatMap { $0 }
+            .flatMap { Self.awayMinuteChoices.contains($0) ? $0 : nil } ?? d.awayMinutes
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {
