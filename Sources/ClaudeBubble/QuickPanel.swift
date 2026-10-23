@@ -71,7 +71,7 @@ final class QuickPanel: NSPanel {
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command else { return super.performKeyEquivalent(with: event) }
         switch event.charactersIgnoringModifiers {
         case "h": dismiss(); actions.hideForAnHour(); return true
-        case ",": host.rootView.state.go(.advanced); return true
+        case ",": host.rootView.state.toggle(.settings); return true
         case "q": actions.quit(); return true
         default: return super.performKeyEquivalent(with: event)
         }
@@ -79,7 +79,8 @@ final class QuickPanel: NSPanel {
 
     /// Opens with its top-left at `point` (screen space), kept on that screen, on `page`.
     func show(at point: CGPoint, page: QuickPanelState.Page = .main) {
-        host.rootView.state.page = page
+        host.rootView.state.side = nil
+        host.rootView.state.go(page)
         host.rootView.state.anchor = point
         host.layoutSubtreeIfNeeded()
         let size = host.fittingSize
@@ -106,6 +107,7 @@ final class QuickPanel: NSPanel {
         var target = CGRect(x: frame.minX, y: frame.maxY - size.height, width: size.width, height: size.height)
         if let visible = (screen ?? NSScreen.main)?.visibleFrame {
             target.origin.y = min(max(target.minY, visible.minY + 8), visible.maxY - size.height - 8)
+            target.origin.x = min(max(target.minX, visible.minX + 8), visible.maxX - size.width - 8)
         }
         setFrame(target, display: true)
     }
@@ -120,13 +122,16 @@ final class QuickPanel: NSPanel {
     }
 }
 
-/// The panel's page and pop-in.
+/// The panel's page, its side card and pop-in.
 final class QuickPanelState: ObservableObject {
+    /// Where the panel opens: the menu, or the menu with Settings or Vocabulary open beside it.
     enum Page { case main, advanced, dictation }
-    @Published var page: Page = .main
+    /// What's open beside the menu (design: Menu slim-down 1a): a tile's options, Settings, or the vocabulary.
+    enum Side: Equatable { case tile(QuickTile), settings, vocabulary }
+    @Published var side: Side?
     @Published var shown = false
     var anchor: CGPoint = .zero
-    /// Called after the page changes so the window can fit it.
+    /// Called after the content changes size so the window can fit it.
     var onResize: (() -> Void)?
 
     func popIn() {
@@ -135,12 +140,50 @@ final class QuickPanelState: ObservableObject {
     }
 
     func go(_ page: Page) {
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { self.page = page }
+        switch page {
+        case .main: open(nil)
+        case .advanced: open(.settings)
+        case .dictation: open(.vocabulary)
+        }
+    }
+
+    /// Opens `side` beside the menu, or closes it if it's already open.
+    func toggle(_ side: Side) { open(self.side == side ? nil : side) }
+
+    func open(_ side: Side?) {
+        self.side = side
         resized()
     }
 
-    /// The content changed height: fit the window to it.
+    /// The content changed size: fit the window to it.
     func resized() { DispatchQueue.main.async { self.onResize?() } }
+}
+
+/// The menu's six tiles: each lit while its feature is on, and opening its options beside the menu.
+enum QuickTile: CaseIterable, Equatable {
+    case usage, approve, voice, catchUp, toasts, sounds
+
+    var title: String {
+        switch self {
+        case .usage: "Usage"
+        case .approve: "Approve"
+        case .voice: "Voice"
+        case .catchUp: "Catch-up"
+        case .toasts: "Toasts"
+        case .sounds: "Sounds"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .usage: "gauge.with.needle"
+        case .approve: "checkmark.shield"
+        case .voice: "mic"
+        case .catchUp: "clock.arrow.circlepath"
+        case .toasts: "bubble.left"
+        case .sounds: "speaker.wave.2"
+        }
+    }
 }
 
 struct QuickPanelView: View {
@@ -151,47 +194,76 @@ struct QuickPanelView: View {
     @ObservedObject var state = QuickPanelState()
     @ObservedObject private var dictation = DictationVocabularyModel.shared
     @State private var hoveredTheme: String?
-    /// The custom colour wells under the theme grid are open.
-    @State private var editingColors = false
-    /// The colour open in the editor under the wells.
+    /// The theme row is open: the swatches, Opacity, and for Custom its colours.
+    @State private var themeOpen = false
+    /// Custom picked from the swatches (its colours show before any is changed).
+    @State private var customPicked = false
+    /// The colour open in the editor under the colours by state.
     @State private var editingColor: PaletteColor?
+    /// Where the tiles and the Settings row sit in the menu, so the side card lines up with them.
+    @State private var tilesTop: CGFloat = 0
+    @State private var settingsTop: CGFloat = 0
 
     private var prefs: BubblePreferences { settings.prefs }
     private let dim = Color.white.opacity(0.5)
+    private let green = Color(red: 0.2, green: 0.78, blue: 0.35)
+    static let sideWidth: CGFloat = 260
 
     var body: some View {
-        VStack(spacing: 0) {
-            // A grab handle: drag the panel anywhere (dragging its background would fight the sliders).
-            ZStack {
-                Capsule().fill(Color.white.opacity(0.18)).frame(width: 32, height: 4)
-                WindowDragArea()
-            }
-            .frame(height: 14)
-            .help("Drag to move")
-            Group {
-                switch state.page {
-                case .main: mainPage.transition(.move(edge: .leading).combined(with: .opacity))
-                case .advanced: advancedPage.transition(.move(edge: .trailing).combined(with: .opacity))
-                case .dictation: DictationPage(names: actions.sessionNames(), back: { state.go(.main) },
-                                               resized: { state.resized() })
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
+        HStack(alignment: .top, spacing: 4) {
+            card(width: QuickPanel.width) {
+                // A grab handle: drag the panel anywhere (dragging its background would fight the sliders).
+                ZStack {
+                    Capsule().fill(Color.white.opacity(0.18)).frame(width: 32, height: 4)
+                    WindowDragArea()
                 }
+                .frame(height: 14)
+                .help("Drag to move")
+                mainPage
+            }
+            if let side = state.side {
+                card(width: Self.sideWidth) { sideCard(side).padding(.top, 8) }
+                    .padding(.top, sideTop(side))
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
             }
         }
-        .padding([.horizontal, .bottom], 10)
-        .padding(.top, 2)
-        .frame(width: QuickPanel.width)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x1c / 255, green: 0x1c / 255, blue: 0x20 / 255)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.1), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .coordinateSpace(name: "menu")
+        .fixedSize()
         .scaleEffect(state.shown ? 1 : 0.95, anchor: .topLeading)
         .opacity(state.shown ? 1 : 0)
         .environment(\.colorScheme, .dark)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: state.side)
         // Switching style (or quiet) shows different controls: fit the window to them.
         .onChange(of: prefs.style) { state.resized() }
         .onChange(of: prefs.quiet) { state.resized() }
+        .onChange(of: prefs.sounds) { state.resized() }
+        .onChange(of: prefs.customized) { state.resized() }
         .onChange(of: dictation.enabled) { state.resized() }
+        .onChange(of: prefs.catchUp) { state.resized() }
         .onChange(of: updater.available?.version.description) { state.resized() }
+        .onChange(of: editingColor) { _, color in
+            actions.previewColor(color)
+            state.resized()
+        }
+    }
+
+    /// The menu's dark card, and the side card's.
+    private func card<Content: View>(width: CGFloat, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0, content: content)
+            .padding([.horizontal, .bottom], 10)
+            .padding(.top, 2)
+            .frame(width: width)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Color(red: 0x1c / 255, green: 0x1c / 255, blue: 0x20 / 255)))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.1), lineWidth: 1))
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+
+    /// Lined up with what opened it: a tile's row, or for Settings and the vocabulary, the tiles' second row.
+    private func sideTop(_ side: QuickPanelState.Side) -> CGFloat {
+        switch side {
+        case let .tile(tile): max(0, tilesTop - 10 + (QuickTile.allCases.firstIndex(of: tile)! >= 3 ? 64 : 0))
+        case .settings, .vocabulary: max(0, min(tilesTop + 54, settingsTop - 40))
+        }
     }
 
     private var mainPage: some View {
@@ -201,97 +273,24 @@ struct QuickPanelView: View {
                     .padding(.bottom, 8)
             }
             top
+            theme.padding(.top, 8)
             divider
-            theme
-            sliders
-            divider
-            toggles
+            tiles
+            if prefs.sounds { volume.padding(.top, 12) }
             divider
             Row(title: "Hide for an hour", shortcut: "⌘H") { close(); actions.hideForAnHour() }
-            Row(title: "Settings…", shortcut: "⌘,", chevron: true) { state.go(.advanced) }
-            divider
-            Row(title: "Restart") { actions.restart() }
+            Row(title: "Settings", shortcut: "⌘,", chevron: true, selected: state.side == .settings) { state.toggle(.settings) }
+                .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named("menu")).minY }) { settingsTop = $0 }
             Row(title: "Quit Claude Bubble", shortcut: "⌘Q") { actions.quit() }
         }
     }
 
-    // MARK: Advanced
-
-    private var advancedPage: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button { state.go(.main) } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.left").font(.system(size: 12, weight: .semibold))
-                    Text("Settings").font(.system(size: 14, weight: .semibold))
-                    Spacer()
-                }
-                .foregroundStyle(Color.white)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, 4)
-            divider
-            if prefs.style == .island {
-                sectionTitle("Dock")
-                VStack(spacing: 6) {
-                    HStack {
-                        Text("At rest").foregroundStyle(dim)
-                        Spacer()
-                        Segmented(options: [(IslandRest.live, nil, "Live"), (.compact, nil, "Compact")],
-                                  selection: Binding(get: { prefs.islandRest }, set: { settings.prefs.islandRest = $0 }))
-                    }
-                    HStack {
-                        Text("Glow").foregroundStyle(dim)
-                        Spacer()
-                        Segmented(options: [(IslandGlow.waves, nil, "Waves"), (.none, nil, "None")],
-                                  selection: Binding(get: { prefs.islandGlow }, set: { settings.prefs.islandGlow = $0 }))
-                    }
-                }
-                .font(.system(size: 13))
-                divider
-            }
-            sectionTitle("General")
-            VStack(spacing: 6) {
-                toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
-                toggleRow("Check for updates automatically", Binding(get: { updater.checksAutomatically },
-                                                                     set: { updater.checksAutomatically = $0 }))
-            }
-            divider
-            Row(title: "Check for updates…") { close(); actions.checkForUpdates() }
-            Row(title: "Setup…") { close(); actions.openSetup() }
-            Row(title: "Reset position") { actions.resetPosition() }
-            divider
-            sectionTitle("Debug")
-            Segmented(options: [("live", nil, "Live"), ("idle", nil, "Idle"), ("working", nil, "Work"), ("needs", nil, "Needs"),
-                                ("error", nil, "Error")],
-                      selection: Binding(get: { actions.debugState() }, set: { actions.setDebugState($0) }), fill: true)
-            Row(title: "Session Simulator…") { close(); actions.openSimulator() }
-                .padding(.top, 4)
-            divider
-            Row(title: "Disconnect from Claude Code…") { close(); actions.disconnect() }
-            Row(title: "Uninstall Claude Bubble…", destructive: true) { close(); actions.uninstall() }
-        }
-    }
-
-    /// A group's heading on the main page, like Theme's.
-    private func groupTitle(_ text: String) -> some View {
-        Text(text).font(.system(size: 13)).foregroundStyle(dim).frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 2)
-    }
-
-    private func sectionTitle(_ text: String) -> some View {
-        Text(text).font(.system(size: 13)).foregroundStyle(dim).padding(.bottom, 6)
-    }
-
-    private var divider: some View {
-        Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.vertical, 8)
-    }
-
-    // MARK: Orb / Island / Quiet, and the dock
+    // MARK: Orb / Dock / Quiet, and their controls
 
     private enum Mode: Hashable { case orb, island, quiet }
 
     private var top: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             Segmented(options: [(Mode.orb, nil, "Orb"), (.island, nil, "Dock"), (.quiet, nil, "Quiet")],
                       selection: Binding(get: { prefs.quiet ? .quiet : prefs.style == .island ? .island : .orb },
                                          set: { mode in
@@ -304,46 +303,46 @@ struct QuickPanelView: View {
                                              settings.prefs = p
                                          }),
                       fill: true, large: true)
-            // The style's own controls, under a heading, right below the choice: the orb's size, pointer watching and
-            // edge light, or the island's dock and width. None while quiet (it's a dot either way).
-            if !prefs.quiet {
-                VStack(spacing: 10) {
-                    divider.padding(.vertical, -4)
-                    groupTitle(isOrb ? "Orb Customization" : "Dock Customization")
-                    styleControls
-                }
-            }
+            // The style's own controls right under the choice; none while quiet (it's a dot either way).
+            if !prefs.quiet { styleControls.padding(.top, 2) }
         }
     }
 
     @ViewBuilder private var styleControls: some View {
-        Group {
+        VStack(spacing: 8) {
             if isOrb {
                 sliderRow("Size", value: Binding(get: { prefs.diameter }, set: { settings.prefs.diameter = $0.rounded() }),
                           range: OrbSize.minDiameter...OrbSize.maxDiameter, text: "\(Int(prefs.diameter))pt")
-                VStack(spacing: 6) {
-                    toggleRow("Look at the pointer", Binding(get: { prefs.interaction != .off },
-                                                             set: { settings.prefs.interaction = $0 ? .attention : .off }))
-                        .help("The orb leans toward the pointer as it comes close.")
-                    toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
-                        .help("A light along the screen's edge when the orb is near it.")
-                    followToggle
-                }
+                toggleRow("Look at the pointer", Binding(get: { prefs.interaction != .off },
+                                                         set: { settings.prefs.interaction = $0 ? .attention : .off }))
+                    .help("The orb leans toward the pointer as it comes close.")
+                toggleRow("Edge light", Binding(get: { prefs.edgeLight }, set: { settings.prefs.edgeLight = $0 }))
+                    .help("A light along the screen's edge when the orb is near it.")
             } else {
-                HStack {
-                    Text("Edge").foregroundStyle(dim)
-                    Spacer()
+                HStack(spacing: 12) {
                     Segmented(options: IslandDock.allCases.map { ($0, icon(for: $0), $0.rawValue.capitalized) },
                               selection: Binding(get: { prefs.islandDock }, set: { settings.prefs.islandDock = $0 }))
+                    Slider(value: Binding(get: { prefs.islandWidth }, set: { settings.prefs.islandWidth = ($0 * 20).rounded() / 20 }),
+                           in: Double(IslandLayout.minWidth)...Double(IslandLayout.maxWidth))
+                        .controlSize(.small).tint(.white)
+                        .help("Width: \(Int((prefs.islandWidth * 100).rounded()))%")
                 }
-                .font(.system(size: 13))
-                sliderRow("Width", value: Binding(get: { prefs.islandWidth },
-                                                  set: { settings.prefs.islandWidth = ($0 * 20).rounded() / 20 }),
-                          range: Double(IslandLayout.minWidth)...Double(IslandLayout.maxWidth),
-                          text: "\(Int((prefs.islandWidth * 100).rounded()))%")
-                followToggle
+                choiceRow("At rest", Segmented(options: [(IslandRest.live, nil, "Live"), (.compact, nil, "Compact")],
+                                               selection: Binding(get: { prefs.islandRest }, set: { settings.prefs.islandRest = $0 })))
+                choiceRow("Glow", Segmented(options: [(IslandGlow.waves, nil, "Waves"), (.none, nil, "None")],
+                                            selection: Binding(get: { prefs.islandGlow }, set: { settings.prefs.islandGlow = $0 })))
             }
+            followToggle
         }
+    }
+
+    private func choiceRow<C: View>(_ title: String, _ control: C) -> some View {
+        HStack {
+            Text(title).foregroundStyle(dim)
+            Spacer()
+            control
+        }
+        .font(.system(size: 13))
     }
 
     /// Only matters with more than one display.
@@ -365,194 +364,334 @@ struct QuickPanelView: View {
         }
     }
 
+    private var isOrb: Bool { prefs.style == .orb }
+
     // MARK: Theme
+
+    /// Custom's colours show: it's the theme, or was just picked.
+    private var showsCustom: Bool { prefs.customized || customPicked }
 
     private var theme: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("Theme").foregroundStyle(dim)
-                Spacer()
-                Text(hoveredTheme ?? (prefs.customized ? "Custom" : prefs.presetName)).foregroundStyle(Color.white)
-                if prefs.customized {
-                    Button("Reset") { settings.applyPreset(prefs.presetName) }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(dim)
-                        .help("Back to \(prefs.presetName)")
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    themeOpen.toggle()
+                    if !themeOpen { editingColor = nil }
                 }
-            }
-            .font(.system(size: 13))
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 8), alignment: .leading, spacing: 10) {
-                ForEach(OrbPalette.presets, id: \.name) { preset in
-                    ThemeSwatch(palette: preset.palette, selected: !prefs.customized && prefs.presetName == preset.name)
-                        .onHover { hoveredTheme = $0 ? preset.name : (hoveredTheme == preset.name ? nil : hoveredTheme) }
-                        .onTapGesture { settings.applyPreset(preset.name) }
-                        .help(preset.name)
+                state.resized()
+            } label: {
+                HStack(spacing: 10) {
+                    Text("Theme").foregroundStyle(dim)
+                    Spacer()
+                    ThemeSwatch(palette: prefs.palette, selected: false, size: 18).allowsHitTesting(false)
+                    Text(hoveredTheme ?? (showsCustom ? "Custom" : prefs.presetName)).font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color.white)
+                    Image(systemName: themeOpen ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 11, weight: .semibold)).foregroundStyle(Color.white.opacity(0.45))
                 }
-                CustomSwatch(palette: prefs.palette, selected: prefs.customized, open: editingColors)
-                    .onHover { hoveredTheme = $0 ? "Custom" : (hoveredTheme == "Custom" ? nil : hoveredTheme) }
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                            editingColors.toggle()
-                            if !editingColors { editingColor = nil }
-                        }
-                        state.resized()
-                    }
-                    .help("Custom colours")
+                .font(.system(size: 13))
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 7).fill(Color.white.opacity(themeOpen ? 0.06 : 0)))
+                .contentShape(Rectangle())
             }
-            if editingColors {
-                VStack(spacing: 10) {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 8) {
-                        ForEach(PaletteColor.allCases, id: \.self) { c in
-                            ColorWell(rgb: prefs.palette[c], label: c.label, selected: editingColor == c)
+            .buttonStyle(.plain)
+            .padding(.horizontal, -8)
+            if themeOpen {
+                VStack(alignment: .leading, spacing: 10) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 0), count: 8), alignment: .leading, spacing: 8) {
+                        ForEach(OrbPalette.presets, id: \.name) { preset in
+                            ThemeSwatch(palette: preset.palette, selected: !showsCustom && prefs.presetName == preset.name)
+                                .onHover { hoveredTheme = $0 ? preset.name : (hoveredTheme == preset.name ? nil : hoveredTheme) }
                                 .onTapGesture {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                                        editingColor = editingColor == c ? nil : c
-                                    }
+                                    customPicked = false
+                                    editingColor = nil
+                                    settings.applyPreset(preset.name)
                                     state.resized()
                                 }
+                                .help(preset.name)
                         }
+                        CustomSwatch(palette: prefs.palette, selected: showsCustom, open: false)
+                            .onHover { hoveredTheme = $0 ? "Custom" : (hoveredTheme == "Custom" ? nil : hoveredTheme) }
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { customPicked = true }
+                                state.resized()
+                            }
+                            .help("Custom colours")
                     }
-                    // Edits apply as you drag, with the orb (or island) showing that colour's state: it's the preview.
-                    if let c = editingColor {
-                        ColorEditor(rgb: Binding(get: { prefs.palette[c] }, set: { settings.setColor($0, for: c) }))
-                            .id(c)
-                            .transition(.opacity)
-                    }
+                    if showsCustom { coloursByState }
+                    sliderRow("Opacity", value: Binding(get: { prefs.opacity }, set: { settings.prefs.opacity = $0 }),
+                              range: 0.3...1, text: "\(Int((prefs.opacity * 100).rounded()))%")
                 }
                 .transition(.opacity)
             }
         }
-        .onChange(of: editingColor) { _, color in actions.previewColor(color) }
     }
 
-    // MARK: Size, opacity, pointer
-
-    /// The orb's own options (size, pointer watching, edge light) only show while it's the orb; the island has its
-    /// own (dock, width) at the top.
-    private var isOrb: Bool { prefs.style == .orb }
-
-    private var sliders: some View {
-        VStack(spacing: 12) {
-            sliderRow("Opacity", value: Binding(get: { prefs.opacity }, set: { settings.prefs.opacity = $0 }),
-                      range: 0.3...1, text: "\(Int((prefs.opacity * 100).rounded()))%")
+    /// Custom's six colours, one per state (design: Menu slim-down 1a); a click opens the editor under them.
+    private var coloursByState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text("Colours by state").foregroundStyle(dim)
+                Spacer()
+                Button("Reset") {
+                    customPicked = false
+                    editingColor = nil
+                    settings.applyPreset(prefs.presetName)
+                    state.resized()
+                }
+                .buttonStyle(.plain).foregroundStyle(dim)
+                .help("Back to \(prefs.presetName)")
+            }
+            LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], spacing: 10) {
+                ForEach([PaletteColor.completed, .working, .needs, .error, .idle, .done], id: \.self) { c in
+                    StateColour(rgb: prefs.palette[c], label: c.label, selected: editingColor == c)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { editingColor = editingColor == c ? nil : c }
+                        }
+                }
+            }
+            // Edits apply as you drag, with the orb (or island) showing that colour's state: it's the preview.
+            if let c = editingColor {
+                ColorEditor(rgb: Binding(get: { prefs.palette[c] }, set: { settings.setColor($0, for: c) }))
+                    .id(c)
+                    .transition(.opacity)
+            }
         }
-        .padding(.top, 14)
+        .font(.system(size: 13))
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.04)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.08), lineWidth: 1))
+    }
+
+    // MARK: Tiles
+
+    private var tiles: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
+            ForEach(QuickTile.allCases, id: \.self) { tile in
+                TileButton(tile: tile, on: isOn(tile), open: state.side == .tile(tile)) { state.toggle(.tile(tile)) }
+            }
+        }
+        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named("menu")).minY }) { tilesTop = $0 }
+    }
+
+    private func isOn(_ tile: QuickTile) -> Bool {
+        switch tile {
+        case .usage: prefs.usage
+        case .approve: prefs.approvals
+        case .voice: dictation.enabled
+        case .catchUp: prefs.catchUp
+        case .toasts: prefs.toasts
+        case .sounds: prefs.sounds
+        }
+    }
+
+    private var volume: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "speaker.fill").font(.system(size: 11)).foregroundStyle(dim)
+            // Letting go plays the finish sound at the new level.
+            Slider(value: Binding(get: { prefs.soundVolume }, set: { settings.prefs.soundVolume = $0 }), in: 0...1) { editing in
+                if !editing { actions.previewSound(prefs.completionSound) }
+            }
+            .controlSize(.small).tint(.white)
+        }
+        .help("Sound volume")
+    }
+
+    // MARK: The side card
+
+    @ViewBuilder private func sideCard(_ side: QuickPanelState.Side) -> some View {
+        switch side {
+        case let .tile(tile): tileOptions(tile)
+        case .settings: settingsCard
+        case .vocabulary: DictationPage(names: actions.sessionNames(), back: { state.open(.tile(.voice)) }, resized: { state.resized() })
+        }
+    }
+
+    @ViewBuilder private func tileOptions(_ tile: QuickTile) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle(tile.title)
+            switch tile {
+            case .usage:
+                option("Usage meter", Binding(get: { prefs.usage }, set: { settings.prefs.usage = $0 }),
+                       note: "How much of your 5-hour limit is used, on the bubble and in the session list.")
+            case .approve:
+                option("Approve from the bubble", Binding(get: { prefs.approvals }, set: { settings.prefs.approvals = $0 }),
+                       note: "Allow or deny tool requests, and answer Claude's questions, without switching to the terminal.")
+            case .voice:
+                toggleRow("Talk to sessions", $dictation.enabled)
+                    .help("Hold a session's mic, or the talk shortcut, to say something to it.")
+                if dictation.enabled {
+                    HStack {
+                        Text("Talk shortcut").foregroundStyle(Color.white.opacity(0.9))
+                        Spacer()
+                        TalkShortcutRecorder()
+                    }
+                    .font(.system(size: 13))
+                    .help("Hold it anywhere to talk to the session you chose last, else the pinned or most pressing one.")
+                    toggleRow("Lower other audio while talking", $dictation.lowersOtherAudio)
+                        .help("Music and videos turn down while you hold the mic, and come back when you let go.")
+                    Row(title: "Vocabulary", shortcut: "\(dictation.words.count) \(dictation.words.count == 1 ? "word" : "words")",
+                        chevron: true) { state.open(.vocabulary) }
+                        .help("Words and names dictation should listen for")
+                }
+            case .catchUp:
+                toggleRow("Catch-up", Binding(get: { prefs.catchUp }, set: { settings.prefs.catchUp = $0 }))
+                    .help("What changed while you were away, at the top of the session list.")
+                if prefs.catchUp {
+                    option("Summaries by Claude", Binding(get: { prefs.catchUpSummaries }, set: { settings.prefs.catchUpSummaries = $0 }),
+                           note: "Sends the recent part of each session's conversation to Claude to summarize.")
+                    HStack(spacing: 8) {
+                        Text("Away after").foregroundStyle(Color.white.opacity(0.9))
+                        Spacer()
+                        Menu {
+                            ForEach(BubblePreferences.awayMinuteChoices, id: \.self) { minutes in
+                                Button("\(minutes) min") { settings.prefs.awayMinutes = minutes }
+                            }
+                        } label: {
+                            Text("\(prefs.awayMinutes) min").foregroundStyle(Color.white)
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                    }
+                    .font(.system(size: 13))
+                    .help("How long without using the Mac before you count as away (locking the screen counts at once).")
+                }
+            case .toasts:
+                option("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }),
+                       note: "Short notes when a session starts, finishes or needs you.")
+            case .sounds:
+                toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))
+                HStack(spacing: 8) {
+                    Text("Finish sound").foregroundStyle(Color.white.opacity(0.9))
+                    Spacer()
+                    Menu {
+                        ForEach(CompletionSound.allCases, id: \.self) { option in
+                            Button(option.label) {
+                                settings.prefs.completionSound = option
+                                actions.previewSound(option)
+                            }
+                        }
+                    } label: {
+                        Text(prefs.completionSound.label).foregroundStyle(Color.white)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    Button { actions.previewSound(prefs.completionSound) } label: { Image(systemName: "play.fill").font(.system(size: 11)) }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Color.white.opacity(0.85))
+                        .help("Preview")
+                }
+                .font(.system(size: 13))
+            }
+        }
+        .padding(.bottom, 4)
+    }
+
+    /// A switch with a line saying what it does.
+    private func option(_ title: String, _ on: Binding<Bool>, note: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            toggleRow(title, on)
+            Text(note).font(.system(size: 11.5)).foregroundStyle(Color.white.opacity(0.45)).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var settingsCard: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            sectionTitle("Settings")
+            VStack(spacing: 6) {
+                toggleRow("Launch at login", Binding(get: { actions.launchAtLogin() }, set: { _ in actions.toggleLaunchAtLogin() }))
+                toggleRow("Check for updates automatically", Binding(get: { updater.checksAutomatically },
+                                                                     set: { updater.checksAutomatically = $0 }))
+            }
+            .padding(.bottom, 4)
+            Row(title: "Check for updates…") { close(); actions.checkForUpdates() }
+            Row(title: "Setup…") { close(); actions.openSetup() }
+            Row(title: "Reset position") { actions.resetPosition() }
+            sectionTitle("Debug").padding(.top, 8)
+            Text("State").font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.9)).padding(.bottom, 6)
+            Segmented(options: [("live", nil, "Live"), ("idle", nil, "Idle"), ("working", nil, "Work"), ("needs", nil, "Needs"),
+                                ("error", nil, "Error")],
+                      selection: Binding(get: { actions.debugState() }, set: { actions.setDebugState($0) }), fill: true)
+            Row(title: "Session Simulator…") { close(); actions.openSimulator() }
+                .padding(.top, 4)
+            divider
+            Row(title: "Restart") { actions.restart() }
+            Row(title: "Disconnect from Claude Code…") { close(); actions.disconnect() }
+            Row(title: "Uninstall Claude Bubble…", destructive: true) { close(); actions.uninstall() }
+        }
+    }
+
+    // MARK: Pieces
+
+    private func sectionTitle(_ text: String) -> some View {
+        Text(text).font(.system(size: 13)).foregroundStyle(dim).padding(.bottom, 6)
+    }
+
+    private var divider: some View {
+        Rectangle().fill(Color.white.opacity(0.08)).frame(height: 1).padding(.vertical, 8)
     }
 
     private func sliderRow(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, text: String) -> some View {
         HStack(spacing: 10) {
-            Text(title).foregroundStyle(dim).frame(width: 64, alignment: .leading)
+            Text(title).foregroundStyle(dim)
             Slider(value: value, in: range).controlSize(.small).tint(.white)
-            Text(text).font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.75)).frame(width: 44, alignment: .trailing)
+            Text(text).font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.75)).frame(width: 46, alignment: .trailing)
         }
         .font(.system(size: 13))
-    }
-
-    // MARK: Toggles
-
-    private var toggles: some View {
-        VStack(spacing: 6) {
-            groupTitle("Sessions")
-            toggleRow("Usage meter", Binding(get: { prefs.usage }, set: { settings.prefs.usage = $0 }))
-                .help("How much of the 5-hour limit is used, on the bubble and in the session list.")
-            toggleRow("Approve from the bubble", Binding(get: { prefs.approvals }, set: { settings.prefs.approvals = $0 }))
-                .help("Allow or deny permission prompts, and answer Claude's questions, from the bubble.")
-            divider
-            // Talking to sessions, in one place: on or off, its shortcut, and what dictation listens for.
-            groupTitle("Voice")
-            toggleRow("Talk to sessions", $dictation.enabled)
-                .help("Hold a session's mic, or the talk shortcut, to say something to it.")
-            if dictation.enabled {
-                HStack {
-                    Text("Talk shortcut").foregroundStyle(Color.white.opacity(0.9))
-                    Spacer()
-                    TalkShortcutRecorder()
-                }
-                .font(.system(size: 13))
-                .help("Hold it anywhere to talk to the session you chose last, else the pinned or most pressing one.")
-                toggleRow("Lower other audio while talking", $dictation.lowersOtherAudio)
-                    .help("Music and videos turn down while you hold the mic, and come back when you let go.")
-                Row(title: "Vocabulary", shortcut: "\(dictation.words.count) \(dictation.words.count == 1 ? "word" : "words")",
-                    chevron: true) { state.go(.dictation) }
-                    .help("Words and names dictation should listen for")
-            }
-            divider
-            // What changed while you were away, at the top of the session list.
-            groupTitle("Catch-up")
-            toggleRow("Catch-up", Binding(get: { prefs.catchUp }, set: { settings.prefs.catchUp = $0 }))
-                .help("What changed while you were away, at the top of the session list.")
-            if prefs.catchUp {
-                VStack(alignment: .leading, spacing: 2) {
-                    toggleRow("Summaries by Claude", Binding(get: { prefs.catchUpSummaries }, set: { settings.prefs.catchUpSummaries = $0 }))
-                    Text("Sends the recent part of each session's conversation to Claude to summarize.")
-                        .font(.system(size: 11))
-                        .foregroundStyle(dim)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                HStack(spacing: 8) {
-                    Text("Away after").foregroundStyle(dim)
-                    Spacer()
-                    Menu {
-                        ForEach(BubblePreferences.awayMinuteChoices, id: \.self) { minutes in
-                            Button("\(minutes) min") { settings.prefs.awayMinutes = minutes }
-                        }
-                    } label: {
-                        Text("\(prefs.awayMinutes) min").foregroundStyle(Color.white)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                }
-                .font(.system(size: 13))
-                .help("How long without using the Mac before you count as away (locking the screen counts at once).")
-            }
-            divider
-            groupTitle("Alerts")
-            toggleRow("Toasts", Binding(get: { prefs.toasts }, set: { settings.prefs.toasts = $0 }))
-            toggleRow("Sounds", Binding(get: { prefs.sounds }, set: { settings.prefs.sounds = $0 }))
-            if prefs.sounds {
-                HStack(spacing: 10) {
-                    Image(systemName: "speaker.fill").font(.system(size: 11)).foregroundStyle(dim)
-                    // Letting go plays the finish sound at the new level.
-                    Slider(value: Binding(get: { prefs.soundVolume }, set: { settings.prefs.soundVolume = $0 }), in: 0...1) { editing in
-                        if !editing { actions.previewSound(prefs.completionSound) }
-                    }
-                    .controlSize(.small).tint(.white)
-                    Image(systemName: "speaker.wave.3.fill").font(.system(size: 11)).foregroundStyle(dim)
-                }
-                .help("Sound volume")
-            }
-            HStack(spacing: 8) {
-                Text("Finish sound").foregroundStyle(dim)
-                Spacer()
-                Menu {
-                    ForEach(CompletionSound.allCases, id: \.self) { option in
-                        Button(option.label) {
-                            settings.prefs.completionSound = option
-                            actions.previewSound(option)
-                        }
-                    }
-                } label: {
-                    Text(prefs.completionSound.label).foregroundStyle(Color.white)
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                Button { actions.previewSound(prefs.completionSound) } label: { Image(systemName: "play.fill").font(.system(size: 11)) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Color.white.opacity(0.85))
-                    .help("Preview")
-            }
-            .font(.system(size: 13))
-            .padding(.top, 2)
-        }
     }
 
     private func toggleRow(_ title: String, _ on: Binding<Bool>) -> some View {
         HStack {
             Text(title).foregroundStyle(Color.white.opacity(0.9))
             Spacer()
-            Toggle("", isOn: on).toggleStyle(.switch).controlSize(.small).tint(Color(red: 0.2, green: 0.78, blue: 0.35)).labelsHidden()
+            Toggle("", isOn: on).toggleStyle(.switch).controlSize(.small).tint(green).labelsHidden()
         }
         .font(.system(size: 13))
+    }
+}
+
+/// A feature's tile: its icon and name, lit while it's on, ringed while its options are open.
+private struct TileButton: View {
+    let tile: QuickTile
+    let on: Bool
+    let open: Bool
+    let action: () -> Void
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: tile.icon).font(.system(size: 15, weight: .medium))
+                Text(tile.title).font(.system(size: 11.5, weight: .medium))
+            }
+            .foregroundStyle(on ? Color.white : Color.white.opacity(0.45))
+            .frame(maxWidth: .infinity)
+            .frame(height: 58)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(on ? (hover ? 0.2 : 0.16) : (hover ? 0.08 : 0.05))))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(open ? 0.5 : 0), lineWidth: 1.5))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .help(on ? "\(tile.title) is on" : "\(tile.title) is off")
+    }
+}
+
+/// One of Custom's colours: a dot and the state it's for, ringed while it's open in the editor.
+private struct StateColour: View {
+    let rgb: SIMD3<Float>
+    let label: String
+    let selected: Bool
+
+    var body: some View {
+        let c = Color(red: Double(rgb.x), green: Double(rgb.y), blue: Double(rgb.z))
+        HStack(spacing: 10) {
+            Circle().fill(c).frame(width: 16, height: 16)
+                .shadow(color: c.opacity(0.6), radius: 4)
+                .overlay(Circle().stroke(Color.white.opacity(selected ? 1 : 0), lineWidth: 2).padding(-3))
+            Text(label).foregroundStyle(Color.white.opacity(selected ? 1 : 0.9))
+        }
+        .contentShape(Rectangle())
     }
 }
 
@@ -566,29 +705,6 @@ private struct WindowDragArea: NSViewRepresentable {
 
     func makeNSView(context: Context) -> Area { Area() }
     func updateNSView(_ nsView: Area, context: Context) {}
-}
-
-/// One editable colour: a well with its name under it, ringed while it's open in the editor.
-private struct ColorWell: View {
-    let rgb: SIMD3<Float>
-    let label: String
-    let selected: Bool
-    @State private var hover = false
-
-    var body: some View {
-        VStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color(red: Double(rgb.x), green: Double(rgb.y), blue: Double(rgb.z)))
-                .frame(height: 22)
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.white.opacity(0.15), lineWidth: 1))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white.opacity(selected ? 1 : hover ? 0.45 : 0), lineWidth: 2)
-                    .padding(-3))
-            Text(label).font(.system(size: 11)).foregroundStyle(Color.white.opacity(selected ? 0.95 : 0.5))
-        }
-        .padding(.horizontal, 3)
-        .contentShape(Rectangle())
-        .onHover { hover = $0 }
-    }
 }
 
 /// A small colour picker that lives in the panel (the system colour panel would take focus and close it): a
@@ -723,6 +839,7 @@ private struct CustomSwatch: View {
 private struct ThemeSwatch: View {
     let palette: OrbPalette
     let selected: Bool
+    var size: CGFloat = 22
     @State private var hover = false
 
     private func color(_ c: SIMD3<Float>) -> Color { Color(red: Double(c.x), green: Double(c.y), blue: Double(c.z)) }
@@ -732,8 +849,8 @@ private struct ThemeSwatch: View {
         Circle()
             .fill(AngularGradient(colors: [color(w.c1), color(w.c2), color(w.c3), color(w.c1)], center: .center))
             .overlay(Circle().stroke(Color.white.opacity(selected ? 1 : hover ? 0.45 : 0), lineWidth: 2).padding(-3.5))
-            .frame(width: 22, height: 22)
-            .frame(width: 30, height: 30)
+            .frame(width: size, height: size)
+            .frame(width: size + 8, height: size + 8)
             .scaleEffect(hover && !selected ? 1.1 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hover)
             .onHover { hover = $0 }
@@ -780,6 +897,8 @@ private struct Row: View {
     var shortcut: String?
     var chevron = false
     var destructive = false
+    /// Its side card is open: highlighted, as on hover.
+    var selected = false
     let action: () -> Void
     @State private var hover = false
 
@@ -794,7 +913,7 @@ private struct Row: View {
             .font(.system(size: 13))
             .padding(.horizontal, 6)
             .padding(.vertical, 5)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(hover ? 0.08 : 0)))
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(hover || selected ? 0.08 : 0)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
