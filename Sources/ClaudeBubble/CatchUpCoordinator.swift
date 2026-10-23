@@ -99,7 +99,16 @@ final class CatchUpCoordinator {
 
     private func back(leftAt: Date) {
         guard let marks else { return }
-        let changed = AwayCatchUp.changed(sessions, since: marks, leftAt: leftAt)
+        build(AwayCatchUp.changed(sessions, since: marks, leftAt: leftAt), marks: marks, leftAt: leftAt)
+    }
+
+    /// On demand (the menu's Catch Up): every live session from its latest stretch, unless one's already waiting.
+    func catchUpNow() {
+        guard settings.prefs.catchUp, model.catchUp == nil || model.catchUp?.seen == true else { return }
+        build(sessions, marks: [:], leftAt: tracker.leftAt ?? Date())
+    }
+
+    private func build(_ changed: [Session], marks: [String: SessionMark], leftAt: Date) {
         guard !changed.isEmpty else { return }
         let summaries = settings.prefs.catchUpSummaries
         io.async { [weak self] in

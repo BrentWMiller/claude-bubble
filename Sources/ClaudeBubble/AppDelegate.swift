@@ -257,6 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(toggleItem)
         quickItems = makeQuickSettingsItems()
         quickItems.forEach(menu.addItem)
+        menu.addItem(item("Catch Up", #selector(catchUpNow)))
         menu.addItem(.separator())
         let settingsItem = item("Settings…", #selector(openSettings))
         settingsItem.keyEquivalent = ","
@@ -1369,6 +1370,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func pickDock(_ sender: NSMenuItem) {
         if let raw = sender.representedObject as? String, let dock = IslandDock(rawValue: raw) { settings.prefs.islandDock = dock }
     }
+
+    /// What's changed, now: the banner waits atop the session list.
+    @objc private func catchUpNow() { catchUp.catchUpNow() }
 
     @objc private func toggleEdgeLight() {
         settings.prefs.edgeLight.toggle()
