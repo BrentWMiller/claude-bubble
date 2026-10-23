@@ -45,11 +45,16 @@ public enum ProcessRun {
             try? stdin.fileHandleForWriting.close()
         }
         if exited.wait(timeout: .now() + timeout) == .timedOut {
+            // Asked to stop, then made to; and not waited on past that (nor for its output, which a child it left
+            // running may hold open).
             p.terminate()
-            exited.wait()
+            if exited.wait(timeout: .now() + 3) == .timedOut {
+                kill(p.processIdentifier, SIGKILL)
+                _ = exited.wait(timeout: .now() + 3)
+            }
             return nil
         }
-        read.wait()
+        guard read.wait(timeout: .now() + 5) == .success else { return nil }
         guard p.terminationStatus == 0 else { return nil }
         let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return text.isEmpty ? nil : text

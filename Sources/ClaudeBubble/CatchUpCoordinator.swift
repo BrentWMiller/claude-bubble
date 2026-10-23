@@ -99,23 +99,25 @@ final class CatchUpCoordinator {
 
     private func back(leftAt: Date) {
         guard let marks else { return }
-        build(AwayCatchUp.changed(sessions, since: marks, leftAt: leftAt), marks: marks, leftAt: leftAt)
+        build(AwayCatchUp.changed(sessions, since: marks, leftAt: leftAt), leftAt: leftAt, since: leftAt)
     }
 
     /// On demand (the menu's Catch Up): every live session from its latest stretch, unless one's already waiting.
     func catchUpNow() {
         guard settings.prefs.catchUp, model.catchUp == nil || model.catchUp?.seen == true else { return }
-        build(sessions, marks: [:], leftAt: tracker.leftAt ?? Date())
+        build(sessions, leftAt: tracker.leftAt ?? Date(), since: nil)
     }
 
-    private func build(_ changed: [Session], marks: [String: SessionMark], leftAt: Date) {
+    /// Reads each changed session's latest stretch (from `since` on: marks are taken only once you've been idle a
+    /// while, after a session may already have moved on) and shows the catch-up.
+    private func build(_ changed: [Session], leftAt: Date, since: Date?) {
         guard !changed.isEmpty else { return }
         let summaries = settings.prefs.catchUpSummaries
         io.async { [weak self] in
             let read = changed.map { s -> (Session, [TranscriptTurn], UInt64) in
                 guard let path = s.transcriptPath else { return (s, [], 0) }
                 let size = Self.size(path)
-                return (s, Self.turns(path, from: TranscriptText.readStart(offset: marks[s.id]?.transcriptOffset ?? 0, fileSize: size), to: size), size)
+                return (s, Self.turns(path, from: TranscriptText.readStart(offset: 0, fileSize: size), to: size, since: since), size)
             }
             DispatchQueue.main.async { self?.show(read, leftAt: leftAt, summaries: summaries) }
         }
@@ -125,16 +127,18 @@ final class CatchUpCoordinator {
         var items: [AwayItem] = []
         var toWrite: [(String, String, UInt64, String)] = []   // session id, input, size, fallback
         for (s, turns, size) in read {
-            let plain = TranscriptText.plainLine(turns) ?? (s.detail.isEmpty ? nil : s.detail)
+            let found = TranscriptText.plainLine(turns)
+            let fallback = AwayCatchUp.fallbackLine(plain: found, detail: s.detail, state: s.state)
+            let plain: String? = fallback
             if summaries, !turns.isEmpty {
                 if let done = written[s.id], done.size == size {
                     items.append(AwayItem(sessionID: s.id, line: .written(done.line, at: done.at)))
                 } else {
                     items.append(AwayItem(sessionID: s.id, line: .pending(plain: plain)))
-                    toWrite.append((s.id, TranscriptText.summaryInput(turns), size, plain ?? ""))
+                    toWrite.append((s.id, TranscriptText.summaryInput(turns), size, fallback))
                 }
             } else {
-                items.append(AwayItem(sessionID: s.id, line: .plain(plain ?? "")))
+                items.append(AwayItem(sessionID: s.id, line: .plain(fallback)))
             }
         }
         let fresh = AwayCatchUp(leftAt: leftAt, items: items, seen: false)
@@ -142,6 +146,13 @@ final class CatchUpCoordinator {
         model.catchUpOpen = false
         tracker.keepsLeaveTime = true
         for (id, input, size, fallback) in toWrite {
+            // However the summary goes, no line is left pending past the summarizer's own limits.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 75) { [weak self] in
+                guard let self, var catchUp = self.model.catchUp,
+                      let i = catchUp.items.firstIndex(where: { $0.sessionID == id }), case .pending = catchUp.items[i].line else { return }
+                catchUp.items[i].line = .plain(fallback)
+                self.model.catchUp = catchUp
+            }
             summarizer.summarize(input) { [weak self] line in
                 guard let self, var catchUp = self.model.catchUp,
                       let i = catchUp.items.firstIndex(where: { $0.sessionID == id }) else { return }
@@ -161,11 +172,11 @@ final class CatchUpCoordinator {
         ((try? FileManager.default.attributesOfItem(atPath: path))?[.size] as? NSNumber)?.uint64Value ?? 0
     }
 
-    private static func turns(_ path: String, from start: UInt64, to end: UInt64) -> [TranscriptTurn] {
+    private static func turns(_ path: String, from start: UInt64, to end: UInt64, since: Date?) -> [TranscriptTurn] {
         guard end > start, let handle = FileHandle(forReadingAtPath: path) else { return [] }
         defer { try? handle.close() }
         try? handle.seek(toOffset: start)
         guard let data = try? handle.read(upToCount: Int(end - start)) else { return [] }
-        return TranscriptText.turns(fromJSONL: data)
+        return TranscriptText.turns(fromJSONL: data, since: since)
     }
 }

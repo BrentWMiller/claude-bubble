@@ -100,7 +100,7 @@ final class SessionsModel: ObservableObject {
     var openSession: ((Session) -> Void)?
 
     /// The banner shows atop the list until the catch-up is opened.
-    var catchUpBannerShown: Bool { catchUp != nil && !catchUpOpen }
+    var catchUpBannerShown: Bool { catchUp != nil && !catchUpOpen && !catchUpGroups().isEmpty }
 
     func catchUpGroups() -> [(AwayGroup, [AwayItem])] { catchUp?.grouped(current: byID) ?? [] }
 
@@ -119,7 +119,9 @@ final class SessionsModel: ObservableObject {
                 }
             }
         }
-        return AwayLayout.height(groups: groups, approvalHeights: cards, footer: catchUpSummaries, atLeast: catchUpFloor)
+        let linked = Set(groups.flatMap(\.1).map(\.sessionID).filter { byID[$0]?.links.isEmpty == false })
+        return AwayLayout.height(groups: groups, approvalHeights: cards, footer: catchUpSummaries, atLeast: catchUpFloor,
+                                 linked: linked)
     }
 
     /// The prompt `session` is waiting on, while it still needs you (answered in the terminal, it moves on).

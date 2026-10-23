@@ -54,15 +54,40 @@ final class AwayCatchUpTests: XCTestCase {
     func testHeightIsCapped() {
         let many = (0..<20).map { AwayItem(sessionID: "\($0)", line: .plain("x")) }
         XCTAssertEqual(AwayLayout.height(groups: [(.finished, many)], approvalHeights: [:], footer: true), AwayLayout.maxHeight)
-        XCTAssertEqual(AwayLayout.height(groups: [(.finished, [many[0]])], approvalHeights: [:], footer: false), 52 + 30 + 66)
-        let needs: CGFloat = 52 + 30 + 66 * 2 + (100 + 12) + 48 + 44   // one with an approval card, one with reply buttons
-        XCTAssertEqual(AwayLayout.height(groups: [(.needsYou, [many[0], many[1]])], approvalHeights: ["0": 100], footer: true), needs)
+    }
+
+    func testItemHeightsMatchTheRow() {
+        let a = AwayItem(sessionID: "a", line: .plain("x"))
+        let b = AwayItem(sessionID: "b", line: .written("y", at: .distantPast))
+        // A row: padding 8+8, name 17, gap 5, two-line text 31 = 69; with a "written …" or chips row, 5 + 21 more.
+        XCTAssertEqual(AwayLayout.itemBase, 69)
+        XCTAssertEqual(AwayLayout.bottomRow, 26)
+        let plain: CGFloat = 52 + 30 + 69
+        XCTAssertEqual(AwayLayout.height(groups: [(.finished, [a])], approvalHeights: [:], footer: false), plain)
+        let both: CGFloat = 52 + 30 + 69 + (69 + 26) + 44
+        XCTAssertEqual(AwayLayout.height(groups: [(.finished, [a, b])], approvalHeights: [:], footer: true), both)
+        let linked: CGFloat = 52 + 30 + 69 + 26
+        XCTAssertEqual(AwayLayout.height(groups: [(.finished, [a])], approvalHeights: [:], footer: false, linked: ["a"]), linked)
+    }
+
+    func testNeedsYouAddsTheCardOrReplyButtons() {
+        let a = AwayItem(sessionID: "a", line: .plain("x")), b = AwayItem(sessionID: "b", line: .plain("y"))
+        // An approval card: 9 above it and its height; reply buttons: 9 + 34.
+        let needs: CGFloat = 52 + 30 + 69 * 2 + (9 + 100) + (9 + 34)
+        XCTAssertEqual(AwayLayout.height(groups: [(.needsYou, [a, b])], approvalHeights: ["a": 100], footer: false), needs)
+    }
+
+    func testFallbackLineIsNeverBlank() {
+        XCTAssertEqual(AwayCatchUp.fallbackLine(plain: "Done.", detail: "Bash", state: .idle), "Done.")
+        XCTAssertEqual(AwayCatchUp.fallbackLine(plain: nil, detail: "Running tests", state: .working), "Running tests")
+        XCTAssertEqual(AwayCatchUp.fallbackLine(plain: nil, detail: "", state: .needs), "Needs you")
+        XCTAssertEqual(AwayCatchUp.fallbackLine(plain: "", detail: "", state: .idle), "Finished")
     }
 
     func testViewKeepsTheListsHeightSoThePointerStaysOnIt() {
         let one = [(AwayGroup.finished, [AwayItem(sessionID: "a", line: .plain("x"))])]
         XCTAssertEqual(AwayLayout.height(groups: one, approvalHeights: [:], footer: false, atLeast: 400), 400)
-        XCTAssertEqual(AwayLayout.height(groups: one, approvalHeights: [:], footer: false, atLeast: 100), 52 + 30 + 66)
+        XCTAssertEqual(AwayLayout.height(groups: one, approvalHeights: [:], footer: false, atLeast: 100), 52 + 30 + 69)
         XCTAssertEqual(AwayLayout.height(groups: one, approvalHeights: [:], footer: false, atLeast: 600), 600)
     }
 }

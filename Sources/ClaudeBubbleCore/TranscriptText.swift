@@ -20,14 +20,20 @@ public enum TranscriptText {
     public static let summaryPrompt = "Below is the recent part of a Claude Code session. In one or two short sentences, at most 140 characters, say what the session got done or where it stands, and whether it needs the user. No preamble."
 
     /// Your words and Claude's, in order: no tool calls or results, side conversations, meta entries or command
-    /// echoes (text starting with "<").
-    public static func turns(fromJSONL data: Data) -> [TranscriptTurn] {
+    /// echoes (text starting with "<"); with `since`, only entries from then on (entries without a time are kept).
+    public static func turns(fromJSONL data: Data, since: Date? = nil) -> [TranscriptTurn] {
+        let stamp = ISO8601DateFormatter()
+        stamp.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let plainStamp = ISO8601DateFormatter()
         var turns: [TranscriptTurn] = []
         for line in data.split(separator: UInt8(ascii: "\n")) {
             guard let entry = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any],
                   let type = entry["type"] as? String, type == "user" || type == "assistant",
                   entry["isMeta"] as? Bool != true, entry["isSidechain"] as? Bool != true,
                   let message = entry["message"] as? [String: Any] else { continue }
+            if let since, let t = entry["timestamp"] as? String, let at = stamp.date(from: t) ?? plainStamp.date(from: t), at < since {
+                continue
+            }
             let text: String
             if let s = message["content"] as? String {
                 text = s

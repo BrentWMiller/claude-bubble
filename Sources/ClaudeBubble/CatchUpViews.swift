@@ -147,10 +147,12 @@ private struct CatchUpRow: View {
 
     private var accent: Color { BubbleState.needs.color(in: model.palette) }
     private var needsYou: Bool { session.state == .needs }
+    private var written: Date? { if case let .written(_, at) = item.line { at } else { nil } }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             Circle().fill(session.state.color(in: model.palette)).frame(width: 8, height: 8).padding(.top, 6)
+            // Fixed heights throughout, matching AwayLayout: the island sizes itself from those numbers.
             VStack(alignment: .leading, spacing: 5) {
                 HStack {
                     Text(session.displayName).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
@@ -160,13 +162,17 @@ private struct CatchUpRow: View {
                             .font(.system(size: 12, weight: .medium, design: .monospaced)).foregroundStyle(accent)
                     }
                 }
-                line
-                HStack(spacing: 8) {
-                    if case let .written(_, at) = item.line {
-                        Text("written \(agoLabel(since: at, now: now) == "now" ? "just now" : agoLabel(since: at, now: now) + " ago")")
-                            .font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.white.opacity(0.35))
+                .frame(height: 17)
+                line.frame(height: 31, alignment: .topLeading)
+                if written != nil || !session.links.isEmpty {
+                    HStack(spacing: 8) {
+                        if let at = written {
+                            Text("written \(agoLabel(since: at, now: now) == "now" ? "just now" : agoLabel(since: at, now: now) + " ago")")
+                                .font(.system(size: 11, design: .monospaced)).foregroundStyle(Color.white.opacity(0.35))
+                        }
+                        if !session.links.isEmpty { LinkChips(links: session.links) }
                     }
-                    if !session.links.isEmpty { LinkChips(links: session.links) }
+                    .frame(height: 21)
                 }
                 if needsYou { actions.padding(.top, 4) }
             }
@@ -183,7 +189,6 @@ private struct CatchUpRow: View {
                     RoundedRectangle(cornerRadius: 3).fill(Color.white.opacity(a)).frame(width: 140, height: 12)
                 }
             }
-            .frame(height: 30)
         } else if let text = item.line.text, !text.isEmpty {
             Text(text).font(.system(size: 13)).foregroundStyle(Color.white.opacity(0.8))
                 .lineLimit(2).truncationMode(.tail).fixedSize(horizontal: false, vertical: true)

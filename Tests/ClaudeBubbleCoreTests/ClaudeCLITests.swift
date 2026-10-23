@@ -26,4 +26,10 @@ final class ClaudeCLITests: XCTestCase {
         XCTAssertNil(ProcessRun.output(executable: "/bin/sleep", arguments: ["10"], input: "", timeout: 1))
         XCTAssertLessThan(Date().timeIntervalSince(start), 4)
     }
+
+    func testTimeoutStopsAProcessThatIgnoresTerm() {
+        let start = Date()
+        XCTAssertNil(ProcessRun.output(executable: "/bin/sh", arguments: ["-c", "trap '' TERM; sleep 20"], input: "", timeout: 1))
+        XCTAssertLessThan(Date().timeIntervalSince(start), 10)
+    }
 }

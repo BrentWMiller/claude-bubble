@@ -45,4 +45,14 @@ final class TranscriptTextTests: XCTestCase {
         XCTAssertTrue(s.hasSuffix("YOU: go\n\nCLAUDE: done"))
         XCTAssertEqual(TranscriptText.summaryPrompt, "Below is the recent part of a Claude Code session. In one or two short sentences, at most 140 characters, say what the session got done or where it stands, and whether it needs the user. No preamble.")
     }
+
+    func testTurnsSinceKeepOnlyLaterEntries() {
+        let jsonl = """
+        {"type":"user","timestamp":"2026-10-22T10:00:00.000Z","message":{"content":"before"}}
+        {"type":"assistant","timestamp":"2026-10-22T10:05:00.000Z","message":{"content":[{"type":"text","text":"after"}]}}
+        {"type":"assistant","message":{"content":[{"type":"text","text":"no time"}]}}
+        """
+        let since = ISO8601DateFormatter().date(from: "2026-10-22T10:01:00Z")!
+        XCTAssertEqual(TranscriptText.turns(fromJSONL: Data(jsonl.utf8), since: since).map(\.text), ["after", "no time"])
+    }
 }

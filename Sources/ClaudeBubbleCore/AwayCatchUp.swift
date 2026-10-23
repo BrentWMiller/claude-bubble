@@ -100,6 +100,18 @@ public struct AwayCatchUp: Equatable, Sendable {
         return AwayCatchUp(leftAt: min(leftAt, newer.leftAt), items: items, seen: seen && newer.seen)
     }
 
+    /// A line that's never blank: the plain sentence, else the session's status, else its state.
+    public static func fallbackLine(plain: String?, detail: String, state: BubbleState) -> String {
+        if let plain, !plain.isEmpty { return plain }
+        if !detail.isEmpty { return detail }
+        switch state {
+        case .idle: return "Finished"
+        case .working: return "Working"
+        case .needs: return "Needs you"
+        case .error: return "Error"
+        }
+    }
+
     /// The items by their session's state now (so approving one elsewhere moves it), empty groups and ended
     /// sessions left out.
     public func grouped(current: [String: Session]) -> [(AwayGroup, [AwayItem])] {
@@ -115,16 +127,24 @@ public enum AwayLayout {
     public static let bannerHeight: CGFloat = 46
     public static let maxHeight: CGFloat = 460
 
-    /// The catch-up view's height: header, group headings, items, needs-you items' approval card (by session id) or
-    /// reply buttons, and the footer; at most `maxHeight` (it scrolls beyond), but never less than `atLeast`, the list
-    /// it replaced (a shorter card would slip out from under the pointer that opened it, and close).
+    /// A row: padding 8 + 8, the name's line 17, a gap 5, and two lines of text 31 (always, so the height is known).
+    public static let itemBase: CGFloat = 69
+    /// A row's "written …" and chips line, when it has either: a gap 5 and 21.
+    public static let bottomRow: CGFloat = 26
+
+    /// The catch-up view's height: header, group headings, rows (with a bottom line when written by Claude or
+    /// `linked`, by session id), needs-you rows' approval card (by session id) or reply buttons, and the footer; at
+    /// most `maxHeight` (it scrolls beyond), but never less than `atLeast`, the list it replaced (a shorter card would
+    /// slip out from under the pointer that opened it, and close).
     public static func height(groups: [(AwayGroup, [AwayItem])], approvalHeights: [String: CGFloat], footer: Bool,
-                              atLeast: CGFloat = 0) -> CGFloat {
+                              atLeast: CGFloat = 0, linked: Set<String> = []) -> CGFloat {
         var h: CGFloat = 52
         for (group, items) in groups {
-            h += 30 + 66 * CGFloat(items.count)
-            if group == .needsYou {
-                for item in items { h += approvalHeights[item.sessionID].map { $0 + 12 } ?? 48 }
+            h += 30
+            for item in items {
+                h += itemBase
+                if case .written = item.line { h += bottomRow } else if linked.contains(item.sessionID) { h += bottomRow }
+                if group == .needsYou { h += 9 + (approvalHeights[item.sessionID] ?? 34) }
             }
         }
         if footer { h += 44 }
