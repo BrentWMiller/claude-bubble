@@ -100,7 +100,14 @@ public enum ElapsedFormat {
     }
 }
 
+/// What opens the session card: resting the pointer on the orb or island, or clicking it.
+public enum CardTrigger: String, Codable, CaseIterable, Sendable {
+    case hover
+    case click
+}
+
 /// Open after resting on the orb, stay open while over orb or list, close shortly after leaving both.
+/// With `CardTrigger.click`, `toggle()` and `updateClicked(hasContent:)` take over from the pointer.
 public struct HoverTracker {
     public static let openDelay: Double = 0.6
     /// The docked island sits out of the way at the screen's edge, so reaching it is deliberate: open at once.
@@ -121,6 +128,20 @@ public struct HoverTracker {
         insideSince = nil
         outsideSince = nil
         suppressed = true
+    }
+
+    /// A click on the orb or island: open it, or close it if open.
+    public mutating func toggle() {
+        let open = !isOpen
+        dismiss()
+        suppressed = false
+        isOpen = open
+    }
+
+    /// Stays as clicked, wherever the pointer goes, while there's something to show.
+    public mutating func updateClicked(hasContent: Bool) -> Bool {
+        if !hasContent { isOpen = false }
+        return isOpen
     }
 
     public mutating func update(overOrb: Bool, overList: Bool, hasContent: Bool, now: Double,

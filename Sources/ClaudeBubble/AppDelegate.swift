@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var listPanel: SessionListPanel!
     private var hover = HoverTracker()
     private var hoverTimer: Timer?
+    private var clickAwayMonitor: Any?
     private var liveState: BubbleState = .idle
     /// What the session watcher last reported; the simulator can stand in for it.
     private var watchedState: BubbleState = .idle
@@ -117,7 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel = BubblePanel(animator: animator, model: model, diameter: applied.diameter)
         animator.quietScale = Float(OrbSize.quietScale(forDiameter: applied.diameter))
         panel.alphaValue = applied.opacity
-        panel.onClick = { [weak self] in self?.focusTerminal() }
+        panel.onClick = { [weak self] in
+            guard let self else { return }
+            if self.opensCardOnClick { self.hover.toggle() } else { self.focusTerminal() }
+        }
         panel.onUserMoved = { [weak self] _ in self?.rememberSpot() }
         panel.onRightClick = { [weak self] event, view in self?.showOrbMenu(with: event, in: view) }
         settings.currentSpot = { [weak self] in self?.currentSpot() }
@@ -144,14 +148,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.listPanel.popOut()
         }
         startHoverTracking()
+        // Clicks on the card or its orb aren't clicking away: closing on the press would lose the row's click.
+        clickAwayMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            guard let self, self.applied.cardTrigger == .click, self.hover.isOpen else { return }
+            let mouse = NSEvent.mouseLocation
+            let onCard = self.isIsland ? self.island.pill.contains(mouse)
+                : self.listPanel.frame.contains(mouse) || BubblePlacement.isOverOrb(mouse, panelFrame: self.panel.frame)
+            if !onCard { self.hover.dismiss() }
+        }
         listPanel.bubble = panel
         toastPanel = ToastPanel(model: toastModel)
         toastPanel.bubble = panel
         panel.guides = guides
         island = IslandPanel(animator: animator, sessions: model)
         island.onClick = { [weak self] in
-            self?.focusTerminal()
-            self?.hover.dismiss()
+            guard let self else { return }
+            // Click to open: the closed pill opens, the open one's bar closes. Its rows still go to the terminal.
+            if self.opensCardOnClick, !self.hover.isOpen || self.islandBar.contains(NSEvent.mouseLocation) {
+                self.hover.toggle()
+                return
+            }
+            self.focusTerminal()
+            self.hover.dismiss()
         }
         island.onRightClick = { [weak self] event, view in self?.showOrbMenu(with: event, in: view) }
         island.onDragMoved = { [weak self] point in self?.dragIsland(to: point) }
@@ -642,8 +660,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let over = pill(m.mode).contains(mouse)
         let wasOpen = m.mode == .hover
         let open = islandDrag == nil && !islandTucked
-            && hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime(),
-                            openDelay: HoverTracker.islandOpenDelay)
+            && (applied.cardTrigger == .click
+                ? hover.updateClicked(hasContent: !model.sessions.isEmpty)
+                : hover.update(overOrb: over, overList: over, hasContent: !model.sessions.isEmpty, now: CACurrentMediaTime(),
+                               openDelay: HoverTracker.islandOpenDelay))
         if open, !wasOpen || CACurrentMediaTime() - lastTodayRefresh > 30 { refreshToday() }
         if open, !wasOpen { prStatus.refresh(model.sessions, looking: true) }
         let mode = islandTucked ? .tucked
@@ -788,6 +808,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let usageChanged = prefs.usage != applied.usage
         let styleChanged = prefs.style != applied.style
         let paletteChanged = prefs.palette != applied.palette
+        if prefs.cardTrigger != applied.cardTrigger { hover.dismiss() }
         applied = prefs
         // After `applied`: leaving quiet for the other style is that style's switch (below), not a flash of this one.
         if prefs.quiet != quiet { setQuiet(prefs.quiet) }
@@ -1101,6 +1122,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hoverTimer = timer
     }
 
+    /// With nothing to list, a click does what it does in hover mode: go to the terminal.
+    private var opensCardOnClick: Bool { applied.cardTrigger == .click && !model.sessions.isEmpty }
+
+    /// The open island's bar, the strip with its orb: on the docked edge when that's the bottom, otherwise on top.
+    private var islandBar: CGRect {
+        let pill = island.pill, height = IslandLayout.barHeight
+        return CGRect(x: pill.minX, y: island.model.dock == .bottom ? pill.minY : pill.maxY - height, width: pill.width, height: height)
+    }
+
     private func updateHover() {
         let mouse = NSEvent.mouseLocation
         animator.motionElapsed = motionSince.map { Date().timeIntervalSince($0) } ?? 0
@@ -1131,10 +1161,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let radius = panel.frame.width * 0.3
         animator.setPointer(offset: PointerProximity.offset(mouse: mouse, centre: centre, radius: radius),
                             closeness: bubbleHidden ? 0 : PointerProximity.closeness(mouse: mouse, centre: centre, radius: radius))
-        let open = hover.update(overOrb: !bubbleHidden && BubblePlacement.isOverOrb(mouse, panelFrame: panel.frame),
-                                overList: listPanel.isShown && listPanel.frame.contains(mouse),
-                                hasContent: !bubbleHidden && !model.sessions.isEmpty,
-                                now: CACurrentMediaTime())
+        let open = applied.cardTrigger == .click
+            ? hover.updateClicked(hasContent: !bubbleHidden && !model.sessions.isEmpty)
+            : hover.update(overOrb: !bubbleHidden && BubblePlacement.isOverOrb(mouse, panelFrame: panel.frame),
+                           overList: listPanel.isShown && listPanel.frame.contains(mouse),
+                           hasContent: !bubbleHidden && !model.sessions.isEmpty,
+                           now: CACurrentMediaTime())
         if open, CACurrentMediaTime() - lastTodayRefresh > (listPanel.isShown ? 30 : 0) { refreshToday() }
         if open, !listPanel.isShown {
             prStatus.refresh(model.sessions, looking: true)   // what you see is current

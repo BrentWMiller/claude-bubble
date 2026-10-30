@@ -62,6 +62,8 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
     public var catchUpSummaries: Bool
     /// How long without input before you count as away (one of `awayMinuteChoices`).
     public var awayMinutes: Int
+    /// Whether the session card opens on hover or on click.
+    public var cardTrigger: CardTrigger
 
     public static let awayMinuteChoices = [5, 10, 15, 30, 60]
 
@@ -99,6 +101,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         catchUp = true
         catchUpSummaries = false
         awayMinutes = 10
+        cardTrigger = .hover
     }
 
     func with(style: BubbleStyle, dock: IslandDock, rest: IslandRest, glow: IslandGlow) -> BubblePreferences {
@@ -140,6 +143,7 @@ public struct BubblePreferences: Codable, Equatable, Sendable {
         catchUpSummaries = (try? c.decodeIfPresent(Bool.self, forKey: .catchUpSummaries)) ?? d.catchUpSummaries
         awayMinutes = (try? c.decodeIfPresent(Int.self, forKey: .awayMinutes)).flatMap { $0 }
             .flatMap { Self.awayMinuteChoices.contains($0) ? $0 : nil } ?? d.awayMinutes
+        cardTrigger = (try? c.decodeIfPresent(CardTrigger.self, forKey: .cardTrigger)) ?? d.cardTrigger
     }
 
     public static func load(from store: UserDefaults) -> BubblePreferences {
