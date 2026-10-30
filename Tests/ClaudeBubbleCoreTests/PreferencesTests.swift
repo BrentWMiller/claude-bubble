@@ -141,6 +141,15 @@ final class PreferencesTests: XCTestCase {
         XCTAssertFalse(prefs.toasts)
     }
 
+    func testCardTriggerDefaultsToHoverAndSurvivesOlderSettings() throws {
+        XCTAssertEqual(BubblePreferences.defaults.cardTrigger, .hover)
+        let old = Data(#"{"diameter": 90}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: old).cardTrigger, .hover)
+        var p = BubblePreferences.defaults
+        p.cardTrigger = .click
+        XCTAssertEqual(try JSONDecoder().decode(BubblePreferences.self, from: JSONEncoder().encode(p)).cardTrigger, .click)
+    }
+
     func testCatchUpDefaults() {
         let d = BubblePreferences.defaults
         XCTAssertTrue(d.catchUp)

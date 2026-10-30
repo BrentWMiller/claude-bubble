@@ -596,6 +596,8 @@ struct QuickPanelView: View {
     private var settingsCard: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(spacing: 6) {
+                choiceRow("Open session card on", Segmented(options: [(CardTrigger.hover, nil, "Hover"), (.click, nil, "Click")],
+                                                            selection: Binding(get: { prefs.cardTrigger }, set: { settings.prefs.cardTrigger = $0 })))
                 toggleRow("Launch at login", Binding(get: { launchesAtLogin }, set: { on in
                     launchesAtLogin = on
                     actions.toggleLaunchAtLogin()

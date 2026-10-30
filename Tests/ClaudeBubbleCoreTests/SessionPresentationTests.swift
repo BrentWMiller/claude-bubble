@@ -83,6 +83,31 @@ final class SessionPresentationTests: XCTestCase {
         XCTAssertFalse(h.update(overOrb: true, overList: false, hasContent: false, now: o + 0.2))
     }
 
+    func testClickTogglesWhereverThePointerIs() {
+        var h = HoverTracker()
+        XCTAssertFalse(h.updateClicked(hasContent: true), "stays shut until clicked")
+        h.toggle()
+        XCTAssertTrue(h.updateClicked(hasContent: true), "stays open with no pointer involved")
+        h.toggle()
+        XCTAssertFalse(h.updateClicked(hasContent: true))
+    }
+
+    func testClickReopensRightAfterADismiss() {
+        var h = HoverTracker()
+        h.toggle()
+        h.dismiss()
+        XCTAssertFalse(h.updateClicked(hasContent: true))
+        h.toggle()
+        XCTAssertTrue(h.updateClicked(hasContent: true))
+    }
+
+    func testClickedCardClosesWhenContentGoes() {
+        var h = HoverTracker()
+        h.toggle()
+        XCTAssertFalse(h.updateClicked(hasContent: false))
+        XCTAssertFalse(h.updateClicked(hasContent: true), "doesn't come back by itself")
+    }
+
     func testDismissFromTheListDoesNotReopen() {
         var h = HoverTracker()
         _ = h.update(overOrb: true, overList: false, hasContent: true, now: 0)

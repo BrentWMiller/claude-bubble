@@ -6,7 +6,7 @@ you can look away until one needs you.
 ![Working, needs you, error, done](docs/images/states.png)
 
 - Its colour and motion show whether Claude is working, needs you, hit an error, or is done.
-- Hover it to see every session, with its GitHub issue or pull request.
+- Hover it (or click it, your choice in Settings) to see every session, with its GitHub issue or pull request.
 - Float it anywhere as an orb, or dock it at the edge of the screen:
 
 ![Docked at the top of the screen](docs/images/dock.png)
